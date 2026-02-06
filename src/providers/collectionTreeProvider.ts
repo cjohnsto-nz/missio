@@ -71,7 +71,20 @@ class RequestNode extends vscode.TreeItem {
       HEAD: 'eye',
       OPTIONS: 'settings-gear',
     };
-    this.iconPath = new vscode.ThemeIcon(methodIcons[method] ?? 'globe');
+    const methodColors: Record<string, string> = {
+      GET: 'charts.green',
+      POST: 'charts.orange',
+      PUT: 'charts.blue',
+      PATCH: 'charts.purple',
+      DELETE: 'charts.red',
+      HEAD: 'terminal.ansiCyan',
+      OPTIONS: 'terminal.ansiMagenta',
+    };
+    const iconName = methodIcons[method] ?? 'globe';
+    const colorToken = methodColors[method];
+    this.iconPath = colorToken
+      ? new vscode.ThemeIcon(iconName, new vscode.ThemeColor(colorToken))
+      : new vscode.ThemeIcon(iconName);
 
     // Open the YAML file when clicked
     const filePath = (request as any)._filePath;

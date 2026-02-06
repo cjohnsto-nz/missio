@@ -1,6 +1,6 @@
 // Syntax highlighting and line numbers for the webview.
 
-import { resolvedVariables } from './state';
+import { getResolvedVariables, getVariableSources, getShowResolvedVars } from './state';
 
 export function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -23,10 +23,22 @@ export function highlightXML(code: string): string {
 }
 
 export function highlightVariables(html: string): string {
+  const vars = getResolvedVariables();
+  const sources = getVariableSources();
+  const showResolved = getShowResolvedVars();
   return html.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match: string, name: string) => {
     const key = name.trim();
-    const resolved = key in resolvedVariables;
-    const cls = resolved ? 'tk-var' : 'tk-var tk-var-unresolved';
+    const resolved = key in vars;
+    const source = sources[key] || 'unknown';
+
+    if (showResolved && resolved) {
+      // Show the resolved value, color-coded by source
+      const cls = 'tk-var-resolved tk-src-' + source;
+      return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>" + escHtml(vars[key]) + "</span>";
+    }
+
+    // Default: show the template with source class
+    const cls = resolved ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
     return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
   });
 }

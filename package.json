@@ -274,13 +274,13 @@
       ]
     },
     "colors": [
-      { "id": "missio.methodGet", "description": "GET method color", "defaults": { "dark": "#6bbd6e", "light": "#2e7d32" } },
-      { "id": "missio.methodPost", "description": "POST method color", "defaults": { "dark": "#e8a745", "light": "#e65100" } },
-      { "id": "missio.methodPut", "description": "PUT method color", "defaults": { "dark": "#5b9bd5", "light": "#1565c0" } },
-      { "id": "missio.methodPatch", "description": "PATCH method color", "defaults": { "dark": "#b07cd8", "light": "#7b1fa2" } },
-      { "id": "missio.methodDelete", "description": "DELETE method color", "defaults": { "dark": "#e07070", "light": "#c62828" } },
-      { "id": "missio.methodHead", "description": "HEAD method color", "defaults": { "dark": "#6ecfcf", "light": "#00838f" } },
-      { "id": "missio.methodOptions", "description": "OPTIONS method color", "defaults": { "dark": "#a98dca", "light": "#6a1b9a" } }
+      { "id": "missio.methodGet", "description": "GET method color", "defaults": { "dark": "#89d185", "light": "#388a34" } },
+      { "id": "missio.methodPost", "description": "POST method color", "defaults": { "dark": "#d18616", "light": "#d18616" } },
+      { "id": "missio.methodPut", "description": "PUT method color", "defaults": { "dark": "#3794ff", "light": "#1a85ff" } },
+      { "id": "missio.methodPatch", "description": "PATCH method color", "defaults": { "dark": "#b180d7", "light": "#652d90" } },
+      { "id": "missio.methodDelete", "description": "DELETE method color", "defaults": { "dark": "#f14c4c", "light": "#e51400" } },
+      { "id": "missio.methodHead", "description": "HEAD method color", "defaults": { "dark": "#11a8cd", "light": "#0598bc" } },
+      { "id": "missio.methodOptions", "description": "OPTIONS method color", "defaults": { "dark": "#bc3fbc", "light": "#bc05bc" } }
     ],
     "configuration": {
       "title": "Missio",

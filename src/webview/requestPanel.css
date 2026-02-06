@@ -14,13 +14,13 @@
   --badge-error: #ef4444;
   --badge-warn: #f59e0b;
   --badge-info: #3b82f6;
-  --method-get: #6bbd6e;
-  --method-post: #e8a745;
-  --method-put: #5b9bd5;
-  --method-patch: #b07cd8;
-  --method-delete: #e07070;
-  --method-head: #6ecfcf;
-  --method-options: #a98dca;
+  --method-get: var(--vscode-charts-green, #89d185);
+  --method-post: var(--vscode-charts-orange, #d18616);
+  --method-put: var(--vscode-charts-blue, #3794ff);
+  --method-patch: var(--vscode-charts-purple, #b180d7);
+  --method-delete: var(--vscode-charts-red, #f14c4c);
+  --method-head: var(--vscode-terminal-ansiCyan, #11a8cd);
+  --method-options: var(--vscode-terminal-ansiMagenta, #bc3fbc);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -274,6 +274,50 @@ body {
   border-radius: 3px;
 }
 .kv-table .row-delete:hover { color: var(--badge-error); background: rgba(239,68,68,0.1); }
+
+/* ── Generic Variable Highlight Overlay ───── */
+.var-cell {
+  position: relative;
+}
+.var-cell input[type="text"] {
+  position: relative;
+  z-index: 1;
+}
+.var-cell.var-overlay-active input[type="text"] {
+  color: transparent;
+  caret-color: var(--fg);
+}
+.var-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 6px;
+  font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  z-index: 2;
+  display: none;
+}
+.var-cell.var-overlay-active .var-overlay {
+  display: block;
+  pointer-events: auto;
+}
+/* Inside a td, account for td padding */
+td.var-cell .var-overlay {
+  top: 4px; left: 8px; right: 8px; bottom: 4px;
+}
+/* Inside an auth-row, no extra offset needed */
+.auth-row .var-cell .var-overlay {
+  top: 0; left: 0; right: 0; bottom: 0;
+}
 .add-row-btn {
   background: transparent;
   color: var(--btn-bg);
@@ -420,6 +464,8 @@ body {
 .auth-row { display: flex; gap: 8px; align-items: center; }
 .auth-row label { min-width: 80px; }
 .auth-row input { flex: 1; }
+.auth-input-wrap { flex: 1; position: relative; display: block; }
+.auth-input-wrap input { width: 100%; }
 
 /* ── Loading Spinner ─────────────────────── */
 .loading-overlay {
@@ -543,6 +589,56 @@ body {
 }
 .tk-var-unresolved:hover { background: rgba(244,135,113,0.18); }
 
+/* ── Variable Source Colors ──────────────── */
+.tk-src-collection { color: var(--vscode-charts-purple, #b180d7); }
+.tk-src-environment { color: var(--vscode-charts-green, #89d185); }
+.tk-src-dotenv { color: var(--vscode-charts-yellow, #cca700); }
+.tk-src-secret { color: var(--vscode-charts-orange, #d18616); }
+
+/* ── Resolved Variable Inline ────────────── */
+.tk-var-resolved {
+  border-radius: 2px;
+  padding: 0 2px;
+  cursor: pointer;
+  position: relative;
+  pointer-events: auto;
+  font-style: italic;
+  background: rgba(255,255,255,0.04);
+}
+.tk-var-resolved:hover { background: rgba(255,255,255,0.1); }
+.tk-var-resolved.tk-src-collection { background: rgba(177,128,215,0.1); }
+.tk-var-resolved.tk-src-collection:hover { background: rgba(177,128,215,0.2); }
+.tk-var-resolved.tk-src-environment { background: rgba(137,209,133,0.1); }
+.tk-var-resolved.tk-src-environment:hover { background: rgba(137,209,133,0.2); }
+.tk-var-resolved.tk-src-dotenv { background: rgba(204,167,0,0.1); }
+.tk-var-resolved.tk-src-dotenv:hover { background: rgba(204,167,0,0.2); }
+.tk-var-resolved.tk-src-secret { background: rgba(209,134,22,0.1); }
+.tk-var-resolved.tk-src-secret:hover { background: rgba(209,134,22,0.2); }
+
+/* ── Toggle Button ───────────────────────── */
+.btn-toggle {
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--fg);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.btn-toggle:hover { opacity: 0.8; border-color: var(--btn-bg); }
+.btn-toggle.active {
+  opacity: 1;
+  background: rgba(0,120,212,0.12);
+  border-color: var(--btn-bg);
+  color: var(--btn-bg);
+}
+
 /* ── Variable Tooltip ─────────────────────── */
 .var-tooltip {
   position: fixed;
@@ -562,6 +658,13 @@ body {
   color: #dcdcaa;
   font-weight: 600;
   margin-bottom: 4px;
+}
+.var-tooltip .var-source {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
 }
 .var-tooltip .var-value {
   color: var(--fg);

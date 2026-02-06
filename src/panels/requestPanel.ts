@@ -115,6 +115,16 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
       }),
     );
 
+    // Live-reload variables when collection or environment data changes
+    disposables.push(
+      this._collectionService.onDidChange(() => {
+        this._sendVariables(webviewPanel.webview, collectionId);
+      }),
+      this._environmentService.onDidChange(() => {
+        this._sendVariables(webviewPanel.webview, collectionId);
+      }),
+    );
+
     // Handle messages from webview
     disposables.push(
       webviewPanel.webview.onDidReceiveMessage(async (msg) => {
@@ -264,12 +274,14 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     try {
       const collection = this._collectionService.getCollection(collectionId);
       if (!collection) return;
-      const vars = await this._environmentService.resolveVariables(collection);
+      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
       const varsObj: Record<string, string> = {};
-      for (const [k, v] of vars) {
-        varsObj[k] = v;
+      const sourcesObj: Record<string, string> = {};
+      for (const [k, v] of varsWithSource) {
+        varsObj[k] = v.value;
+        sourcesObj[k] = v.source;
       }
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj });
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
     } catch {
       // Variables unavailable
     }
@@ -355,6 +367,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
       <option value="OPTIONS">OPTIONS</option>
     </select>
     <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div>
+    <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
   </div>
 
@@ -406,7 +419,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
             <div class="code-wrap">
               <div class="line-numbers" id="lineNumbers"></div>
               <pre class="code-highlight" id="bodyHighlight"></pre>
-              <textarea class="code-input" id="bodyData" spellcheck="false" placeholder="Request body..."></textarea>
+              <textarea class="code-input" id="bodyData" spellcheck="false"></textarea>
             </div>
           </div>
           <div id="bodyFormEditor" style="display:none;">

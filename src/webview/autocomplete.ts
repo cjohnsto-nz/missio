@@ -1,6 +1,6 @@
 // Variable autocomplete dropdown for the webview.
 
-import { resolvedVariables } from './state';
+import { getResolvedVariables } from './state';
 import { escHtml, highlightVariables } from './highlight';
 
 let acDropdown: HTMLElement | null = null;
@@ -9,6 +9,7 @@ let acSelectedIndex = 0;
 let acTarget: HTMLTextAreaElement | HTMLElement | null = null;
 let acStartPos = 0;
 let acIsContentEditable = false;
+let acSyncFn: (() => void) | null = null;
 
 export function getVarPrefix(text: string, cursorPos: number): string | null {
   const before = text.substring(0, cursorPos);
@@ -55,8 +56,9 @@ export function handleAutocompleteContentEditable(el: HTMLElement, syncUrlHighli
   showAutocompleteDropdown(prefix, el, syncUrlHighlightFn);
 }
 
-function showAutocompleteDropdown(prefix: string, anchor: HTMLElement, _syncFn: () => void): void {
-  const keys = Object.keys(resolvedVariables);
+function showAutocompleteDropdown(prefix: string, anchor: HTMLElement, syncFn: () => void): void {
+  acSyncFn = syncFn;
+  const keys = Object.keys(getResolvedVariables());
   if (keys.length === 0) {
     hideAutocomplete();
     return;
@@ -82,7 +84,7 @@ function showAutocompleteDropdown(prefix: string, anchor: HTMLElement, _syncFn: 
 function renderAutocompleteItems(): void {
   if (!acDropdown) return;
   acDropdown.innerHTML = acItems.map((name, i) => {
-    const val = resolvedVariables[name] || '';
+    const val = getResolvedVariables()[name] || '';
     const cls = i === acSelectedIndex ? 'var-autocomplete-item selected' : 'var-autocomplete-item';
     return "<div class='" + cls + "' data-index='" + i + "'>" +
       "<span class='var-ac-name'>" + escHtml(name) + "</span>" +
@@ -153,15 +155,18 @@ function positionAutocomplete(anchor: HTMLElement): void {
 let _syncHighlightCb: (() => void) | null = null;
 let _syncUrlHighlightCb: (() => void) | null = null;
 let _restoreCursorCb: ((el: HTMLElement, offset: number) => void) | null = null;
+let _setRawUrlCb: ((text: string) => void) | null = null;
 
 export function setAutocompleteSyncCallbacks(
   syncHighlight: () => void,
   syncUrlHighlight: () => void,
   restoreCursor: (el: HTMLElement, offset: number) => void,
+  setRawUrl?: (text: string) => void,
 ): void {
   _syncHighlightCb = syncHighlight;
   _syncUrlHighlightCb = syncUrlHighlight;
   _restoreCursorCb = restoreCursor;
+  _setRawUrlCb = setRawUrl || null;
 }
 
 function acceptAutocomplete(varName: string): void {
@@ -183,7 +188,7 @@ function acceptAutocomplete(varName: string): void {
     const after = text.substring(cursorPos);
     if (after.startsWith('}}')) endPos += 2;
     const newText = text.substring(0, acStartPos) + suffix + text.substring(endPos);
-    el.textContent = newText;
+    _setRawUrlCb?.(newText);
     _syncUrlHighlightCb?.();
     const newCursorPos = acStartPos + suffix.length;
     _restoreCursorCb?.(el, newCursorPos);
@@ -200,7 +205,7 @@ function acceptAutocomplete(varName: string): void {
     textarea.selectionStart = newCursorPos;
     textarea.selectionEnd = newCursorPos;
     textarea.focus();
-    _syncHighlightCb?.();
+    if (acSyncFn) acSyncFn(); else _syncHighlightCb?.();
   }
   hideAutocomplete();
 }
@@ -213,6 +218,7 @@ export function hideAutocomplete(): void {
   acTarget = null;
   acItems = [];
   acSelectedIndex = 0;
+  acSyncFn = null;
 }
 
 export function handleAutocompleteKeydown(e: KeyboardEvent): boolean {
