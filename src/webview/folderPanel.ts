@@ -1,3 +1,5 @@
+import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
+
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
 
@@ -13,6 +15,66 @@ function esc(s: string): string {
   const d = document.createElement('div');
   d.textContent = s;
   return d.innerHTML;
+}
+
+// ── Variable Resolution State ────────────────
+let resolvedVariables: Record<string, string> = {};
+let variableSources: Record<string, string> = {};
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightVariables(html: string): string {
+  return html.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match: string, name: string) => {
+    const key = name.trim();
+    const resolved = key in resolvedVariables;
+    const source = variableSources[key] || 'unknown';
+    const cls = resolved ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
+    return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
+  });
+}
+
+function enableVarOverlay(input: HTMLInputElement): void {
+  const parent = input.parentElement!;
+  parent.classList.add('var-cell');
+  const overlay = document.createElement('div');
+  overlay.className = 'var-overlay';
+  parent.appendChild(overlay);
+
+  function sync() {
+    overlay.innerHTML = highlightVariables(escHtml(input.value));
+  }
+  function activate() {
+    parent.classList.add('var-overlay-active');
+    sync();
+  }
+  function deactivate() {
+    parent.classList.remove('var-overlay-active');
+  }
+
+  input.addEventListener('input', sync);
+  input.addEventListener('focus', deactivate);
+  input.addEventListener('blur', activate);
+
+  overlay.addEventListener('click', () => {
+    deactivate();
+    input.focus();
+  });
+
+  if (document.activeElement !== input) {
+    activate();
+  }
+}
+
+function syncAllVarOverlays(): void {
+  document.querySelectorAll('.var-cell').forEach((cell) => {
+    const input = cell.querySelector('input[type="text"]') as HTMLInputElement | null;
+    const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
+    if (input && overlay && cell.classList.contains('var-overlay-active')) {
+      overlay.innerHTML = highlightVariables(escHtml(input.value));
+    }
+  });
 }
 
 // ── Debounced auto-save ──────────────────────
@@ -52,14 +114,9 @@ function buildAndSend() {
 
   // Default auth
   const authType = ($('defaultAuthType') as HTMLSelectElement).value;
-  if (authType === 'bearer') {
-    data.request.auth = { type: 'bearer', token: ($('dAuthToken') as HTMLInputElement)?.value || '' };
-  } else if (authType === 'basic') {
-    data.request.auth = { type: 'basic', username: ($('dAuthUser') as HTMLInputElement)?.value || '', password: ($('dAuthPass') as HTMLInputElement)?.value || '' };
-  } else if (authType === 'apikey') {
-    data.request.auth = { type: 'apikey', key: ($('dAuthKey') as HTMLInputElement)?.value || '', value: ($('dAuthValue') as HTMLInputElement)?.value || '' };
-  } else if (authType === 'inherit') {
-    data.request.auth = 'inherit';
+  const authData = buildAuthData(authType, 'dAuth');
+  if (authData !== undefined) {
+    data.request.auth = authData;
   } else {
     delete data.request.auth;
   }
@@ -124,6 +181,8 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
     inp.addEventListener('input', scheduleUpdate);
     inp.addEventListener('change', scheduleUpdate);
   });
+  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
+  if (valueInput) enableVarOverlay(valueInput);
   tbody.appendChild(tr);
 }
 
@@ -148,27 +207,25 @@ function addDefaultVarRow(name?: string, value?: string, disabled?: boolean) {
     inp.addEventListener('input', scheduleUpdate);
     inp.addEventListener('change', scheduleUpdate);
   });
+  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
+  if (valueInput) enableVarOverlay(valueInput);
   tbody.appendChild(tr);
 }
 
 // ── Default Auth ─────────────────────────────
+const folderAuthConfig: AuthFieldsConfig = {
+  prefix: 'dAuth',
+  get fieldsContainer() { return $('defaultAuthFields'); },
+  onChange: () => scheduleUpdate(),
+  showInherit: true,
+  wrapInputs: true,
+  showTokenStatus: true,
+  onFieldsRendered: (inputs) => inputs.forEach(inp => enableVarOverlay(inp)),
+};
+
 function onDefaultAuthChange() {
   const type = ($('defaultAuthType') as HTMLSelectElement).value;
-  const fields = $('defaultAuthFields');
-  fields.innerHTML = '';
-  if (type === 'bearer') {
-    fields.innerHTML = '<div class="auth-row"><label>Token</label><input type="text" id="dAuthToken" placeholder="{{token}}" /></div>';
-  } else if (type === 'basic') {
-    fields.innerHTML =
-      '<div class="auth-row"><label>Username</label><input type="text" id="dAuthUser" /></div>' +
-      '<div class="auth-row"><label>Password</label><input type="password" id="dAuthPass" /></div>';
-  } else if (type === 'apikey') {
-    fields.innerHTML =
-      '<div class="auth-row"><label>Key</label><input type="text" id="dAuthKey" placeholder="X-Api-Key" /></div>' +
-      '<div class="auth-row"><label>Value</label><input type="text" id="dAuthValue" placeholder="{{apiKey}}" /></div>';
-  }
-  fields.querySelectorAll('input').forEach(inp => inp.addEventListener('input', scheduleUpdate));
-  scheduleUpdate();
+  renderAuthFields(type, folderAuthConfig);
 }
 
 // ── Update Badges ────────────────────────────
@@ -195,23 +252,12 @@ function loadFolder(data: any) {
     ($('defaultAuthType') as HTMLSelectElement).value = 'inherit';
   } else if (auth?.type) {
     ($('defaultAuthType') as HTMLSelectElement).value = auth.type;
-    onDefaultAuthChange();
-    if (auth.type === 'bearer') {
-      const el = document.getElementById('dAuthToken') as HTMLInputElement;
-      if (el) el.value = auth.token || '';
-    } else if (auth.type === 'basic') {
-      const u = document.getElementById('dAuthUser') as HTMLInputElement;
-      const p = document.getElementById('dAuthPass') as HTMLInputElement;
-      if (u) u.value = auth.username || '';
-      if (p) p.value = auth.password || '';
-    } else if (auth.type === 'apikey') {
-      const k = document.getElementById('dAuthKey') as HTMLInputElement;
-      const v = document.getElementById('dAuthValue') as HTMLInputElement;
-      if (k) k.value = auth.key || '';
-      if (v) v.value = auth.value || '';
-    }
   } else {
     ($('defaultAuthType') as HTMLSelectElement).value = 'none';
+  }
+  onDefaultAuthChange();
+  if (auth && auth !== 'inherit' && auth.type) {
+    loadAuthData(auth, 'dAuth');
   }
 
   // Headers
@@ -247,6 +293,11 @@ window.addEventListener('message', (event: MessageEvent) => {
       return;
     }
     loadFolder(msg.folder);
+  }
+  if (msg.type === 'variablesResolved') {
+    resolvedVariables = msg.variables || {};
+    variableSources = msg.sources || {};
+    syncAllVarOverlays();
   }
 });
 

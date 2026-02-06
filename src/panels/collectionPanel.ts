@@ -102,11 +102,24 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       });
     }
 
+    // Resolve collection ID from the file path
+    const collectionId = this._collectionService.getCollections()
+      .find(c => c.filePath === document.uri.fsPath)?.id;
+
+    const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
+
+    // Live-reload variables when collection or environment data changes
+    disposables.push(
+      this._collectionService.onDidChange(() => sendVariables()),
+      this._environmentService.onDidChange(() => sendVariables()),
+    );
+
     // Listen for messages from the webview
     disposables.push(
       webviewPanel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === 'ready') {
           sendDocumentToWebview();
+          await sendVariables();
           return;
         }
         if (msg.type === 'updateDocument') {
@@ -138,6 +151,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.toString() === document.uri.toString() && !isUpdatingDocument) {
           sendDocumentToWebview();
+          sendVariables();
         }
       }),
     );
@@ -247,6 +261,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
             <option value="apikey">API Key</option>
+            <option value="oauth2">OAuth 2.0</option>
           </select>
           <div id="defaultAuthFields"></div>
         </div>
@@ -286,6 +301,23 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {
+    try {
+      const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
+      if (!collection) return;
+      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
+      const varsObj: Record<string, string> = {};
+      const sourcesObj: Record<string, string> = {};
+      for (const [k, v] of varsWithSource) {
+        varsObj[k] = v.value;
+        sourcesObj[k] = v.source;
+      }
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
+    } catch {
+      // Variables unavailable
+    }
   }
 
   private _getNonce(): string {

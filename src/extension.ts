@@ -11,6 +11,7 @@ import { ResponseDocumentProvider } from './providers/responseProvider';
 import { RequestEditorProvider } from './panels/requestPanel';
 import { CollectionEditorProvider } from './panels/collectionPanel';
 import { FolderEditorProvider } from './panels/folderPanel';
+import { OAuth2Service } from './services/oauth2Service';
 import {
   registerRequestCommands,
   registerCollectionCommands,
@@ -27,6 +28,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const collectionService = new CollectionService();
   const environmentService = new EnvironmentService(context, secretService);
   const httpClient = new HttpClient(environmentService);
+  const oauth2Service = new OAuth2Service(context.secrets);
+  httpClient.setOAuth2Service(oauth2Service);
   const responseProvider = new ResponseDocumentProvider();
 
   context.subscriptions.push(
@@ -34,6 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     environmentService,
     secretService,
     httpClient,
+    oauth2Service,
     responseProvider,
   );
 
@@ -64,9 +68,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Custom Editor ──────────────────────────────────────────────
 
   context.subscriptions.push(
-    RequestEditorProvider.register(context, httpClient, collectionService, environmentService),
+    RequestEditorProvider.register(context, httpClient, collectionService, environmentService, oauth2Service),
     CollectionEditorProvider.register(context, collectionService, environmentService),
-    FolderEditorProvider.register(context),
+    FolderEditorProvider.register(context, collectionService, environmentService),
   );
 
   // ── CodeLens ───────────────────────────────────────────────────

@@ -472,8 +472,8 @@ td.var-cell .var-overlay {
 .auth-select:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
 
 /* ── Auth Section ────────────────────────── */
-.auth-section { display: flex; flex-direction: column; gap: 8px; }
-.auth-section label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+.auth-section { display: flex; flex-direction: column; gap: 12px; }
+.auth-section label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
 .auth-section input {
   background: var(--input-bg);
   color: var(--input-fg);
@@ -482,12 +482,61 @@ td.var-cell .var-overlay {
   border-radius: 4px;
   font-size: 13px;
 }
+.auth-section input[type="checkbox"] { width: auto; flex: none; }
 .auth-section input:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
-.auth-row { display: flex; gap: 8px; align-items: center; }
-.auth-row label { min-width: 80px; }
+.auth-row { display: flex; gap: 10px; align-items: center; }
+.auth-row label { min-width: 130px; flex-shrink: 0; }
 .auth-row input { flex: 1; }
 .auth-input-wrap { flex: 1; position: relative; display: block; }
 .auth-input-wrap input { width: 100%; }
+
+/* ── OAuth2 Token Status ─────────────────── */
+.oauth2-token-status { margin-top: 4px; }
+.token-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+}
+.token-valid { border-color: rgba(137,209,133,0.3); }
+.token-expired { border-color: rgba(244,135,113,0.3); }
+.token-none { border-color: var(--input-border); }
+.token-error { border-color: rgba(244,135,113,0.3); color: #f48771; }
+.token-progress { border-color: rgba(55,148,255,0.3); color: #3794ff; }
+.token-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-valid { background: #89d185; }
+.dot-expired { background: #f48771; }
+.dot-none { background: #888; }
+.token-expiry-time { color: #888; font-size: 11px; }
+.token-btn {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 11px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.token-btn:hover { opacity: 0.85; }
+.token-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(55,148,255,0.3);
+  border-top-color: #3794ff;
+  border-radius: 50%;
+  animation: token-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes token-spin { to { transform: rotate(360deg); } }
 
 /* ── Loading Spinner ─────────────────────── */
 .loading-overlay {

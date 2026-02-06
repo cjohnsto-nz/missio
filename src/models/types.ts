@@ -124,6 +124,25 @@ export interface AuthAwsV4 {
   profileName?: string;
 }
 
+export interface AuthOAuth2 {
+  type: 'oauth2';
+  flow?: 'client_credentials' | 'password' | 'authorization_code';
+  accessTokenUrl?: string;
+  refreshTokenUrl?: string;
+  authorizationUrl?: string;
+  callbackUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  username?: string;
+  password?: string;
+  scope?: string;
+  credentialsPlacement?: 'basic_auth_header' | 'body';
+  credentialsId?: string;
+  autoFetchToken?: boolean;
+  autoRefreshToken?: boolean;
+  pkce?: boolean;
+}
+
 export type Auth =
   | AuthBasic
   | AuthBearer
@@ -132,6 +151,7 @@ export type Auth =
   | AuthWsse
   | AuthApiKey
   | AuthAwsV4
+  | AuthOAuth2
   | 'inherit';
 
 // ── HTTP Request ─────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import {
   currentLang, setCurrentLang,
 } from './state';
 import { highlight, highlightVariables, escHtml } from './highlight';
+import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
 import {
   handleAutocomplete,
   handleAutocompleteContentEditable,
@@ -520,25 +521,121 @@ $('url').addEventListener('keydown', (e: Event) => {
 $('bodyData').addEventListener('blur', () => { setTimeout(hideAutocomplete, 150); });
 $('url').addEventListener('blur', () => { setTimeout(hideAutocomplete, 150); });
 
-// ── Auth Type ───────────────────────────────────
+// ── Auth Type ───────────────────────────────
+const requestAuthConfig: import('./authFields').AuthFieldsConfig = {
+  prefix: 'auth',
+  get fieldsContainer() { return $('authFields'); },
+  onChange: () => scheduleDocumentUpdate(),
+  showInherit: true,
+  wrapInputs: true,
+  showTokenStatus: true,
+  onFieldsRendered: (inputs) => inputs.forEach(enableVarOverlay),
+};
+
 function onAuthTypeChange(): void {
   const type = ($('authType') as HTMLSelectElement).value;
-  const fields = $('authFields');
-  fields.innerHTML = '';
-  if (type === 'bearer') {
-    fields.innerHTML = '<div class="auth-row"><label>Token</label><span class="auth-input-wrap"><input type="text" id="authToken" placeholder="{{token}}" /></span></div>';
-  } else if (type === 'basic') {
-    fields.innerHTML = '<div class="auth-row"><label>Username</label><span class="auth-input-wrap"><input type="text" id="authUsername" placeholder="username" /></span></div>' +
-      '<div class="auth-row"><label>Password</label><input type="password" id="authPassword" placeholder="password" /></div>';
-  } else if (type === 'apikey') {
-    fields.innerHTML = '<div class="auth-row"><label>Key</label><span class="auth-input-wrap"><input type="text" id="authKey" placeholder="X-Api-Key" /></span></div>' +
-      '<div class="auth-row"><label>Value</label><span class="auth-input-wrap"><input type="text" id="authValue" placeholder="{{apiKey}}" /></span></div>' +
-      '<div class="auth-row"><label>In</label><select id="authPlacement" class="auth-select" style="margin:0;"><option value="header">Header</option><option value="query">Query</option></select></div>';
+  renderAuthFields(type, requestAuthConfig);
+}
+
+// ── OAuth2 Token Status ─────────────────────────
+function getOAuth2AuthFromForm(): any {
+  const flow = ($('oauth2Flow') as HTMLSelectElement)?.value || 'client_credentials';
+  const auth: any = {
+    type: 'oauth2',
+    flow,
+    accessTokenUrl: $input('oauth2AccessTokenUrl')?.value || '',
+    clientId: $input('oauth2ClientId')?.value || '',
+    clientSecret: $input('oauth2ClientSecret')?.value || '',
+    scope: $input('oauth2Scope')?.value || '',
+    refreshTokenUrl: $input('oauth2RefreshTokenUrl')?.value || '',
+    credentialsPlacement: ($('oauth2CredentialsPlacement') as HTMLSelectElement)?.value || 'basic_auth_header',
+    credentialsId: (currentRequest as any)?.http?.auth?.credentialsId,
+    autoFetchToken: ($('oauth2AutoFetch') as HTMLInputElement)?.checked !== false,
+    autoRefreshToken: ($('oauth2AutoRefresh') as HTMLInputElement)?.checked !== false,
+  };
+  if (flow === 'password') {
+    auth.username = $input('oauth2Username')?.value || '';
+    auth.password = $input('oauth2Password')?.value || '';
   }
-  // Enable variable overlays on all auth text inputs
-  fields.querySelectorAll('input[type="text"]').forEach((input) => {
-    enableVarOverlay(input as HTMLInputElement);
-  });
+  return auth;
+}
+
+function requestTokenStatus(): void {
+  if (($('authType') as HTMLSelectElement)?.value !== 'oauth2') return;
+  const auth = getOAuth2AuthFromForm();
+  if (auth.accessTokenUrl) {
+    vscode.postMessage({ type: 'getTokenStatus', auth });
+  }
+}
+
+function formatTimeRemaining(ms: number): string {
+  if (ms <= 0) return 'expired';
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${secs % 60}s`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m`;
+}
+
+let tokenStatusTimer: any = null;
+
+function updateOAuth2TokenStatus(status: any): void {
+  const el = document.getElementById('oauth2TokenStatus');
+  if (!el) return;
+
+  if (tokenStatusTimer) { clearInterval(tokenStatusTimer); tokenStatusTimer = null; }
+
+  if (!status.hasToken) {
+    el.innerHTML = '<div class="token-status token-none">' +
+      '<span class="token-dot dot-none"></span> No token' +
+      '<button class="token-btn" id="oauth2GetTokenBtn">Get Token</button></div>';
+    el.querySelector('#oauth2GetTokenBtn')?.addEventListener('click', () => {
+      const auth = getOAuth2AuthFromForm();
+      vscode.postMessage({ type: 'getToken', auth });
+    });
+    return;
+  }
+
+  const renderStatus = () => {
+    const now = Date.now();
+    const remaining = status.expiresAt ? status.expiresAt - now : undefined;
+    const isExpired = remaining !== undefined && remaining <= 0;
+    const dotClass = isExpired ? 'dot-expired' : 'dot-valid';
+    const label = isExpired ? 'Expired' : remaining !== undefined ? `Expires in ${formatTimeRemaining(remaining)}` : 'Valid (no expiry)';
+    const expiresAt = status.expiresAt ? new Date(status.expiresAt).toLocaleTimeString() : '';
+    el.innerHTML = '<div class="token-status ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
+      '<span class="token-dot ' + dotClass + '"></span> ' + label +
+      (expiresAt ? '<span class="token-expiry-time"> (' + expiresAt + ')</span>' : '') +
+      '<button class="token-btn" id="oauth2RefreshTokenBtn">' + (isExpired ? 'Get Token' : 'Refresh') + '</button>' +
+      '</div>';
+    el.querySelector('#oauth2RefreshTokenBtn')?.addEventListener('click', () => {
+      const auth = getOAuth2AuthFromForm();
+      vscode.postMessage({ type: 'getToken', auth });
+    });
+  };
+
+  renderStatus();
+  if (status.expiresAt) {
+    tokenStatusTimer = setInterval(() => {
+      renderStatus();
+      if (status.expiresAt && Date.now() > status.expiresAt) {
+        clearInterval(tokenStatusTimer);
+        tokenStatusTimer = null;
+      }
+    }, 1000);
+  }
+}
+
+function updateOAuth2Progress(message: string): void {
+  const el = document.getElementById('oauth2TokenStatus');
+  if (!el) return;
+  if (message) {
+    const isError = message.startsWith('Error:');
+    el.innerHTML = '<div class="token-status ' + (isError ? 'token-error' : 'token-progress') + '">' +
+      (isError ? '<span class="token-dot dot-expired"></span> ' : '<span class="token-spinner"></span> ') +
+      esc(message) + '</div>';
+  }
 }
 
 // ── Build request object ────────────────────────
@@ -599,14 +696,9 @@ function buildRequest(): any {
 
   // Auth
   const authType = ($('authType') as HTMLSelectElement).value;
-  if (authType === 'bearer') {
-    req.http.auth = { type: 'bearer', token: $input('authToken')?.value || '' };
-  } else if (authType === 'basic') {
-    req.http.auth = { type: 'basic', username: $input('authUsername')?.value || '', password: $input('authPassword')?.value || '' };
-  } else if (authType === 'apikey') {
-    req.http.auth = { type: 'apikey', key: $input('authKey')?.value || '', value: $input('authValue')?.value || '', placement: ($('authPlacement') as HTMLSelectElement)?.value || 'header' };
-  } else if (authType === 'inherit') {
-    req.http.auth = 'inherit';
+  const authData = buildAuthData(authType, 'auth');
+  if (authData !== undefined) {
+    req.http.auth = authData;
   } else {
     delete req.http.auth;
   }
@@ -689,25 +781,17 @@ function loadRequest(req: any): void {
     ($('authType') as HTMLSelectElement).value = 'inherit';
   } else if (auth && auth.type) {
     ($('authType') as HTMLSelectElement).value = auth.type;
-    onAuthTypeChange();
-    if (auth.type === 'bearer') {
-      setTimeout(() => { const el = $input('authToken'); if (el) el.value = auth.token || ''; }, 0);
-    } else if (auth.type === 'basic') {
-      setTimeout(() => {
-        const u = $input('authUsername'); if (u) u.value = auth.username || '';
-        const p = $input('authPassword'); if (p) p.value = auth.password || '';
-      }, 0);
-    } else if (auth.type === 'apikey') {
-      setTimeout(() => {
-        const k = $input('authKey'); if (k) k.value = auth.key || '';
-        const v = $input('authValue'); if (v) v.value = auth.value || '';
-        const pl = $('authPlacement') as HTMLSelectElement; if (pl) pl.value = auth.placement || 'header';
-      }, 0);
-    }
   } else {
     ($('authType') as HTMLSelectElement).value = 'none';
   }
   onAuthTypeChange();
+  if (auth && auth !== 'inherit' && auth.type) {
+    setTimeout(() => {
+      loadAuthData(auth, 'auth');
+      syncAllVarOverlays();
+      requestTokenStatus();
+    }, 0);
+  }
 
   // Settings
   const settings = req.settings || {};
@@ -733,11 +817,12 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'response':
       $('exampleIndicator').style.display = 'none';
       showResponse(msg.response);
+      requestTokenStatus();
       break;
     case 'sending':
       $('sendBtn').classList.add('sending');
       ($('sendBtn') as HTMLButtonElement).disabled = true;
-      $('sendBtn').textContent = 'Sending...';
+      $('sendBtn').textContent = msg.message || 'Sending...';
       break;
     case 'saved':
       break;
@@ -793,6 +878,13 @@ window.addEventListener('message', (event: MessageEvent) => {
       syncHighlight();
       syncUrlHighlight();
       syncAllVarOverlays();
+      requestTokenStatus();
+      break;
+    case 'oauth2TokenStatus':
+      updateOAuth2TokenStatus(msg.status);
+      break;
+    case 'oauth2Progress':
+      updateOAuth2Progress(msg.message);
       break;
   }
 });

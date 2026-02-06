@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest, RequestDefaults } from '../models/types';
+import type { HttpRequest, RequestDefaults, AuthOAuth2 } from '../models/types';
 import type { HttpClient } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
+import type { OAuth2Service } from '../services/oauth2Service';
 import { stringifyYaml, readFolderFile } from '../services/yamlParser';
 
 /**
@@ -35,6 +36,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     private readonly _httpClient: HttpClient,
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
+    private readonly _oauth2Service: OAuth2Service,
   ) {}
 
   static register(
@@ -42,8 +44,9 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     httpClient: HttpClient,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
+    oauth2Service: OAuth2Service,
   ): vscode.Disposable {
-    const provider = new RequestEditorProvider(context, httpClient, collectionService, environmentService);
+    const provider = new RequestEditorProvider(context, httpClient, collectionService, environmentService, oauth2Service);
     const registration = vscode.window.registerCustomEditorProvider(
       RequestEditorProvider.viewType,
       provider,
@@ -170,7 +173,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
             break;
           }
           case 'sendRequest': {
-            await this._sendRequest(webviewPanel.webview, msg.request, collectionId);
+            await this._sendRequest(webviewPanel.webview, msg.request, collectionId, filePath);
             break;
           }
           case 'editVariable': {
@@ -179,6 +182,14 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
           }
           case 'resolveVariables': {
             await this._sendVariables(webviewPanel.webview, collectionId, filePath);
+            break;
+          }
+          case 'getTokenStatus': {
+            await this._sendTokenStatus(webviewPanel.webview, msg.auth, collectionId);
+            break;
+          }
+          case 'getToken': {
+            await this._fetchAndReportToken(webviewPanel.webview, msg.auth, collectionId);
             break;
           }
           case 'methodChanged': {
@@ -327,7 +338,54 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     }
   }
 
-  private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collectionId: string | undefined): Promise<void> {
+  private async _sendTokenStatus(webview: vscode.Webview, auth: AuthOAuth2, collectionId: string | undefined): Promise<void> {
+    if (!collectionId || !auth?.accessTokenUrl) return;
+    try {
+      const collection = this._collectionService.getCollection(collectionId);
+      if (!collection) return;
+      const variables = await this._environmentService.resolveVariables(collection);
+      const accessTokenUrl = this._environmentService.interpolate(auth.accessTokenUrl, variables);
+      const envName = this._environmentService.getActiveEnvironmentName(collectionId);
+      const status = await this._oauth2Service.getTokenStatus(collectionId, envName, accessTokenUrl, auth.credentialsId);
+      webview.postMessage({ type: 'oauth2TokenStatus', status });
+    } catch {
+      webview.postMessage({ type: 'oauth2TokenStatus', status: { hasToken: false } });
+    }
+  }
+
+  private async _fetchAndReportToken(webview: vscode.Webview, auth: AuthOAuth2, collectionId: string | undefined): Promise<void> {
+    if (!collectionId || !auth?.accessTokenUrl) return;
+    try {
+      const collection = this._collectionService.getCollection(collectionId);
+      if (!collection) return;
+      const variables = await this._environmentService.resolveVariables(collection);
+      const interpolated: AuthOAuth2 = {
+        type: 'oauth2',
+        flow: auth.flow,
+        accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, variables) : undefined,
+        refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, variables) : undefined,
+        clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, variables) : undefined,
+        clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, variables) : undefined,
+        username: auth.username ? this._environmentService.interpolate(auth.username, variables) : undefined,
+        password: auth.password ? this._environmentService.interpolate(auth.password, variables) : undefined,
+        scope: auth.scope ? this._environmentService.interpolate(auth.scope, variables) : undefined,
+        credentialsPlacement: auth.credentialsPlacement,
+        credentialsId: auth.credentialsId,
+        autoFetchToken: true,
+        autoRefreshToken: auth.autoRefreshToken,
+      };
+      const envName = this._environmentService.getActiveEnvironmentName(collectionId);
+      webview.postMessage({ type: 'oauth2Progress', message: 'Acquiring token...' });
+      await this._oauth2Service.getToken(interpolated, collectionId, envName);
+      const status = await this._oauth2Service.getTokenStatus(collectionId, envName, interpolated.accessTokenUrl!, auth.credentialsId);
+      webview.postMessage({ type: 'oauth2TokenStatus', status });
+      webview.postMessage({ type: 'oauth2Progress', message: '' });
+    } catch (e: any) {
+      webview.postMessage({ type: 'oauth2Progress', message: `Error: ${e.message}` });
+    }
+  }
+
+  private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collectionId: string | undefined, requestFilePath?: string): Promise<void> {
     if (!collectionId) {
       webview.postMessage({ type: 'error', message: 'Collection not found' });
       return;
@@ -338,10 +396,39 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
       return;
     }
 
-    webview.postMessage({ type: 'sending' });
+    // Find folder defaults for auth/header inheritance
+    let folderDefaults: RequestDefaults | undefined;
+    if (requestFilePath) {
+      const dir = path.dirname(requestFilePath);
+      if (dir.toLowerCase() !== collection.rootDir.toLowerCase()) {
+        for (const name of ['folder.yml', 'folder.yaml']) {
+          try {
+            const folderData = await readFolderFile(path.join(dir, name));
+            if (folderData?.request) {
+              folderDefaults = folderData.request;
+            }
+            break;
+          } catch {
+            // No folder.yml
+          }
+        }
+      }
+    }
+
+    // Determine effective auth for progress reporting
+    let effectiveAuth = requestData.http?.auth;
+    if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+    if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+    const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
+
+    if (isOAuth2) {
+      webview.postMessage({ type: 'sending', message: 'Acquiring OAuth2 token...' });
+    } else {
+      webview.postMessage({ type: 'sending' });
+    }
 
     try {
-      const response = await this._httpClient.send(requestData, collection);
+      const response = await this._httpClient.send(requestData, collection, folderDefaults);
       webview.postMessage({ type: 'response', response });
     } catch (e: any) {
       webview.postMessage({
@@ -457,10 +544,11 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
           <div class="auth-section">
             <select class="auth-select" id="authType">
               <option value="none">No Auth</option>
-              <option value="inherit">Inherit from Collection</option>
+              <option value="inherit">Inherit</option>
               <option value="bearer">Bearer Token</option>
               <option value="basic">Basic Auth</option>
               <option value="apikey">API Key</option>
+              <option value="oauth2">OAuth 2.0</option>
             </select>
             <div id="authFields"></div>
           </div>

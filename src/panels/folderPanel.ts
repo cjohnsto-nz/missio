@@ -3,6 +3,8 @@ import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { Folder } from '../models/types';
 import { stringifyYaml } from '../services/yamlParser';
+import type { CollectionService } from '../services/collectionService';
+import type { EnvironmentService } from '../services/environmentService';
 
 /**
  * CustomTextEditorProvider for OpenCollection folder.yml files.
@@ -14,10 +16,16 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
 
   constructor(
     private readonly _context: vscode.ExtensionContext,
+    private readonly _collectionService: CollectionService,
+    private readonly _environmentService: EnvironmentService,
   ) {}
 
-  static register(context: vscode.ExtensionContext): vscode.Disposable {
-    const provider = new FolderEditorProvider(context);
+  static register(
+    context: vscode.ExtensionContext,
+    collectionService: CollectionService,
+    environmentService: EnvironmentService,
+  ): vscode.Disposable {
+    const provider = new FolderEditorProvider(context, collectionService, environmentService);
     const registration = vscode.window.registerCustomEditorProvider(
       FolderEditorProvider.viewType,
       provider,
@@ -43,6 +51,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
       const folderName = path.basename(dirPath);
       const initial: Folder = {
         info: { name: folderName, type: 'folder' },
+        request: { auth: 'inherit' },
       };
       const content = stringifyYaml(initial, { lineWidth: 120 });
       await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
@@ -82,10 +91,19 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
       });
     }
 
+    const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
+
+    // Live-reload variables when collection or environment data changes
+    disposables.push(
+      this._collectionService.onDidChange(() => sendVariables()),
+      this._environmentService.onDidChange(() => sendVariables()),
+    );
+
     disposables.push(
       webviewPanel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === 'ready') {
           sendDocumentToWebview();
+          await sendVariables();
           return;
         }
         if (msg.type === 'updateDocument') {
@@ -112,6 +130,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (e.document.uri.toString() === document.uri.toString() && !isUpdatingDocument) {
           sendDocumentToWebview();
+          sendVariables();
         }
       }),
     );
@@ -185,6 +204,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
             <option value="apikey">API Key</option>
+            <option value="oauth2">OAuth 2.0</option>
           </select>
           <div id="defaultAuthFields"></div>
         </div>
@@ -214,6 +234,27 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {
+    try {
+      // Find which collection this folder belongs to
+      const folderDir = path.dirname(filePath);
+      const collection = this._collectionService.getCollections().find(c =>
+        folderDir.toLowerCase().startsWith(c.rootDir.toLowerCase()),
+      );
+      if (!collection) return;
+      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
+      const varsObj: Record<string, string> = {};
+      const sourcesObj: Record<string, string> = {};
+      for (const [k, v] of varsWithSource) {
+        varsObj[k] = v.value;
+        sourcesObj[k] = v.source;
+      }
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
+    } catch {
+      // Variables unavailable
+    }
   }
 
   private _getNonce(): string {
