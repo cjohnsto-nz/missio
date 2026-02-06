@@ -4,13 +4,49 @@ A lightweight, [OpenCollection](https://www.opencollection.com)-compliant REST A
 
 ## Features
 
+### Collections & Requests
 - **OpenCollection v1.0.0 compliant** — YAML-based collections, requests, and environments
 - **Auto-detect collections** — scans workspace for `collection.yml` / `workspace.yml`
+- **Custom editors** — visual editors for requests, folders, and collections with native dirty indicators, Ctrl+S save, and undo/redo
+- **Tree view sidebar** — browse collections, folders, and requests with inline actions
+- **CodeLens** — send requests directly from YAML files
+- **Import from Postman** — import Postman v2.0/v2.1 collections and environments
+
+### Request Editor
+- **Visual request builder** — method selector, URL bar, headers, query params, body (raw, form-encoded, multipart)
+- **Send with Ctrl+Enter** — keyboard shortcut to send requests
+- **Response viewer** — formatted body (JSON, XML, HTML) with syntax highlighting, word wrap, line numbers, headers, status, timing, and size
+- **Save examples** — save response snapshots and load them later
+
+### Variables & Environments
 - **Environment management** — switch between dev/staging/prod with `{{variable}}` interpolation
-- **Secret providers** — Azure Key Vault and Keeper Secrets Manager integration
-- **Send requests** — execute HTTP requests directly from YAML files with CodeLens
-- **Tree view sidebar** — browse collections, folders, and requests
-- **Response viewer** — formatted response display with headers, body, timing
+- **Variable inheritance** — Collection > Folder > Environment (each layer overrides the previous)
+- **Variable highlighting** — source-colored overlays on all input fields (URL, headers, params, body, auth)
+- **Click-to-inspect** — click any `{{variable}}` to see its resolved value, source, and actions
+- **Toggle resolved values** — `{{}}` button shows actual resolved values in-place across all fields
+- **Autocomplete** — type `{{` to get variable suggestions with source labels
+- **`.env` file support** — automatically loads `.env` files from collection directories
+
+### Authentication
+- **Auth types** — None, Bearer Token, Basic Auth, API Key, OAuth 2.0
+- **Auth inheritance** — Request > Folder > Collection (first non-inherit wins)
+- **OAuth 2.0** — client credentials and password flows with automatic token management
+- **Token status display** — live token expiry countdown with Get Token / Refresh buttons in request, folder, and collection editors
+- **Token caching** — tokens stored securely per collection, environment, and credentials
+
+### Folder Defaults
+- **Folder editor** — configure folder-level auth, headers, and variables via `folder.yml`
+- **Folder inheritance** — folder defaults apply to all requests in the folder
+- **New folders default to inherit** — auth set to `inherit` by default
+
+### Collection Editor
+- **Visual collection editor** — overview, auth, headers, variables, and environments tabs
+- **Environment editor** — add, remove, rename environments with variable key-value editing
+- **Collection-level defaults** — set default auth and headers for all requests
+
+### Secret Providers
+- **Azure Key Vault** — fetch secrets at runtime
+- **Keeper Secrets Manager** — fetch secrets at runtime
 
 ## Getting Started
 
@@ -59,17 +95,28 @@ http:
     - name: page
       value: "1"
       type: query
-
-settings:
-  encodeUrl: true
-  timeout: 30000
-  followRedirects: true
-  maxRedirects: 5
 ```
 
 ### 3. Send it
 
-Click **▶ Send Request** in the CodeLens above the file, or use the play button in the tree view.
+Click **Send Request** in the CodeLens above the file, use the play button in the tree view, or press **Ctrl+Enter** in the request editor.
+
+### 4. Configure folder defaults (optional)
+
+Create a `folder.yml` in any folder to set default auth, headers, or variables for all requests in that folder:
+
+```yaml
+info:
+  name: Users
+
+request:
+  auth:
+    type: bearer
+    token: "{{accessToken}}"
+  headers:
+    - name: X-Custom-Header
+      value: my-value
+```
 
 ## Workspace File
 
@@ -104,7 +151,7 @@ Configure in VS Code settings:
 }
 ```
 
-Then use `SecretVariable` in your environments:
+Then reference secrets in your environments:
 
 ```yaml
 config:
@@ -134,15 +181,26 @@ config:
 | `Missio: Send Request` | Execute the current request |
 | `Missio: Select Active Environment` | Choose the active environment |
 | `Missio: New Collection` | Scaffold a new collection |
-| `Missio: New Request File` | Create a new request YAML file |
+| `Missio: Import Collection` | Import from Postman (v2.0/v2.1) |
+| `Missio: Import Environment` | Import environment from Postman |
+| `Missio: New Request` | Create a new request YAML file |
+| `Missio: New Folder` | Create a new folder in a collection |
 | `Missio: New Environment` | Add an environment to a collection |
+| `Missio: Configure Collection` | Open the collection editor |
+| `Missio: Configure Folder` | Open the folder editor |
 | `Missio: Refresh Collections` | Re-scan the workspace |
 | `Missio: Configure Secret Provider` | Set up Azure Key Vault or Keeper |
 | `Missio: Cancel Request` | Cancel all in-flight requests |
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Enter` | Send request (in request editor) |
+
 ## OpenCollection Spec
 
-This extension implements the [OpenCollection v1.0.0 specification](https://spec.opencollection.com).
+This extension implements the [OpenCollection v1.0.0 specification](https://spec.opencollection.com). All unknown/unsupported fields in YAML files are preserved on save (round-trip safe).
 
 - Schema: `https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0`
 - Workspace schema: `https://schema.opencollection.com/json/draft-07/opencollection-workspace/v1.0.0`
