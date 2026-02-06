@@ -1,0 +1,27 @@
+info:
+  name: Create Charge
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/{{apiVersion}}/charges"
+  headers:
+    - name: Content-Type
+      value: application/json
+  params: []
+  body:
+    type: json
+    data: |-
+      {
+        "amount": 2500,
+        "currency": "{{currency}}",
+        "merchant_id": "{{merchantId}}",
+        "description": "Test charge"
+      }
+
+settings:
+  timeout: 30000
+  encodeUrl: true
+  followRedirects: true
+  maxRedirects: 5
