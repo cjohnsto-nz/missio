@@ -1,12 +1,12 @@
 info:
-  name: Put User
+  name: Get Users
   type: http
   seq: 1
   tags:
     - users
 http:
-  method: PUT
-  url: "{{baseUrl}}/userss"
+  method: GET
+  url: "{{baseUrl}}/users"
   headers:
     - name: Content-Type
       value: application/json

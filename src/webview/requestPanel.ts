@@ -16,20 +16,16 @@ interface VsCodeApi {
 const vscode: VsCodeApi = acquireVsCodeApi();
 let currentRequest: any = null;
 let resolvedVariables: Record<string, string> = {};
-let isDirty = false;
+let updateDocumentTimer: ReturnType<typeof setTimeout> | null = null;
+let ignoreNextLoad = false;
 
-function markDirty(): void {
-  if (!isDirty) {
-    isDirty = true;
-    vscode.postMessage({ type: 'dirtyChanged', dirty: true });
-  }
-}
-
-function clearDirty(): void {
-  if (isDirty) {
-    isDirty = false;
-    vscode.postMessage({ type: 'dirtyChanged', dirty: false });
-  }
+function scheduleDocumentUpdate(): void {
+  if (updateDocumentTimer) clearTimeout(updateDocumentTimer);
+  updateDocumentTimer = setTimeout(() => {
+    ignoreNextLoad = true;
+    const req = buildRequest();
+    vscode.postMessage({ type: 'updateDocument', request: req });
+  }, 300);
 }
 
 // ── Helpers ───────────────────────────────────
@@ -112,7 +108,7 @@ function updateMethodColor(): void {
 }
 methodSelect.addEventListener('change', () => {
   updateMethodColor();
-  markDirty();
+  scheduleDocumentUpdate();
   vscode.postMessage({ type: 'methodChanged', method: methodSelect.value });
 });
 
@@ -126,12 +122,11 @@ function addParam(name = '', value = '', type = 'query', disabled = false): void
     '<td><input type="text" class="p-value" value="' + esc(value) + '" placeholder="value" /></td>' +
     '<td><select class="p-type auth-select" style="margin:0;"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); markDirty(); });
-  tr.addEventListener('input', markDirty);
-  tr.addEventListener('change', markDirty);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
+  tr.addEventListener('input', scheduleDocumentUpdate);
+  tr.addEventListener('change', scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
-  markDirty();
 }
 
 // ── Headers ─────────────────────────────────────
@@ -143,12 +138,11 @@ function addHeader(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td><input type="text" class="h-value" value="' + esc(value) + '" placeholder="value" /></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); markDirty(); });
-  tr.addEventListener('input', markDirty);
-  tr.addEventListener('change', markDirty);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
+  tr.addEventListener('input', scheduleDocumentUpdate);
+  tr.addEventListener('change', scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
-  markDirty();
 }
 
 // ── Form Fields ─────────────────────────────────
@@ -160,11 +154,10 @@ function addFormField(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="f-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td><input type="text" class="f-value" value="' + esc(value) + '" placeholder="value" /></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); markDirty(); });
-  tr.addEventListener('input', markDirty);
-  tr.addEventListener('change', markDirty);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleDocumentUpdate(); });
+  tr.addEventListener('input', scheduleDocumentUpdate);
+  tr.addEventListener('change', scheduleDocumentUpdate);
   tbody.appendChild(tr);
-  markDirty();
 }
 
 function updateBadges(): void {
@@ -434,7 +427,7 @@ $('url').addEventListener('click', (e: Event) => {
 $('url').addEventListener('input', () => {
   syncUrlHighlight();
   handleAutocompleteContentEditable($('url'));
-  markDirty();
+  scheduleDocumentUpdate();
 });
 
 function syncScroll(): void {
@@ -448,9 +441,24 @@ function syncScroll(): void {
 $('bodyData').addEventListener('input', () => {
   syncHighlight();
   handleAutocomplete($('bodyData') as HTMLTextAreaElement);
-  markDirty();
+  scheduleDocumentUpdate();
 });
 $('bodyData').addEventListener('scroll', syncScroll);
+
+// Click on variable in body editor — peek through textarea to highlight layer
+$('bodyData').addEventListener('click', (e: Event) => {
+  const me = e as MouseEvent;
+  const textarea = $('bodyData');
+  textarea.style.pointerEvents = 'none';
+  const el = document.elementFromPoint(me.clientX, me.clientY);
+  textarea.style.pointerEvents = '';
+  if (el) {
+    const varEl = (el as HTMLElement).closest('.tk-var') as HTMLElement | null;
+    if (varEl && varEl.dataset.var) {
+      showVarTooltipAt(varEl, varEl.dataset.var);
+    }
+  }
+});
 
 
 // ── Variable Autocomplete ───────────────────────
@@ -717,40 +725,40 @@ function onAuthTypeChange(): void {
 
 // ── Build request object ────────────────────────
 function buildRequest(): any {
-  const req: any = {
-    info: currentRequest ? currentRequest.info : { type: 'http' },
-    http: {
-      method: (methodSelect as HTMLSelectElement).value,
-      url: getUrlText(),
-      headers: [] as any[],
-      params: [] as any[],
-    },
-    settings: {
-      timeout: parseInt($input('settingTimeout').value) || 30000,
-      encodeUrl: $input('settingEncodeUrl').checked,
-      followRedirects: $input('settingFollowRedirects').checked,
-      maxRedirects: parseInt($input('settingMaxRedirects').value) || 5,
-    },
-  };
+  // Start from a deep clone of the original parsed object to preserve all unknown fields
+  const req: any = currentRequest ? JSON.parse(JSON.stringify(currentRequest)) : {};
+
+  // Ensure top-level structures exist
+  if (!req.info) req.info = { type: 'http' };
+  if (!req.http) req.http = {};
+  if (!req.settings) req.settings = {};
+
+  // Update only the fields the UI manages
+  req.http.method = (methodSelect as HTMLSelectElement).value;
+  req.http.url = getUrlText();
 
   // Params
+  const params: any[] = [];
   document.querySelectorAll('#paramsBody tr').forEach((tr) => {
-    req.http.params.push({
+    params.push({
       name: (tr.querySelector('.p-name') as HTMLInputElement).value,
       value: (tr.querySelector('.p-value') as HTMLInputElement).value,
       type: (tr.querySelector('.p-type') as HTMLSelectElement).value,
       disabled: !(tr.querySelector('.p-enabled') as HTMLInputElement).checked,
     });
   });
+  req.http.params = params;
 
   // Headers
+  const headers: any[] = [];
   document.querySelectorAll('#headersBody tr').forEach((tr) => {
-    req.http.headers.push({
+    headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
       value: (tr.querySelector('.h-value') as HTMLInputElement).value,
       disabled: !(tr.querySelector('.h-enabled') as HTMLInputElement).checked,
     });
   });
+  req.http.headers = headers;
 
   // Body
   if (currentBodyType !== 'none') {
@@ -767,6 +775,8 @@ function buildRequest(): any {
     } else {
       req.http.body = { type: currentLang, data: ($('bodyData') as HTMLTextAreaElement).value };
     }
+  } else {
+    delete req.http.body;
   }
 
   // Auth
@@ -779,29 +789,67 @@ function buildRequest(): any {
     req.http.auth = { type: 'apikey', key: $input('authKey')?.value || '', value: $input('authValue')?.value || '', placement: ($('authPlacement') as HTMLSelectElement)?.value || 'header' };
   } else if (authType === 'inherit') {
     req.http.auth = 'inherit';
+  } else {
+    delete req.http.auth;
   }
+
+  // Settings — merge onto existing
+  req.settings.timeout = parseInt($input('settingTimeout').value) || 30000;
+  req.settings.encodeUrl = $input('settingEncodeUrl').checked;
+  req.settings.followRedirects = $input('settingFollowRedirects').checked;
+  req.settings.maxRedirects = parseInt($input('settingMaxRedirects').value) || 5;
 
   return req;
 }
 
 // ── Send ────────────────────────────────────────
+let lastResponse: any = null;
+
+function showLoading(): void {
+  $('respLoading').style.display = 'flex';
+  $('respEmpty').style.display = 'none';
+  $('respBodyWrap').style.display = 'none';
+  $('responseBar').style.display = 'none';
+  $('respTabs').style.display = 'none';
+}
+
+function hideLoading(): void {
+  $('respLoading').style.display = 'none';
+}
+
 function sendRequest(): void {
   const req = buildRequest();
   $('sendBtn').classList.add('sending');
   ($('sendBtn') as HTMLButtonElement).disabled = true;
   $('sendBtn').textContent = 'Sending...';
+  showLoading();
   vscode.postMessage({ type: 'sendRequest', request: req });
 }
 
 // ── Save ────────────────────────────────────────
 function saveRequest(): void {
+  if (updateDocumentTimer) {
+    clearTimeout(updateDocumentTimer);
+    updateDocumentTimer = null;
+  }
+  ignoreNextLoad = true;
   const req = buildRequest();
-  vscode.postMessage({ type: 'saveRequest', request: req });
+  vscode.postMessage({ type: 'saveDocument', request: req });
 }
 
 // ── Load request into UI ────────────────────────
+function clearResponse(): void {
+  $('responseBar').style.display = 'none';
+  $('respTabs').style.display = 'none';
+  $('respBodyWrap').style.display = 'none';
+  $('respEmpty').style.display = 'block';
+  lastResponse = null;
+  lastResponseBody = '';
+}
+
 function loadRequest(req: any): void {
   currentRequest = req;
+  clearResponse();
   const http = req.http || {};
   (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
   updateMethodColor();
@@ -876,14 +924,28 @@ function loadRequest(req: any): void {
 }
 
 // ── Display response ────────────────────────────
+let lastResponseBody = '';
+
+function updateRespLineNumbers(text: string): void {
+  const gutter = $('respLineNumbers');
+  const lineCount = (text.match(/\n/g) || []).length + 1;
+  let html = '';
+  for (let i = 1; i <= lineCount; i++) {
+    html += '<span>' + i + '</span>';
+  }
+  gutter.innerHTML = html;
+}
+
 function showResponse(resp: any): void {
+  hideLoading();
+  lastResponse = resp;
   $('sendBtn').classList.remove('sending');
   ($('sendBtn') as HTMLButtonElement).disabled = false;
   $('sendBtn').textContent = 'Send';
   $('responseBar').style.display = 'flex';
   $('respTabs').style.display = 'flex';
   $('respEmpty').style.display = 'none';
-  $('respBodyPre').style.display = 'block';
+  $('respBodyWrap').style.display = 'block';
 
   const badge = $('statusBadge');
   badge.textContent = resp.status + ' ' + resp.statusText;
@@ -892,13 +954,22 @@ function showResponse(resp: any): void {
 
   $('responseMeta').textContent = resp.duration + 'ms \u2022 ' + formatSize(resp.size);
 
-  // Body
+  // Body — detect language from content-type and apply highlighting
   let bodyText = resp.body || '';
   const ct = (resp.headers && resp.headers['content-type']) || '';
+  let lang = 'text';
   if (ct.includes('json')) {
+    lang = 'json';
     try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch { /* keep raw */ }
+  } else if (ct.includes('xml')) {
+    lang = 'xml';
+  } else if (ct.includes('html')) {
+    lang = 'html';
   }
-  $('respBodyPre').textContent = bodyText;
+
+  lastResponseBody = bodyText;
+  $('respBodyPre').innerHTML = highlight(bodyText, lang) + '\n';
+  updateRespLineNumbers(bodyText);
 
   // Headers
   const tbody = $('respHeadersBody');
@@ -923,8 +994,11 @@ window.addEventListener('message', (event: MessageEvent) => {
   const msg = event.data;
   switch (msg.type) {
     case 'requestLoaded':
+      if (ignoreNextLoad) {
+        ignoreNextLoad = false;
+        break;
+      }
       loadRequest(msg.request);
-      clearDirty();
       break;
     case 'response':
       showResponse(msg.response);
@@ -935,11 +1009,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       $('sendBtn').textContent = 'Sending...';
       break;
     case 'saved':
-      clearDirty();
-      $('saveBtn').textContent = 'Saved \u2713';
-      setTimeout(() => { $('saveBtn').textContent = 'Save'; }, 1500);
       break;
     case 'error':
+      hideLoading();
       $('sendBtn').classList.remove('sending');
       ($('sendBtn') as HTMLButtonElement).disabled = false;
       $('sendBtn').textContent = 'Send';
@@ -953,37 +1025,65 @@ window.addEventListener('message', (event: MessageEvent) => {
       ($('bodyData') as HTMLTextAreaElement).value = msg.content;
       syncHighlight();
       break;
+    case 'examplesUpdated':
+      if (currentRequest) currentRequest.examples = msg.examples || [];
+      break;
+    case 'loadExample': {
+      const ex = msg.example;
+      if (ex.response) {
+        // Convert headers array to object for showResponse
+        const headers: Record<string, string> = {};
+        if (ex.response.headers) {
+          for (const h of ex.response.headers) {
+            headers[h.name] = h.value;
+          }
+        }
+        showResponse({
+          status: ex.response.status,
+          statusText: ex.response.statusText,
+          headers,
+          body: ex.response.body?.data ?? '',
+          duration: 0,
+          size: (ex.response.body?.data ?? '').length,
+        });
+      }
+      break;
+    }
     case 'variablesResolved':
       resolvedVariables = msg.variables || {};
       syncHighlight();
       syncUrlHighlight();
-      break;
-    case 'renamed':
-      if (currentRequest && currentRequest.info) {
-        currentRequest.info.name = msg.name;
-      }
-      break;
-    case 'setState':
-      vscode.setState(msg.state);
       break;
   }
 });
 
 // ── Wire up buttons & selects ───────────────────
 $('sendBtn').addEventListener('click', sendRequest);
-$('saveBtn').addEventListener('click', saveRequest);
+$('copyRespBtn').addEventListener('click', () => {
+  if (!lastResponseBody) return;
+  navigator.clipboard.writeText(lastResponseBody).then(() => {
+    const btn = $('copyRespBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
+});
+$('saveExampleBtn').addEventListener('click', () => {
+  if (!lastResponse) return;
+  const req = buildRequest();
+  vscode.postMessage({ type: 'saveExample', request: req, response: lastResponse });
+});
 $('addParamBtn').addEventListener('click', () => addParam());
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
-$('authType').addEventListener('change', () => { onAuthTypeChange(); markDirty(); });
-$('panel-auth').addEventListener('input', markDirty);
-$('panel-auth').addEventListener('change', markDirty);
-$('panel-settings').addEventListener('input', markDirty);
-$('panel-settings').addEventListener('change', markDirty);
+$('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });
+$('panel-auth').addEventListener('input', scheduleDocumentUpdate);
+$('panel-auth').addEventListener('change', scheduleDocumentUpdate);
+$('panel-settings').addEventListener('input', scheduleDocumentUpdate);
+$('panel-settings').addEventListener('change', scheduleDocumentUpdate);
 $('bodyLangMode').addEventListener('change', () => {
   currentLang = ($('bodyLangMode') as HTMLSelectElement).value;
   syncHighlight();
-  markDirty();
+  scheduleDocumentUpdate();
 });
 
 // Ctrl+S / Cmd+S to save

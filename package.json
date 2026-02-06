@@ -33,7 +33,7 @@
         {
           "id": "missio",
           "title": "Missio",
-          "icon": "media/icon2.svg"
+          "icon": "media/icon30.png"
         }
       ]
     },
@@ -51,6 +51,17 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "missio.requestEditor",
+        "displayName": "Missio Request Editor",
+        "selector": [
+          { "filenamePattern": "*.yml" },
+          { "filenamePattern": "*.yaml" }
+        ],
+        "priority": "option"
+      }
+    ],
     "commands": [
       {
         "command": "missio.sendRequest",
@@ -72,7 +83,7 @@
       },
       {
         "command": "missio.newRequest",
-        "title": "New Request File",
+        "title": "New Request",
         "category": "Missio",
         "icon": "$(new-file)"
       },
@@ -102,7 +113,7 @@
       },
       {
         "command": "missio.openRequest",
-        "title": "Open Request File",
+        "title": "Open Request",
         "category": "Missio"
       },
       {
@@ -134,6 +145,29 @@
         "title": "Delete",
         "category": "Missio",
         "icon": "$(trash)"
+      },
+      {
+        "command": "missio.newFolder",
+        "title": "New Folder",
+        "category": "Missio",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "missio.deleteFolder",
+        "title": "Delete Folder",
+        "category": "Missio",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "missio.renameFolder",
+        "title": "Rename Folder",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.loadExample",
+        "title": "Load Example",
+        "category": "Missio"
       }
     ],
     "menus": {
@@ -166,6 +200,11 @@
           "group": "inline"
         },
         {
+          "command": "missio.newFolder",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
+          "group": "inline"
+        },
+        {
           "command": "missio.sendRequest",
           "when": "view == missio.collections && viewItem == httpRequest",
           "group": "inline"
@@ -186,6 +225,16 @@
           "group": "2_delete@1"
         },
         {
+          "command": "missio.renameFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "missio.deleteFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "2_delete@1"
+        },
+        {
           "command": "missio.selectEnvironment",
           "when": "view == missio.environments && viewItem == environment",
           "group": "inline"
@@ -198,7 +247,7 @@
       "editor/title": [
         {
           "command": "missio.sendRequest",
-          "when": "resourceLangId == yaml && missio.isRequestFile",
+          "when": "(resourceLangId == yaml && missio.isRequestFile) || activeCustomEditorId == missio.requestEditor",
           "group": "navigation"
         }
       ]

@@ -361,6 +361,7 @@ body {
   pointer-events: none;
   color: var(--fg);
 }
+.code-highlight .tk-var { pointer-events: auto; }
 .code-input {
   position: relative;
   width: 100%;
@@ -419,6 +420,101 @@ body {
 .auth-row { display: flex; gap: 8px; align-items: center; }
 .auth-row label { min-width: 80px; }
 .auth-row input { flex: 1; }
+
+/* ── Loading Spinner ─────────────────────── */
+.loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  color: #888;
+  font-size: 13px;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--btn-bg);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Save Example Button ────────────────── */
+.save-example-btn {
+  background: none;
+  border: 1px solid var(--input-border);
+  color: #888;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  margin-left: auto;
+}
+.save-example-btn:hover { color: var(--fg); border-color: var(--btn-bg); }
+
+/* ── Response Body Wrap ──────────────────── */
+.resp-body-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.resp-code-wrap {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  min-height: 100px;
+}
+.resp-code-wrap .code-highlight {
+  position: relative;
+  top: auto; left: auto; right: auto; bottom: auto;
+  padding: 8px 10px 8px 48px;
+  pointer-events: auto;
+  cursor: text;
+  user-select: text;
+  overflow: visible;
+  min-height: 0;
+}
+.resp-code-wrap .line-numbers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36px;
+  text-align: right;
+  padding: 8px 4px 8px 0;
+  font-size: var(--vscode-editor-font-size, 13px);
+  line-height: 1.5;
+  color: #555;
+  font-family: var(--vscode-editor-font-family, monospace);
+  user-select: none;
+  pointer-events: none;
+}
+.resp-code-wrap .line-numbers span {
+  display: block;
+}
+.copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 10;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: #888;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.resp-body-wrap:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { color: var(--fg); border-color: var(--btn-bg); }
 
 /* ── Response Headers ────────────────────── */
 .resp-headers-table { width: 100%; border-collapse: collapse; }
