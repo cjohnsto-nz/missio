@@ -5,21 +5,28 @@ import { URL } from 'url';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
   HttpRequestHeader, HttpRequestParam,
-  Auth, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
+  Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
+import type { OAuth2Service } from './oauth2Service';
 import type { MissioCollection } from '../models/types';
 
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
+  private _oauth2Service: OAuth2Service | undefined;
 
   constructor(private readonly _environmentService: EnvironmentService) {}
+
+  setOAuth2Service(oauth2Service: OAuth2Service): void {
+    this._oauth2Service = oauth2Service;
+  }
 
   async send(
     request: HttpRequest,
     collection: MissioCollection,
+    folderDefaults?: import('../models/types').RequestDefaults,
   ): Promise<HttpResponse> {
-    const variables = await this._environmentService.resolveVariables(collection);
+    const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
     const details = request.http;
     if (!details?.url || !details?.method) {
       throw new Error('Request must have a URL and method');
@@ -52,7 +59,7 @@ export class HttpClient implements vscode.Disposable {
       url = url.replace(`:${name}`, encodeURIComponent(value));
     }
 
-    // Build headers
+    // Build headers: collection -> folder -> request (each layer overrides)
     const headers: Record<string, string> = {};
 
     // Collection default headers
@@ -64,7 +71,17 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
-    // Request headers (override defaults)
+    // Folder default headers (override collection)
+    if (folderDefaults?.headers) {
+      for (const h of folderDefaults.headers) {
+        if (!h.disabled) {
+          headers[this._environmentService.interpolate(h.name, variables)] =
+            this._environmentService.interpolate(h.value, variables);
+        }
+      }
+    }
+
+    // Request headers (override folder and collection)
     for (const h of (details.headers ?? [])) {
       if (!h.disabled) {
         headers[this._environmentService.interpolate(h.name, variables)] =
@@ -72,10 +89,20 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
-    // Auth
-    const auth = details.auth ?? collection.data.request?.auth;
+    // Auth: request -> folder -> collection (first non-inherit wins)
+    let auth: Auth | undefined = details.auth;
+    if (!auth || auth === 'inherit') {
+      auth = folderDefaults?.auth;
+    }
+    if (!auth || auth === 'inherit') {
+      auth = collection.data.request?.auth;
+    }
     if (auth && auth !== 'inherit') {
-      this._applyAuth(auth, headers, variables);
+      if (auth.type === 'oauth2') {
+        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
+      } else {
+        this._applyAuth(auth, headers, variables);
+      }
     }
 
     // Body
@@ -246,6 +273,44 @@ export class HttpClient implements vscode.Disposable {
       }
       default:
         return undefined;
+    }
+  }
+
+  private async _applyOAuth2(
+    auth: AuthOAuth2,
+    headers: Record<string, string>,
+    variables: Map<string, string>,
+    collection: MissioCollection,
+  ): Promise<void> {
+    if (!this._oauth2Service) {
+      throw new Error('OAuth2 service not available');
+    }
+
+    // Interpolate all OAuth2 config fields with variables
+    const interpolated: AuthOAuth2 = {
+      type: 'oauth2',
+      flow: auth.flow,
+      accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, variables) : undefined,
+      refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, variables) : undefined,
+      authorizationUrl: auth.authorizationUrl ? this._environmentService.interpolate(auth.authorizationUrl, variables) : undefined,
+      callbackUrl: auth.callbackUrl ? this._environmentService.interpolate(auth.callbackUrl, variables) : undefined,
+      clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, variables) : undefined,
+      clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, variables) : undefined,
+      username: auth.username ? this._environmentService.interpolate(auth.username, variables) : undefined,
+      password: auth.password ? this._environmentService.interpolate(auth.password, variables) : undefined,
+      scope: auth.scope ? this._environmentService.interpolate(auth.scope, variables) : undefined,
+      credentialsPlacement: auth.credentialsPlacement,
+      credentialsId: auth.credentialsId,
+      autoFetchToken: auth.autoFetchToken,
+      autoRefreshToken: auth.autoRefreshToken,
+      pkce: auth.pkce,
+    };
+
+    const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+    const token = await this._oauth2Service.getToken(interpolated, collection.id, envName);
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
   }
 

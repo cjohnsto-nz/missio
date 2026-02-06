@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, isRequestFile } from './yamlParser';
+import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, isFolderFile } from './yamlParser';
 import type { MissioCollection, OpenCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
 export class CollectionService implements vscode.Disposable {
@@ -119,15 +119,29 @@ export class CollectionService implements vscode.Disposable {
       for (const [name, type] of entries) {
         const fullPath = path.join(dir, name);
         if (type === vscode.FileType.Directory) {
-          // Check if it has a folder.yml inside — otherwise treat as plain folder
           const folderItems = await this._scanDirectoryForItems(fullPath);
-          if (folderItems.length > 0) {
-            const folder: Folder = {
-              info: { name, type: 'folder' },
-              items: folderItems,
-            };
-            items.push(folder);
+          const folder: Folder = {
+            info: { name, type: 'folder' },
+            items: folderItems,
+          };
+          // Try to read folder.yml for request defaults (auth, headers, variables)
+          for (const folderFileName of ['folder.yml', 'folder.yaml']) {
+            const folderFilePath = path.join(fullPath, folderFileName);
+            try {
+              const folderData = await readFolderFile(folderFilePath);
+              if (folderData) {
+                if (folderData.info) Object.assign(folder.info!, folderData.info);
+                if (folderData.request) folder.request = folderData.request;
+                if (folderData.docs) folder.docs = folderData.docs;
+              }
+              break;
+            } catch {
+              // No folder.yml — that's fine
+            }
           }
+          // Tag with the actual directory path for tree operations
+          (folder as any)._dirPath = fullPath;
+          items.push(folder);
         } else if (type === vscode.FileType.File && isRequestFile(name)) {
           try {
             const req = await readRequestFile(fullPath);

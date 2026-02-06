@@ -1,0 +1,34 @@
+info:
+  name: Refresh Token
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{baseUrl}}/oauth/token"
+  headers:
+    - name: Content-Type
+      value: application/x-www-form-urlencoded
+  params: []
+  body:
+    type: form-urlencoded
+    data:
+      - name: grant_type
+        value: refresh_token
+      - name: client_id
+        value: "{{clientId}}"
+      - name: client_secret
+        value: "{{clientSecret}}"
+      - name: refresh_token
+        value: "{{refreshToken}}"
+
+runtime:
+  variables:
+    - name: refreshToken
+      value: "test-refresh-token-456"
+
+settings:
+  timeout: 30000
+  encodeUrl: true
+  followRedirects: true
+  maxRedirects: 5

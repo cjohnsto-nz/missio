@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { MissioCollection, Environment } from '../models/types';
@@ -14,6 +15,7 @@ class CollectionEnvGroupNode extends vscode.TreeItem {
       collection.data.info?.name ?? 'Collection',
       vscode.TreeItemCollapsibleState.Expanded,
     );
+    this.id = `envGroup:${collection.id}`;
     this.contextValue = 'envGroup';
     this.iconPath = new vscode.ThemeIcon('folder-library');
     this.description = activeEnvName ? `Active: ${activeEnvName}` : 'No environment selected';
@@ -27,11 +29,18 @@ class EnvironmentNode extends vscode.TreeItem {
     public readonly isActive: boolean,
   ) {
     super(environment.name, vscode.TreeItemCollapsibleState.None);
+    this.id = `env:${collectionId}:${environment.name}`;
     this.contextValue = 'environment';
     this.description = isActive ? '● Active' : '';
-    this.iconPath = new vscode.ThemeIcon(
-      isActive ? 'server-environment' : 'circle-outline',
-    );
+
+    // Color the icon using the stored ThemeColor token
+    const iconName = isActive ? 'circle-filled' : 'circle-outline';
+    if (environment.color) {
+      this.iconPath = new vscode.ThemeIcon(iconName, new vscode.ThemeColor(environment.color));
+    } else {
+      this.iconPath = new vscode.ThemeIcon(iconName);
+    }
+
     this.tooltip = typeof environment.description === 'string'
       ? environment.description
       : (environment.description as any)?.content ?? `${environment.variables?.length ?? 0} variables`;
@@ -69,10 +78,14 @@ export class EnvironmentTreeProvider implements vscode.TreeDataProvider<EnvTreeN
 
   async getChildren(element?: EnvTreeNode): Promise<EnvTreeNode[]> {
     if (!element) {
-      const collections = this._collectionService.getCollections();
-      return collections
+      const collections = this._collectionService.getCollections()
         .filter(c => (c.data.config?.environments?.length ?? 0) > 0)
-        .map(c => new CollectionEnvGroupNode(
+        .sort((a, b) => {
+          const nameA = (a.data.info?.name ?? path.basename(a.rootDir)).toLowerCase();
+          const nameB = (b.data.info?.name ?? path.basename(b.rootDir)).toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      return collections.map(c => new CollectionEnvGroupNode(
           c,
           this._environmentService.getActiveEnvironmentName(c.id),
         ));
@@ -80,7 +93,9 @@ export class EnvironmentTreeProvider implements vscode.TreeDataProvider<EnvTreeN
 
     if (element instanceof CollectionEnvGroupNode) {
       const collection = element.collection;
-      const environments = this._environmentService.getCollectionEnvironments(collection);
+      const environments = this._environmentService.getCollectionEnvironments(collection)
+        .slice()
+        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
       const activeName = this._environmentService.getActiveEnvironmentName(collection.id);
       return environments.map(env =>
         new EnvironmentNode(env, collection.id, env.name === activeName),

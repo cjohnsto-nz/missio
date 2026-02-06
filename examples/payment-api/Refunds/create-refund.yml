@@ -1,0 +1,26 @@
+info:
+  name: Create Refund
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/{{apiVersion}}/refunds"
+  headers:
+    - name: Content-Type
+      value: application/json
+  params: []
+  body:
+    type: json
+    data: |-
+      {
+        "charge_id": "{{chargeId}}",
+        "amount": 1000,
+        "reason": "customer_request"
+      }
+
+settings:
+  timeout: 30000
+  encodeUrl: true
+  followRedirects: true
+  maxRedirects: 5

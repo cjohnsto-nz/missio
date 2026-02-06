@@ -33,7 +33,7 @@
         {
           "id": "missio",
           "title": "Missio",
-          "icon": "media/icon2.svg"
+          "icon": "media/icon30.png"
         }
       ]
     },
@@ -51,6 +51,47 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "missio.collectionEditor",
+        "displayName": "Missio Collection Editor",
+        "selector": [
+          {
+            "filenamePattern": "**/collection.yml"
+          },
+          {
+            "filenamePattern": "**/collection.yaml"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "missio.folderEditor",
+        "displayName": "Missio Folder Editor",
+        "selector": [
+          {
+            "filenamePattern": "**/folder.yml"
+          },
+          {
+            "filenamePattern": "**/folder.yaml"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "missio.requestEditor",
+        "displayName": "Missio Request Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.yml"
+          },
+          {
+            "filenamePattern": "*.yaml"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
     "commands": [
       {
         "command": "missio.sendRequest",
@@ -71,8 +112,20 @@
         "icon": "$(new-folder)"
       },
       {
+        "command": "missio.importCollection",
+        "title": "Import Collection",
+        "category": "Missio",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "missio.importEnvironment",
+        "title": "Import Environment",
+        "category": "Missio",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "missio.newRequest",
-        "title": "New Request File",
+        "title": "New Request",
         "category": "Missio",
         "icon": "$(new-file)"
       },
@@ -102,7 +155,7 @@
       },
       {
         "command": "missio.openRequest",
-        "title": "Open Request File",
+        "title": "Open Request",
         "category": "Missio"
       },
       {
@@ -134,6 +187,35 @@
         "title": "Delete",
         "category": "Missio",
         "icon": "$(trash)"
+      },
+      {
+        "command": "missio.newFolder",
+        "title": "New Folder",
+        "category": "Missio",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "missio.deleteFolder",
+        "title": "Delete Folder",
+        "category": "Missio",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "missio.renameFolder",
+        "title": "Rename Folder",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.loadExample",
+        "title": "Load Example",
+        "category": "Missio"
+      },
+      {
+        "command": "missio.openFolder",
+        "title": "Configure Folder",
+        "category": "Missio",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -166,6 +248,11 @@
           "group": "inline"
         },
         {
+          "command": "missio.newFolder",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
+          "group": "inline"
+        },
+        {
           "command": "missio.sendRequest",
           "when": "view == missio.collections && viewItem == httpRequest",
           "group": "inline"
@@ -186,6 +273,21 @@
           "group": "2_delete@1"
         },
         {
+          "command": "missio.openFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "inline"
+        },
+        {
+          "command": "missio.renameFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "missio.deleteFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "2_delete@1"
+        },
+        {
           "command": "missio.selectEnvironment",
           "when": "view == missio.environments && viewItem == environment",
           "group": "inline"
@@ -198,19 +300,68 @@
       "editor/title": [
         {
           "command": "missio.sendRequest",
-          "when": "resourceLangId == yaml && missio.isRequestFile",
+          "when": "(resourceLangId == yaml && missio.isRequestFile) || activeCustomEditorId == missio.requestEditor",
           "group": "navigation"
         }
       ]
     },
     "colors": [
-      { "id": "missio.methodGet", "description": "GET method color", "defaults": { "dark": "#6bbd6e", "light": "#2e7d32" } },
-      { "id": "missio.methodPost", "description": "POST method color", "defaults": { "dark": "#e8a745", "light": "#e65100" } },
-      { "id": "missio.methodPut", "description": "PUT method color", "defaults": { "dark": "#5b9bd5", "light": "#1565c0" } },
-      { "id": "missio.methodPatch", "description": "PATCH method color", "defaults": { "dark": "#b07cd8", "light": "#7b1fa2" } },
-      { "id": "missio.methodDelete", "description": "DELETE method color", "defaults": { "dark": "#e07070", "light": "#c62828" } },
-      { "id": "missio.methodHead", "description": "HEAD method color", "defaults": { "dark": "#6ecfcf", "light": "#00838f" } },
-      { "id": "missio.methodOptions", "description": "OPTIONS method color", "defaults": { "dark": "#a98dca", "light": "#6a1b9a" } }
+      {
+        "id": "missio.methodGet",
+        "description": "GET method color",
+        "defaults": {
+          "dark": "#89d185",
+          "light": "#388a34"
+        }
+      },
+      {
+        "id": "missio.methodPost",
+        "description": "POST method color",
+        "defaults": {
+          "dark": "#d18616",
+          "light": "#d18616"
+        }
+      },
+      {
+        "id": "missio.methodPut",
+        "description": "PUT method color",
+        "defaults": {
+          "dark": "#3794ff",
+          "light": "#1a85ff"
+        }
+      },
+      {
+        "id": "missio.methodPatch",
+        "description": "PATCH method color",
+        "defaults": {
+          "dark": "#b180d7",
+          "light": "#652d90"
+        }
+      },
+      {
+        "id": "missio.methodDelete",
+        "description": "DELETE method color",
+        "defaults": {
+          "dark": "#f14c4c",
+          "light": "#e51400"
+        }
+      },
+      {
+        "id": "missio.methodHead",
+        "description": "HEAD method color",
+        "defaults": {
+          "dark": "#11a8cd",
+          "light": "#0598bc"
+        }
+      },
+      {
+        "id": "missio.methodOptions",
+        "description": "OPTIONS method color",
+        "defaults": {
+          "dark": "#bc3fbc",
+          "light": "#bc05bc"
+        }
+      }
     ],
     "configuration": {
       "title": "Missio",
@@ -305,6 +456,8 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src --ext ts",
     "compile": "tsc -p ./"
   },
@@ -313,7 +466,8 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
     "esbuild-plugin-copy": "^2.1.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",
