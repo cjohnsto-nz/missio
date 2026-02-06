@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import { CollectionPanel } from '../panels/collectionPanel';
+import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposable[] {
@@ -11,7 +11,6 @@ export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposa
     vscode.commands.registerCommand('missio.selectEnvironment', async (collectionId?: string, envName?: string) => {
       if (collectionId && envName) {
         await environmentService.setActiveEnvironment(collectionId, envName);
-        vscode.window.showInformationMessage(`Environment set to: ${envName}`);
         return;
       }
 
@@ -68,7 +67,6 @@ export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposa
 
       if (envPick) {
         await environmentService.setActiveEnvironment(collPick.id, envPick.label);
-        vscode.window.showInformationMessage(`Environment set to: ${envPick.label}`);
       }
     }),
 
@@ -116,19 +114,21 @@ export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposa
         Buffer.from(content, 'utf-8'),
       );
 
-      vscode.window.showInformationMessage(`Environment "${name}" added to collection.`);
     }),
 
-    vscode.commands.registerCommand('missio.editEnvironment', async (collectionId?: string) => {
+    vscode.commands.registerCommand('missio.editEnvironment', async (arg?: any) => {
       let collection;
-      if (collectionId) {
-        collection = collectionService.getCollection(collectionId);
+      // arg may be a collectionId string, or a tree item with .collectionId and .environment
+      const id = typeof arg === 'string' ? arg : arg?.collectionId;
+      const envName = typeof arg === 'object' ? arg?.environment?.name : undefined;
+      if (id) {
+        collection = collectionService.getCollection(id);
       } else {
         const collections = collectionService.getCollections();
         if (collections.length > 0) { collection = collections[0]; }
       }
       if (collection) {
-        await CollectionPanel.open(collection, collectionService, extensionContext.extensionUri);
+        await CollectionEditorProvider.openTab(collection.filePath, 'environments', envName);
       }
     }),
 

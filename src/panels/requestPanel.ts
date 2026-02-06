@@ -127,6 +127,8 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
           case 'updateDocument': {
             // Webview wants to update the document content (makes it dirty)
             const yaml = stringifyYaml(msg.request, { lineWidth: 120 });
+            // Skip if content hasn't actually changed
+            if (yaml === document.getText()) break;
             isUpdatingDocument = true;
             const edit = new vscode.WorkspaceEdit();
             edit.replace(
@@ -141,15 +143,17 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
           case 'saveDocument': {
             // Webview wants to save (build request -> update doc -> save)
             const saveYaml = stringifyYaml(msg.request, { lineWidth: 120 });
-            isUpdatingDocument = true;
-            const saveEdit = new vscode.WorkspaceEdit();
-            saveEdit.replace(
-              document.uri,
-              new vscode.Range(0, 0, document.lineCount, 0),
-              saveYaml,
-            );
-            await vscode.workspace.applyEdit(saveEdit);
-            isUpdatingDocument = false;
+            if (saveYaml !== document.getText()) {
+              isUpdatingDocument = true;
+              const saveEdit = new vscode.WorkspaceEdit();
+              saveEdit.replace(
+                document.uri,
+                new vscode.Range(0, 0, document.lineCount, 0),
+                saveYaml,
+              );
+              await vscode.workspace.applyEdit(saveEdit);
+              isUpdatingDocument = false;
+            }
             await document.save();
             webviewPanel.webview.postMessage({ type: 'saved' });
             break;

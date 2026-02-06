@@ -53,6 +53,15 @@
     },
     "customEditors": [
       {
+        "viewType": "missio.collectionEditor",
+        "displayName": "Missio Collection Editor",
+        "selector": [
+          { "filenamePattern": "**/collection.yml" },
+          { "filenamePattern": "**/collection.yaml" }
+        ],
+        "priority": "option"
+      },
+      {
         "viewType": "missio.requestEditor",
         "displayName": "Missio Request Editor",
         "selector": [
@@ -80,6 +89,18 @@
         "title": "New Collection",
         "category": "Missio",
         "icon": "$(new-folder)"
+      },
+      {
+        "command": "missio.importCollection",
+        "title": "Import Collection",
+        "category": "Missio",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "missio.importEnvironment",
+        "title": "Import Environment",
+        "category": "Missio",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "missio.newRequest",

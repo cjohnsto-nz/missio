@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
 import type { OpenCollection } from '../models/types';
-import { CollectionPanel } from '../panels/collectionPanel';
+import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
@@ -34,7 +34,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
         }
       }
       if (collection) {
-        await CollectionPanel.open(collection, collectionService, extensionContext.extensionUri);
+        await CollectionEditorProvider.open(collection.filePath);
       }
     }),
 
@@ -76,8 +76,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       const content = stringifyYaml(template, { lineWidth: 120 });
       await vscode.workspace.fs.writeFile(collFile, Buffer.from(content, 'utf-8'));
 
-      const doc = await vscode.workspace.openTextDocument(collFile);
-      await vscode.window.showTextDocument(doc);
+      await CollectionEditorProvider.open(collFile.fsPath);
       vscode.window.showInformationMessage(`Collection "${name}" created.`);
     }),
   ];

@@ -149,8 +149,13 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
 
   async getChildren(element?: TreeNode): Promise<TreeNode[]> {
     if (!element) {
-      // Root: list all collections
-      const collections = this._collectionService.getCollections();
+      // Root: list all collections, sorted by name ascending
+      const collections = this._collectionService.getCollections()
+        .sort((a, b) => {
+          const nameA = (a.data.info?.name ?? path.basename(a.rootDir)).toLowerCase();
+          const nameB = (b.data.info?.name ?? path.basename(b.rootDir)).toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
       return collections.map(c => {
         const id = `collection:${c.id}`;
         // Default to expanded for collections (expanded unless explicitly collapsed)

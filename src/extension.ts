@@ -9,11 +9,13 @@ import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
 import { MissioCodeLensProvider } from './providers/codeLensProvider';
 import { ResponseDocumentProvider } from './providers/responseProvider';
 import { RequestEditorProvider } from './panels/requestPanel';
+import { CollectionEditorProvider } from './panels/collectionPanel';
 import {
   registerRequestCommands,
   registerCollectionCommands,
   registerEnvironmentCommands,
   registerFolderCommands,
+  registerImportCommands,
   type CommandContext,
 } from './commands';
 
@@ -62,6 +64,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     RequestEditorProvider.register(context, httpClient, collectionService, environmentService),
+    CollectionEditorProvider.register(context, collectionService, environmentService),
   );
 
   // ── CodeLens ───────────────────────────────────────────────────
@@ -91,6 +94,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ...registerCollectionCommands(cmdCtx),
     ...registerEnvironmentCommands(cmdCtx),
     ...registerFolderCommands(cmdCtx),
+    ...registerImportCommands(cmdCtx),
   );
 
   // ── Status Bar ─────────────────────────────────────────────────

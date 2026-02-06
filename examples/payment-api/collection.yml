@@ -1,41 +1,42 @@
-opencollection: "1.0.0"
-
+opencollection: 1.0.0
 info:
   name: Payment API
   summary: Payment processing API collection
-  version: "1.0.0"
+  version: 1.0.0
   authors:
     - name: Missio
-
 config:
   environments:
-    - name: development
+    - name: DEV
       variables:
         - name: baseUrl
-          value: "https://sandbox.payments.example.com"
+          value: https://sandbox.payments.example.com
         - name: apiVersion
-          value: "v2"
+          value: v2
         - name: merchantId
-          value: "test-merchant-001"
-    - name: staging
+          value: test-merchant-001
+      color: charts.red
+    - name: UAT
       extends: development
       variables:
         - name: baseUrl
-          value: "https://staging.payments.example.com"
+          value: https://staging.payments.example.com
         - name: merchantId
-          value: "staging-merchant-001"
-    - name: production
+          value: staging-merchant-001
+      color: charts.orange
+    - name: PROD
       variables:
         - name: baseUrl
-          value: "https://api.payments.example.com"
+          value: https://api.payments.example.com
         - name: apiVersion
-          value: "v2"
+          value: v2
         - name: merchantId
-          value: "prod-merchant-42"
+          value: prod-merchant-42
         - secret: true
           name: apiKey
           type: string
-
+          value: sgdgsdgsd
+      color: terminal.ansiGreen
 request:
   headers:
     - name: Accept
