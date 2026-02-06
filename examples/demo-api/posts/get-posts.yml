@@ -1,0 +1,23 @@
+info:
+  name: Get Posts
+  type: http
+  seq: 2
+  tags:
+    - posts
+
+http:
+  method: GET
+  url: "{{baseUrl}}/posts"
+  params:
+    - name: _limit
+      value: "10"
+      type: query
+    - name: _page
+      value: "1"
+      type: query
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5

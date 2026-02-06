@@ -1,0 +1,30 @@
+opencollection: "1.0.0"
+
+info:
+  name: Demo API
+  summary: Example OpenCollection for testing Missio
+  version: "1.0.0"
+  authors:
+    - name: Missio
+
+config:
+  environments:
+    - name: development
+      variables:
+        - name: baseUrl
+          value: "https://jsonplaceholder.typicode.com"
+        - name: userId
+          value: "1"
+    - name: production
+      variables:
+        - name: baseUrl
+          value: "https://api.example.com"
+        - name: userId
+          value: "42"
+        - secret: true
+          name: "azureKeyVault:api-key"
+
+request:
+  headers:
+    - name: Accept
+      value: application/json

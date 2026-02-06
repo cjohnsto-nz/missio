@@ -1,0 +1,324 @@
+{
+  "name": "missio",
+  "displayName": "Missio REST Client",
+  "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
+  "version": "0.1.0",
+  "publisher": "missio",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "rest",
+    "api",
+    "http",
+    "client",
+    "opencollection",
+    "collection",
+    "environment",
+    "bruno"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "missio",
+          "title": "Missio",
+          "icon": "media/icon2.svg"
+        }
+      ]
+    },
+    "views": {
+      "missio": [
+        {
+          "id": "missio.collections",
+          "name": "Collections",
+          "icon": "$(folder-library)"
+        },
+        {
+          "id": "missio.environments",
+          "name": "Environments",
+          "icon": "$(server-environment)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "missio.sendRequest",
+        "title": "Send Request",
+        "category": "Missio",
+        "icon": "$(play)"
+      },
+      {
+        "command": "missio.refreshCollections",
+        "title": "Refresh Collections",
+        "category": "Missio",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "missio.newCollection",
+        "title": "New Collection",
+        "category": "Missio",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "missio.newRequest",
+        "title": "New Request File",
+        "category": "Missio",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "missio.selectEnvironment",
+        "title": "Select Active Environment",
+        "category": "Missio",
+        "icon": "$(server-environment)"
+      },
+      {
+        "command": "missio.editEnvironment",
+        "title": "Edit Environment",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.newEnvironment",
+        "title": "New Environment",
+        "category": "Missio",
+        "icon": "$(add)"
+      },
+      {
+        "command": "missio.configureSecrets",
+        "title": "Configure Secret Provider",
+        "category": "Missio",
+        "icon": "$(key)"
+      },
+      {
+        "command": "missio.openRequest",
+        "title": "Open Request File",
+        "category": "Missio"
+      },
+      {
+        "command": "missio.openCollection",
+        "title": "Configure Collection",
+        "category": "Missio",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "missio.cancelRequest",
+        "title": "Cancel Request",
+        "category": "Missio",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "missio.renameRequest",
+        "title": "Rename",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.duplicateRequest",
+        "title": "Duplicate",
+        "category": "Missio",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "missio.deleteRequest",
+        "title": "Delete",
+        "category": "Missio",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "missio.refreshCollections",
+          "when": "view == missio.collections",
+          "group": "navigation"
+        },
+        {
+          "command": "missio.newCollection",
+          "when": "view == missio.collections",
+          "group": "navigation"
+        },
+        {
+          "command": "missio.newEnvironment",
+          "when": "view == missio.environments",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "missio.openCollection",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "inline"
+        },
+        {
+          "command": "missio.newRequest",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
+          "group": "inline"
+        },
+        {
+          "command": "missio.sendRequest",
+          "when": "view == missio.collections && viewItem == httpRequest",
+          "group": "inline"
+        },
+        {
+          "command": "missio.renameRequest",
+          "when": "view == missio.collections && viewItem == httpRequest",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "missio.duplicateRequest",
+          "when": "view == missio.collections && viewItem == httpRequest",
+          "group": "1_modify@2"
+        },
+        {
+          "command": "missio.deleteRequest",
+          "when": "view == missio.collections && viewItem == httpRequest",
+          "group": "2_delete@1"
+        },
+        {
+          "command": "missio.selectEnvironment",
+          "when": "view == missio.environments && viewItem == environment",
+          "group": "inline"
+        },
+        {
+          "command": "missio.editEnvironment",
+          "when": "view == missio.environments && viewItem == environment"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "missio.sendRequest",
+          "when": "resourceLangId == yaml && missio.isRequestFile",
+          "group": "navigation"
+        }
+      ]
+    },
+    "colors": [
+      { "id": "missio.methodGet", "description": "GET method color", "defaults": { "dark": "#6bbd6e", "light": "#2e7d32" } },
+      { "id": "missio.methodPost", "description": "POST method color", "defaults": { "dark": "#e8a745", "light": "#e65100" } },
+      { "id": "missio.methodPut", "description": "PUT method color", "defaults": { "dark": "#5b9bd5", "light": "#1565c0" } },
+      { "id": "missio.methodPatch", "description": "PATCH method color", "defaults": { "dark": "#b07cd8", "light": "#7b1fa2" } },
+      { "id": "missio.methodDelete", "description": "DELETE method color", "defaults": { "dark": "#e07070", "light": "#c62828" } },
+      { "id": "missio.methodHead", "description": "HEAD method color", "defaults": { "dark": "#6ecfcf", "light": "#00838f" } },
+      { "id": "missio.methodOptions", "description": "OPTIONS method color", "defaults": { "dark": "#a98dca", "light": "#6a1b9a" } }
+    ],
+    "configuration": {
+      "title": "Missio",
+      "properties": {
+        "missio.timeout": {
+          "type": "number",
+          "default": 30000,
+          "description": "Default request timeout in milliseconds."
+        },
+        "missio.followRedirects": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically follow HTTP redirects."
+        },
+        "missio.maxRedirects": {
+          "type": "number",
+          "default": 5,
+          "description": "Maximum number of redirects to follow."
+        },
+        "missio.rejectUnauthorized": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reject connections with invalid SSL certificates."
+        },
+        "missio.secretProviders": {
+          "type": "object",
+          "default": {},
+          "description": "Configuration for external secret providers.",
+          "properties": {
+            "azureKeyVault": {
+              "type": "object",
+              "properties": {
+                "vaultUrl": {
+                  "type": "string",
+                  "description": "Azure Key Vault URL (e.g. https://my-vault.vault.azure.net)"
+                },
+                "tenantId": {
+                  "type": "string",
+                  "description": "Azure AD tenant ID (optional, uses default credential chain if omitted)"
+                }
+              }
+            },
+            "keeper": {
+              "type": "object",
+              "properties": {
+                "configFile": {
+                  "type": "string",
+                  "description": "Path to Keeper Secrets Manager config file or base64 config token"
+                }
+              }
+            }
+          }
+        },
+        "missio.collectionFilePatterns": {
+          "type": "array",
+          "default": [
+            "**/collection.yml",
+            "**/collection.yaml"
+          ],
+          "description": "Glob patterns to auto-detect OpenCollection manifest files in the workspace."
+        },
+        "missio.workspaceFilePatterns": {
+          "type": "array",
+          "default": [
+            "**/workspace.yml",
+            "**/workspace.yaml"
+          ],
+          "description": "Glob patterns to auto-detect OpenCollection workspace files."
+        }
+      }
+    },
+    "yamlValidation": [
+      {
+        "fileMatch": "collection.yml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0"
+      },
+      {
+        "fileMatch": "collection.yaml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0"
+      },
+      {
+        "fileMatch": "workspace.yml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection-workspace/v1.0.0"
+      },
+      {
+        "fileMatch": "workspace.yaml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection-workspace/v1.0.0"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "esbuild-plugin-copy": "^2.1.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.0.0",
+    "@azure/keyvault-secrets": "^4.8.0",
+    "@keeper-security/secrets-manager-core": "^16.6.0",
+    "yaml": "^2.3.0"
+  }
+}

@@ -1,0 +1,31 @@
+info:
+  name: Create Post
+  type: http
+  seq: 1
+  tags:
+    - posts
+
+http:
+  method: POST
+  url: "{{baseUrl}}/posts"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "title": "Hello World",
+        "body": "This is a test post",
+        "userId": {{userId}}
+      }
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "201"
+
+settings:
+  encodeUrl: true
+  timeout: 30000

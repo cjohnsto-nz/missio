@@ -1,0 +1,29 @@
+info:
+  name: Put User
+  type: http
+  seq: 1
+  tags:
+    - users
+http:
+  method: PUT
+  url: "{{baseUrl}}/userss"
+  headers:
+    - name: Content-Type
+      value: application/json
+      disabled: false
+  params: []
+  body:
+    type: json
+    data: |-
+      {
+        "IncidentResolution": {
+          "subject": "{{userId}}",
+          "incidentid@odata.bind": "incidents(e6e6f93d-dfba-f011-bbd2-000d3ad25191)"
+        },
+        "Status": 6
+      }
+settings:
+  timeout: 30000
+  encodeUrl: true
+  followRedirects: true
+  maxRedirects: 5
