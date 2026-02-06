@@ -30,14 +30,24 @@ export function clearResponse(): void {
   lastResponseBody = '';
 }
 
-function updateRespLineNumbers(text: string): void {
+function updateRespLineNumbers(): void {
   const gutter = $('respLineNumbers');
-  const lineCount = (text.match(/\n/g) || []).length + 1;
+  const pre = $('respBodyPre');
+  const lineDivs = pre.querySelectorAll(':scope > .code-line');
+  const lineCount = lineDivs.length || 1;
   let html = '';
   for (let i = 1; i <= lineCount; i++) {
     html += '<span>' + i + '</span>';
   }
   gutter.innerHTML = html;
+  // Match each gutter span height to its corresponding content line
+  const spans = gutter.children;
+  for (let i = 0; i < spans.length; i++) {
+    const div = lineDivs[i] as HTMLElement | undefined;
+    if (div) {
+      (spans[i] as HTMLElement).style.height = div.offsetHeight + 'px';
+    }
+  }
 }
 
 function formatSize(bytes: number): string {
@@ -89,8 +99,11 @@ export function showResponse(resp: any): void {
   }
 
   lastResponseBody = bodyText;
-  $('respBodyPre').innerHTML = highlight(bodyText, lang) + '\n';
-  updateRespLineNumbers(bodyText);
+  const lines = bodyText.split('\n');
+  $('respBodyPre').innerHTML = lines.map((line: string) =>
+    '<div class="code-line">' + highlight(line, lang) + '\n</div>'
+  ).join('');
+  updateRespLineNumbers();
 
   // Headers
   const tbody = $('respHeadersBody');

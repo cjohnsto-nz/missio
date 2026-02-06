@@ -7,6 +7,7 @@ import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import { stringifyYaml, readFolderFile } from '../services/yamlParser';
+import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
 /**
  * CustomTextEditorProvider for OpenCollection request YAML files.
@@ -184,12 +185,9 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
             await this._sendVariables(webviewPanel.webview, collectionId, filePath);
             break;
           }
-          case 'getTokenStatus': {
-            await this._sendTokenStatus(webviewPanel.webview, msg.auth, collectionId);
-            break;
-          }
+          case 'getTokenStatus':
           case 'getToken': {
-            await this._fetchAndReportToken(webviewPanel.webview, msg.auth, collectionId);
+            await this._handleTokenMessage(webviewPanel.webview, msg, collectionId);
             break;
           }
           case 'methodChanged': {
@@ -338,51 +336,11 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     }
   }
 
-  private async _sendTokenStatus(webview: vscode.Webview, auth: AuthOAuth2, collectionId: string | undefined): Promise<void> {
-    if (!collectionId || !auth?.accessTokenUrl) return;
-    try {
-      const collection = this._collectionService.getCollection(collectionId);
-      if (!collection) return;
-      const variables = await this._environmentService.resolveVariables(collection);
-      const accessTokenUrl = this._environmentService.interpolate(auth.accessTokenUrl, variables);
-      const envName = this._environmentService.getActiveEnvironmentName(collectionId);
-      const status = await this._oauth2Service.getTokenStatus(collectionId, envName, accessTokenUrl, auth.credentialsId);
-      webview.postMessage({ type: 'oauth2TokenStatus', status });
-    } catch {
-      webview.postMessage({ type: 'oauth2TokenStatus', status: { hasToken: false } });
-    }
-  }
-
-  private async _fetchAndReportToken(webview: vscode.Webview, auth: AuthOAuth2, collectionId: string | undefined): Promise<void> {
-    if (!collectionId || !auth?.accessTokenUrl) return;
-    try {
-      const collection = this._collectionService.getCollection(collectionId);
-      if (!collection) return;
-      const variables = await this._environmentService.resolveVariables(collection);
-      const interpolated: AuthOAuth2 = {
-        type: 'oauth2',
-        flow: auth.flow,
-        accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, variables) : undefined,
-        refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, variables) : undefined,
-        clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, variables) : undefined,
-        clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, variables) : undefined,
-        username: auth.username ? this._environmentService.interpolate(auth.username, variables) : undefined,
-        password: auth.password ? this._environmentService.interpolate(auth.password, variables) : undefined,
-        scope: auth.scope ? this._environmentService.interpolate(auth.scope, variables) : undefined,
-        credentialsPlacement: auth.credentialsPlacement,
-        credentialsId: auth.credentialsId,
-        autoFetchToken: true,
-        autoRefreshToken: auth.autoRefreshToken,
-      };
-      const envName = this._environmentService.getActiveEnvironmentName(collectionId);
-      webview.postMessage({ type: 'oauth2Progress', message: 'Acquiring token...' });
-      await this._oauth2Service.getToken(interpolated, collectionId, envName);
-      const status = await this._oauth2Service.getTokenStatus(collectionId, envName, interpolated.accessTokenUrl!, auth.credentialsId);
-      webview.postMessage({ type: 'oauth2TokenStatus', status });
-      webview.postMessage({ type: 'oauth2Progress', message: '' });
-    } catch (e: any) {
-      webview.postMessage({ type: 'oauth2Progress', message: `Error: ${e.message}` });
-    }
+  private async _handleTokenMessage(webview: vscode.Webview, msg: any, collectionId: string | undefined): Promise<void> {
+    if (!collectionId) return;
+    const collection = this._collectionService.getCollection(collectionId);
+    if (!collection) return;
+    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
   }
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collectionId: string | undefined, requestFilePath?: string): Promise<void> {

@@ -269,7 +269,9 @@ document.querySelectorAll('#bodyTypePills .pill').forEach((pill) => {
 function updateLineNumbers(): void {
   const textarea = $('bodyData') as HTMLTextAreaElement;
   const gutter = $('lineNumbers');
-  const lineCount = (textarea.value.match(/\n/g) || []).length + 1;
+  const pre = $('bodyHighlight');
+  const lineDivs = pre.querySelectorAll(':scope > .code-line');
+  const lineCount = lineDivs.length || 1;
   const current = gutter.children.length;
   if (current !== lineCount) {
     let html = '';
@@ -278,6 +280,14 @@ function updateLineNumbers(): void {
     }
     gutter.innerHTML = html;
   }
+  // Match each gutter span height to its corresponding content line
+  const spans = gutter.children;
+  for (let i = 0; i < spans.length; i++) {
+    const div = lineDivs[i] as HTMLElement | undefined;
+    if (div) {
+      (spans[i] as HTMLElement).style.height = div.offsetHeight + 'px';
+    }
+  }
   gutter.style.top = -textarea.scrollTop + 'px';
 }
 
@@ -285,7 +295,10 @@ function syncHighlight(): void {
   try {
     const textarea = $('bodyData') as HTMLTextAreaElement;
     const pre = $('bodyHighlight');
-    pre.innerHTML = highlight(textarea.value, currentLang) + '\n';
+    const lines = textarea.value.split('\n');
+    pre.innerHTML = lines.map(line =>
+      '<div class="code-line">' + highlight(line, currentLang) + '\n</div>'
+    ).join('');
     updateLineNumbers();
   } catch {
     // prevent highlighting errors from breaking UI

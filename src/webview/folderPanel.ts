@@ -1,4 +1,6 @@
 import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
+import { showVarTooltipAt, hideVarTooltip } from './varTooltip';
+import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -20,6 +22,7 @@ function esc(s: string): string {
 // ── Variable Resolution State ────────────────
 let resolvedVariables: Record<string, string> = {};
 let variableSources: Record<string, string> = {};
+let showResolvedVars = false;
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -30,6 +33,11 @@ function highlightVariables(html: string): string {
     const key = name.trim();
     const resolved = key in resolvedVariables;
     const source = variableSources[key] || 'unknown';
+    if (showResolvedVars && resolved) {
+      const cls = 'tk-var-resolved tk-src-' + source;
+      return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>"
+        + escHtml(resolvedVariables[key]) + "</span>";
+    }
     const cls = resolved ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
     return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
   });
@@ -57,9 +65,17 @@ function enableVarOverlay(input: HTMLInputElement): void {
   input.addEventListener('focus', deactivate);
   input.addEventListener('blur', activate);
 
-  overlay.addEventListener('click', () => {
-    deactivate();
-    input.focus();
+  overlay.addEventListener('click', (e: Event) => {
+    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+    if (varEl && varEl.dataset.var) {
+      showVarTooltipAt(varEl, varEl.dataset.var, {
+        getResolvedVariables: () => resolvedVariables,
+        getVariableSources: () => variableSources,
+      });
+    } else {
+      deactivate();
+      input.focus();
+    }
   });
 
   if (document.activeElement !== input) {
@@ -223,9 +239,19 @@ const folderAuthConfig: AuthFieldsConfig = {
   onFieldsRendered: (inputs) => inputs.forEach(inp => enableVarOverlay(inp)),
 };
 
+const tokenStatusCtrl = initOAuth2TokenStatusController({
+  prefix: 'dAuth',
+  buildAuth: () => buildAuthData(($('defaultAuthType') as HTMLSelectElement).value, 'dAuth'),
+  postMessage: (msg) => vscode.postMessage(msg),
+  esc,
+});
+
 function onDefaultAuthChange() {
   const type = ($('defaultAuthType') as HTMLSelectElement).value;
   renderAuthFields(type, folderAuthConfig);
+  if (type === 'oauth2') {
+    tokenStatusCtrl.requestStatus();
+  }
 }
 
 // ── Update Badges ────────────────────────────
@@ -276,6 +302,11 @@ initTabs('mainTabs');
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); updateBadges(); scheduleUpdate(); });
 $('addDefaultVarBtn').addEventListener('click', () => { addDefaultVarRow(); updateBadges(); scheduleUpdate(); });
+$('varToggleBtn').addEventListener('click', () => {
+  showResolvedVars = !showResolvedVars;
+  $('varToggleBtn').classList.toggle('active', showResolvedVars);
+  syncAllVarOverlays();
+});
 
 // Overview fields
 $('infoName').addEventListener('input', () => {
@@ -298,6 +329,13 @@ window.addEventListener('message', (event: MessageEvent) => {
     resolvedVariables = msg.variables || {};
     variableSources = msg.sources || {};
     syncAllVarOverlays();
+    tokenStatusCtrl.requestStatus();
+  }
+  if (msg.type === 'oauth2TokenStatus') {
+    tokenStatusCtrl.handleStatus(msg.status);
+  }
+  if (msg.type === 'oauth2Progress') {
+    tokenStatusCtrl.handleProgress(msg.message);
   }
 });
 

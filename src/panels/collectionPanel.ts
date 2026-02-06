@@ -4,6 +4,8 @@ import type { OpenCollection } from '../models/types';
 import { stringifyYaml } from '../services/yamlParser';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
+import type { OAuth2Service } from '../services/oauth2Service';
+import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
 /**
  * CustomTextEditorProvider for OpenCollection collection.yml files.
@@ -23,14 +25,16 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     private readonly _context: vscode.ExtensionContext,
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
+    private readonly _oauth2Service: OAuth2Service,
   ) {}
 
   static register(
     context: vscode.ExtensionContext,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
+    oauth2Service: OAuth2Service,
   ): vscode.Disposable {
-    const provider = new CollectionEditorProvider(context, collectionService, environmentService);
+    const provider = new CollectionEditorProvider(context, collectionService, environmentService, oauth2Service);
     const registration = vscode.window.registerCustomEditorProvider(
       CollectionEditorProvider.viewType,
       provider,
@@ -122,6 +126,10 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
           await sendVariables();
           return;
         }
+        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
+          await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
+          return;
+        }
         if (msg.type === 'updateDocument') {
           if (isUpdatingDocument) return;
           isUpdatingDocument = true;
@@ -191,6 +199,12 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     }
   }
 
+  private async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
+    const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
+    if (!collection) return;
+    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
+  }
+
   private _getHtml(webview: vscode.Webview): string {
     const nonce = this._getNonce();
 
@@ -220,6 +234,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     <div class="collection-info">
       <span class="collection-name" id="collectionName">Collection</span>
     </div>
+    <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>
 
   <div class="collection-content">

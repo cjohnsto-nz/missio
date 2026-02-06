@@ -69,8 +69,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     RequestEditorProvider.register(context, httpClient, collectionService, environmentService, oauth2Service),
-    CollectionEditorProvider.register(context, collectionService, environmentService),
-    FolderEditorProvider.register(context, collectionService, environmentService),
+    CollectionEditorProvider.register(context, collectionService, environmentService, oauth2Service),
+    FolderEditorProvider.register(context, collectionService, environmentService, oauth2Service),
   );
 
   // ── CodeLens ───────────────────────────────────────────────────

@@ -5,6 +5,8 @@ import type { Folder } from '../models/types';
 import { stringifyYaml } from '../services/yamlParser';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
+import type { OAuth2Service } from '../services/oauth2Service';
+import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
 /**
  * CustomTextEditorProvider for OpenCollection folder.yml files.
@@ -18,14 +20,16 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
     private readonly _context: vscode.ExtensionContext,
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
+    private readonly _oauth2Service: OAuth2Service,
   ) {}
 
   static register(
     context: vscode.ExtensionContext,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
+    oauth2Service: OAuth2Service,
   ): vscode.Disposable {
-    const provider = new FolderEditorProvider(context, collectionService, environmentService);
+    const provider = new FolderEditorProvider(context, collectionService, environmentService, oauth2Service);
     const registration = vscode.window.registerCustomEditorProvider(
       FolderEditorProvider.viewType,
       provider,
@@ -106,6 +110,10 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
           await sendVariables();
           return;
         }
+        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
+          await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
+          return;
+        }
         if (msg.type === 'updateDocument') {
           if (isUpdatingDocument) return;
           isUpdatingDocument = true;
@@ -169,6 +177,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
     <div class="collection-info">
       <span class="collection-name" id="folderName">Folder</span>
     </div>
+    <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>
 
   <div class="collection-content">
@@ -234,6 +243,15 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
+    const folderDir = path.dirname(filePath);
+    const collection = this._collectionService.getCollections().find(c =>
+      folderDir.toLowerCase().startsWith(c.rootDir.toLowerCase()),
+    );
+    if (!collection) return;
+    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
   }
 
   private async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {

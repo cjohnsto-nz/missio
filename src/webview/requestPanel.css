@@ -243,8 +243,7 @@ body {
 .response-body pre {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: var(--vscode-editor-font-size, 13px);
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
   line-height: 1.5;
   margin: 0;
 }
@@ -714,15 +713,16 @@ td.var-cell .var-overlay {
   border: 1px solid var(--input-border);
   color: var(--fg);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-radius: 4px;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   opacity: 0.5;
   transition: opacity 0.15s, background 0.15s, border-color 0.15s;
   white-space: nowrap;
   flex-shrink: 0;
+  line-height: 1.4;
 }
 .btn-toggle:hover { opacity: 0.8; border-color: var(--btn-bg); }
 .btn-toggle.active {
