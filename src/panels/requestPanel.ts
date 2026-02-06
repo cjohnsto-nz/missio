@@ -366,7 +366,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
       <option value="HEAD">HEAD</option>
       <option value="OPTIONS">OPTIONS</option>
     </select>
-    <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div>
+    <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
   </div>
@@ -476,6 +476,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         <span class="label">Response</span>
         <span class="status-badge" id="statusBadge"></span>
         <span class="meta" id="responseMeta"></span>
+        <span class="example-indicator" id="exampleIndicator"></span>
         <button class="save-example-btn" id="saveExampleBtn" title="Save as example">Save as Example</button>
       </div>
       <div class="tabs" id="respTabs" style="display:none;">

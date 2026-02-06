@@ -645,6 +645,7 @@ function saveRequest(): void {
 function loadRequest(req: any): void {
   setCurrentRequest(req);
   clearResponse();
+  $('exampleIndicator').style.display = 'none';
   const http = req.http || {};
   (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
   updateMethodColor();
@@ -730,6 +731,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       loadRequest(msg.request);
       break;
     case 'response':
+      $('exampleIndicator').style.display = 'none';
       showResponse(msg.response);
       break;
     case 'sending':
@@ -775,8 +777,16 @@ window.addEventListener('message', (event: MessageEvent) => {
           size: (ex.response.body?.data ?? '').length,
         });
       }
+      // Show example name indicator
+      const indicator = $('exampleIndicator');
+      indicator.textContent = msg.exampleName || 'Example';
+      indicator.style.display = 'inline-block';
       break;
     }
+    case 'clearExample':
+      clearResponse();
+      $('exampleIndicator').style.display = 'none';
+      break;
     case 'variablesResolved':
       setResolvedVariables(msg.variables || {});
       setVariableSources(msg.sources || {});

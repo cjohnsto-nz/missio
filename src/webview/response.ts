@@ -72,7 +72,12 @@ export function showResponse(resp: any): void {
 
   // Body — detect language from content-type and apply highlighting
   let bodyText = resp.body || '';
-  const ct = (resp.headers && resp.headers['content-type']) || '';
+  let ct = '';
+  if (resp.headers) {
+    for (const k of Object.keys(resp.headers)) {
+      if (k.toLowerCase() === 'content-type') { ct = resp.headers[k]; break; }
+    }
+  }
   let lang = 'text';
   if (ct.includes('json')) {
     lang = 'json';
