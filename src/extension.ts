@@ -10,6 +10,7 @@ import { MissioCodeLensProvider } from './providers/codeLensProvider';
 import { ResponseDocumentProvider } from './providers/responseProvider';
 import { RequestEditorProvider } from './panels/requestPanel';
 import { CollectionEditorProvider } from './panels/collectionPanel';
+import { FolderEditorProvider } from './panels/folderPanel';
 import {
   registerRequestCommands,
   registerCollectionCommands,
@@ -65,6 +66,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     RequestEditorProvider.register(context, httpClient, collectionService, environmentService),
     CollectionEditorProvider.register(context, collectionService, environmentService),
+    FolderEditorProvider.register(context),
   );
 
   // ── CodeLens ───────────────────────────────────────────────────

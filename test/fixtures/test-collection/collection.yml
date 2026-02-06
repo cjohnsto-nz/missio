@@ -1,0 +1,46 @@
+opencollection: "1.0.0"
+info:
+  name: Test Collection
+request:
+  variables:
+    - name: baseUrl
+      value: "https://api.example.com"
+    - name: version
+      value: "v1"
+    - name: fullBase
+      value: "{{baseUrl}}/{{version}}"
+    - name: disabledVar
+      value: "should-not-appear"
+      disabled: true
+  headers:
+    - name: X-Collection-Header
+      value: "collection-value"
+  auth:
+    type: bearer
+    token: "collection-token"
+config:
+  environments:
+    - name: dev
+      variables:
+        - name: apiKey
+          value: "dev-key-123"
+        - name: baseUrl
+          value: "https://dev.example.com"
+        - name: envOnly
+          value: "from-env"
+    - name: prod
+      variables:
+        - name: apiKey
+          value: "prod-key-456"
+        - name: baseUrl
+          value: "https://prod.example.com"
+    - name: staging
+      extends: prod
+      variables:
+        - name: stagingOnly
+          value: "staging-value"
+    - name: with-dotenv
+      dotEnvFilePath: ".env"
+      variables:
+        - name: apiKey
+          value: "dotenv-override"

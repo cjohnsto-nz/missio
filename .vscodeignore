@@ -9,3 +9,5 @@ esbuild.js
 **/*.map
 **/*.ts
 !dist/**
+test/**
+vitest.config.ts

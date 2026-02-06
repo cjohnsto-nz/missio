@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { Environment, Variable, SecretVariable, MissioCollection, VariableValue, VariableTypedValue, VariableValueVariant } from '../models/types';
+import type { Environment, Variable, SecretVariable, MissioCollection, VariableValue, VariableTypedValue, VariableValueVariant, RequestDefaults } from '../models/types';
 import type { SecretService } from './secretService';
 
 export class EnvironmentService implements vscode.Disposable {
@@ -52,10 +52,11 @@ export class EnvironmentService implements vscode.Disposable {
   /**
    * Resolve all variables for a collection, merging:
    * 1. Collection-level request defaults
-   * 2. Active environment variables
-   * 3. dotenv file variables (if configured)
+   * 2. Folder-level request defaults (if provided)
+   * 3. Active environment variables
+   * 4. dotenv file variables (if configured)
    */
-  async resolveVariables(collection: MissioCollection): Promise<Map<string, string>> {
+  async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, string>> {
     const vars = new Map<string, string>();
 
     // 1. Collection request-level default variables
@@ -67,11 +68,47 @@ export class EnvironmentService implements vscode.Disposable {
       }
     }
 
-    // 2. Active environment
+    // 2. Folder-level variables (override collection)
+    if (folderDefaults?.variables) {
+      for (const v of folderDefaults.variables) {
+        if (!v.disabled) {
+          const val = this._resolveVariableValue(v.value);
+          if (val !== undefined) {
+            vars.set(v.name, val);
+          }
+        }
+      }
+    }
+
+    // 3. Active environment (overrides collection and folder)
     const envName = this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
+        // Handle `extends` — apply parent env variables first (overrides collection/folder, overridden by child)
+        if (env.extends) {
+          const parent = this.getCollectionEnvironments(collection).find(e => e.name === env.extends);
+          if (parent) {
+            for (const v of parent.variables ?? []) {
+              if ('secret' in v && (v as SecretVariable).secret) {
+                const sv = v as SecretVariable;
+                if (!sv.disabled && sv.name) {
+                  try {
+                    const secret = await this._secretService.resolveSecret(sv.name);
+                    if (secret !== undefined) vars.set(sv.name, secret);
+                  } catch { /* Secret unavailable */ }
+                }
+              } else {
+                const variable = v as Variable;
+                if (!variable.disabled) {
+                  const val = this._resolveVariableValue(variable.value);
+                  if (val !== undefined) vars.set(variable.name, val);
+                }
+              }
+            }
+          }
+        }
+
         // dotenv file
         if (env.dotEnvFilePath) {
           const dotEnvVars = await this._loadDotEnv(collection.rootDir, env.dotEnvFilePath);
@@ -80,10 +117,9 @@ export class EnvironmentService implements vscode.Disposable {
           }
         }
 
-        // Environment variables
+        // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            // Secret variable — resolve via secret provider
             const sv = v as SecretVariable;
             if (!sv.disabled && sv.name) {
               try {
@@ -105,24 +141,6 @@ export class EnvironmentService implements vscode.Disposable {
             }
           }
         }
-
-        // Handle `extends` — inherit from another environment
-        if (env.extends) {
-          const parent = this.getCollectionEnvironments(collection).find(e => e.name === env.extends);
-          if (parent) {
-            for (const v of parent.variables ?? []) {
-              if (!('secret' in v)) {
-                const variable = v as Variable;
-                if (!variable.disabled && !vars.has(variable.name)) {
-                  const val = this._resolveVariableValue(variable.value);
-                  if (val !== undefined) {
-                    vars.set(variable.name, val);
-                  }
-                }
-              }
-            }
-          }
-        }
       }
     }
 
@@ -136,7 +154,7 @@ export class EnvironmentService implements vscode.Disposable {
    * Resolve all variables with their source information.
    * Sources: 'collection', 'environment', 'dotenv', 'secret'
    */
-  async resolveVariablesWithSource(collection: MissioCollection): Promise<Map<string, { value: string; source: string }>> {
+  async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, { value: string; source: string }>> {
     const vars = new Map<string, { value: string; source: string }>();
 
     // 1. Collection request-level default variables
@@ -148,11 +166,47 @@ export class EnvironmentService implements vscode.Disposable {
       }
     }
 
-    // 2. Active environment
+    // 2. Folder-level variables (override collection)
+    if (folderDefaults?.variables) {
+      for (const v of folderDefaults.variables) {
+        if (!v.disabled) {
+          const val = this._resolveVariableValue(v.value);
+          if (val !== undefined) {
+            vars.set(v.name, { value: val, source: 'folder' });
+          }
+        }
+      }
+    }
+
+    // 3. Active environment (overrides collection and folder)
     const envName = this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
+        // Handle `extends` — apply parent env variables first (overrides collection/folder, overridden by child)
+        if (env.extends) {
+          const parent = this.getCollectionEnvironments(collection).find(e => e.name === env.extends);
+          if (parent) {
+            for (const v of parent.variables ?? []) {
+              if ('secret' in v && (v as SecretVariable).secret) {
+                const sv = v as SecretVariable;
+                if (!sv.disabled && sv.name) {
+                  try {
+                    const secret = await this._secretService.resolveSecret(sv.name);
+                    if (secret !== undefined) vars.set(sv.name, { value: secret, source: 'secret' });
+                  } catch { /* Secret unavailable */ }
+                }
+              } else {
+                const variable = v as Variable;
+                if (!variable.disabled) {
+                  const val = this._resolveVariableValue(variable.value);
+                  if (val !== undefined) vars.set(variable.name, { value: val, source: 'environment' });
+                }
+              }
+            }
+          }
+        }
+
         // dotenv file
         if (env.dotEnvFilePath) {
           const dotEnvVars = await this._loadDotEnv(collection.rootDir, env.dotEnvFilePath);
@@ -161,7 +215,7 @@ export class EnvironmentService implements vscode.Disposable {
           }
         }
 
-        // Environment variables
+        // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
             const sv = v as SecretVariable;
@@ -179,24 +233,6 @@ export class EnvironmentService implements vscode.Disposable {
               const val = this._resolveVariableValue(variable.value);
               if (val !== undefined) {
                 vars.set(variable.name, { value: val, source: 'environment' });
-              }
-            }
-          }
-        }
-
-        // Handle `extends`
-        if (env.extends) {
-          const parent = this.getCollectionEnvironments(collection).find(e => e.name === env.extends);
-          if (parent) {
-            for (const v of parent.variables ?? []) {
-              if (!('secret' in v)) {
-                const variable = v as Variable;
-                if (!variable.disabled && !vars.has(variable.name)) {
-                  const val = this._resolveVariableValue(variable.value);
-                  if (val !== undefined) {
-                    vars.set(variable.name, { value: val, source: 'environment' });
-                  }
-                }
               }
             }
           }

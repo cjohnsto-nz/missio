@@ -2,11 +2,19 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
 import { RequestEditorProvider } from '../panels/requestPanel';
+import { FolderEditorProvider } from '../panels/folderPanel';
 
 export function registerFolderCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionTreeProvider } = ctx;
 
   return [
+    vscode.commands.registerCommand('missio.openFolder', async (nodeOrPath: any) => {
+      const dirPath = typeof nodeOrPath === 'string' ? nodeOrPath : nodeOrPath?.dirPath;
+      if (dirPath) {
+        await FolderEditorProvider.open(dirPath);
+      }
+    }),
+
     vscode.commands.registerCommand('missio.newFolder', async (node: any) => {
       let parentDir: string | undefined;
       if (node?.dirPath) {

@@ -632,6 +632,7 @@ td.var-cell .var-overlay {
 
 /* ── Variable Source Colors ──────────────── */
 .tk-src-collection { color: var(--vscode-charts-purple, #b180d7); }
+.tk-src-folder { color: var(--vscode-charts-blue, #3794ff); }
 .tk-src-environment { color: var(--vscode-charts-green, #89d185); }
 .tk-src-dotenv { color: var(--vscode-charts-yellow, #cca700); }
 .tk-src-secret { color: var(--vscode-charts-orange, #d18616); }
@@ -649,6 +650,8 @@ td.var-cell .var-overlay {
 .tk-var-resolved:hover { background: rgba(255,255,255,0.1); }
 .tk-var-resolved.tk-src-collection { background: rgba(177,128,215,0.1); }
 .tk-var-resolved.tk-src-collection:hover { background: rgba(177,128,215,0.2); }
+.tk-var-resolved.tk-src-folder { background: rgba(55,148,255,0.1); }
+.tk-var-resolved.tk-src-folder:hover { background: rgba(55,148,255,0.2); }
 .tk-var-resolved.tk-src-environment { background: rgba(137,209,133,0.1); }
 .tk-var-resolved.tk-src-environment:hover { background: rgba(137,209,133,0.2); }
 .tk-var-resolved.tk-src-dotenv { background: rgba(204,167,0,0.1); }

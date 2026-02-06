@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest } from '../models/types';
+import type { HttpRequest, RequestDefaults } from '../models/types';
 import type { HttpClient } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
-import { stringifyYaml } from '../services/yamlParser';
+import { stringifyYaml, readFolderFile } from '../services/yamlParser';
 
 /**
  * CustomTextEditorProvider for OpenCollection request YAML files.
@@ -118,10 +119,10 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     // Live-reload variables when collection or environment data changes
     disposables.push(
       this._collectionService.onDidChange(() => {
-        this._sendVariables(webviewPanel.webview, collectionId);
+        this._sendVariables(webviewPanel.webview, collectionId, filePath);
       }),
       this._environmentService.onDidChange(() => {
-        this._sendVariables(webviewPanel.webview, collectionId);
+        this._sendVariables(webviewPanel.webview, collectionId, filePath);
       }),
     );
 
@@ -131,7 +132,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         switch (msg.type) {
           case 'ready': {
             updateWebview();
-            await this._sendVariables(webviewPanel.webview, collectionId);
+            await this._sendVariables(webviewPanel.webview, collectionId, filePath);
             break;
           }
           case 'updateDocument': {
@@ -177,7 +178,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
             break;
           }
           case 'resolveVariables': {
-            await this._sendVariables(webviewPanel.webview, collectionId);
+            await this._sendVariables(webviewPanel.webview, collectionId, filePath);
             break;
           }
           case 'methodChanged': {
@@ -269,12 +270,33 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     return collection?.id;
   }
 
-  private async _sendVariables(webview: vscode.Webview, collectionId: string | undefined): Promise<void> {
+  private async _sendVariables(webview: vscode.Webview, collectionId: string | undefined, requestFilePath?: string): Promise<void> {
     if (!collectionId) return;
     try {
       const collection = this._collectionService.getCollection(collectionId);
       if (!collection) return;
-      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
+
+      // Find folder defaults by looking for folder.yml in the request's parent directory
+      let folderDefaults: RequestDefaults | undefined;
+      if (requestFilePath) {
+        const dir = path.dirname(requestFilePath);
+        // Only look for folder.yml if we're inside the collection (not at root level)
+        if (dir.toLowerCase() !== collection.rootDir.toLowerCase()) {
+          for (const name of ['folder.yml', 'folder.yaml']) {
+            try {
+              const folderData = await readFolderFile(path.join(dir, name));
+              if (folderData?.request) {
+                folderDefaults = folderData.request;
+              }
+              break;
+            } catch {
+              // No folder.yml — that's fine
+            }
+          }
+        }
+      }
+
+      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults);
       const varsObj: Record<string, string> = {};
       const sourcesObj: Record<string, string> = {};
       for (const [k, v] of varsWithSource) {

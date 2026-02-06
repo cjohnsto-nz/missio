@@ -56,8 +56,25 @@
         "viewType": "missio.collectionEditor",
         "displayName": "Missio Collection Editor",
         "selector": [
-          { "filenamePattern": "**/collection.yml" },
-          { "filenamePattern": "**/collection.yaml" }
+          {
+            "filenamePattern": "**/collection.yml"
+          },
+          {
+            "filenamePattern": "**/collection.yaml"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "missio.folderEditor",
+        "displayName": "Missio Folder Editor",
+        "selector": [
+          {
+            "filenamePattern": "**/folder.yml"
+          },
+          {
+            "filenamePattern": "**/folder.yaml"
+          }
         ],
         "priority": "option"
       },
@@ -65,8 +82,12 @@
         "viewType": "missio.requestEditor",
         "displayName": "Missio Request Editor",
         "selector": [
-          { "filenamePattern": "*.yml" },
-          { "filenamePattern": "*.yaml" }
+          {
+            "filenamePattern": "*.yml"
+          },
+          {
+            "filenamePattern": "*.yaml"
+          }
         ],
         "priority": "option"
       }
@@ -189,6 +210,12 @@
         "command": "missio.loadExample",
         "title": "Load Example",
         "category": "Missio"
+      },
+      {
+        "command": "missio.openFolder",
+        "title": "Configure Folder",
+        "category": "Missio",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -246,6 +273,11 @@
           "group": "2_delete@1"
         },
         {
+          "command": "missio.openFolder",
+          "when": "view == missio.collections && viewItem == folder",
+          "group": "inline"
+        },
+        {
           "command": "missio.renameFolder",
           "when": "view == missio.collections && viewItem == folder",
           "group": "1_modify@1"
@@ -274,13 +306,62 @@
       ]
     },
     "colors": [
-      { "id": "missio.methodGet", "description": "GET method color", "defaults": { "dark": "#89d185", "light": "#388a34" } },
-      { "id": "missio.methodPost", "description": "POST method color", "defaults": { "dark": "#d18616", "light": "#d18616" } },
-      { "id": "missio.methodPut", "description": "PUT method color", "defaults": { "dark": "#3794ff", "light": "#1a85ff" } },
-      { "id": "missio.methodPatch", "description": "PATCH method color", "defaults": { "dark": "#b180d7", "light": "#652d90" } },
-      { "id": "missio.methodDelete", "description": "DELETE method color", "defaults": { "dark": "#f14c4c", "light": "#e51400" } },
-      { "id": "missio.methodHead", "description": "HEAD method color", "defaults": { "dark": "#11a8cd", "light": "#0598bc" } },
-      { "id": "missio.methodOptions", "description": "OPTIONS method color", "defaults": { "dark": "#bc3fbc", "light": "#bc05bc" } }
+      {
+        "id": "missio.methodGet",
+        "description": "GET method color",
+        "defaults": {
+          "dark": "#89d185",
+          "light": "#388a34"
+        }
+      },
+      {
+        "id": "missio.methodPost",
+        "description": "POST method color",
+        "defaults": {
+          "dark": "#d18616",
+          "light": "#d18616"
+        }
+      },
+      {
+        "id": "missio.methodPut",
+        "description": "PUT method color",
+        "defaults": {
+          "dark": "#3794ff",
+          "light": "#1a85ff"
+        }
+      },
+      {
+        "id": "missio.methodPatch",
+        "description": "PATCH method color",
+        "defaults": {
+          "dark": "#b180d7",
+          "light": "#652d90"
+        }
+      },
+      {
+        "id": "missio.methodDelete",
+        "description": "DELETE method color",
+        "defaults": {
+          "dark": "#f14c4c",
+          "light": "#e51400"
+        }
+      },
+      {
+        "id": "missio.methodHead",
+        "description": "HEAD method color",
+        "defaults": {
+          "dark": "#11a8cd",
+          "light": "#0598bc"
+        }
+      },
+      {
+        "id": "missio.methodOptions",
+        "description": "OPTIONS method color",
+        "defaults": {
+          "dark": "#bc3fbc",
+          "light": "#bc05bc"
+        }
+      }
     ],
     "configuration": {
       "title": "Missio",
@@ -375,6 +456,8 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint src --ext ts",
     "compile": "tsc -p ./"
   },
@@ -383,7 +466,8 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
     "esbuild-plugin-copy": "^2.1.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "@azure/identity": "^4.0.0",

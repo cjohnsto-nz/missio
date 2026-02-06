@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, isRequestFile } from './yamlParser';
+import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, isFolderFile } from './yamlParser';
 import type { MissioCollection, OpenCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
 export class CollectionService implements vscode.Disposable {
@@ -124,6 +124,21 @@ export class CollectionService implements vscode.Disposable {
             info: { name, type: 'folder' },
             items: folderItems,
           };
+          // Try to read folder.yml for request defaults (auth, headers, variables)
+          for (const folderFileName of ['folder.yml', 'folder.yaml']) {
+            const folderFilePath = path.join(fullPath, folderFileName);
+            try {
+              const folderData = await readFolderFile(folderFilePath);
+              if (folderData) {
+                if (folderData.info) Object.assign(folder.info!, folderData.info);
+                if (folderData.request) folder.request = folderData.request;
+                if (folderData.docs) folder.docs = folderData.docs;
+              }
+              break;
+            } catch {
+              // No folder.yml — that's fine
+            }
+          }
           // Tag with the actual directory path for tree operations
           (folder as any)._dirPath = fullPath;
           items.push(folder);
