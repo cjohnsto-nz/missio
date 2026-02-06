@@ -380,12 +380,34 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
 
     if (isOAuth2) {
-      webview.postMessage({ type: 'sending', message: 'Acquiring OAuth2 token...' });
+      webview.postMessage({ type: 'sending', message: 'Acquiring OAuth2 token…' });
     } else {
       webview.postMessage({ type: 'sending' });
     }
 
     try {
+      if (isOAuth2) {
+        // Pre-acquire the token so we can update the spinner before the HTTP call
+        const auth = effectiveAuth as AuthOAuth2;
+        const vars = await this._environmentService.resolveVariables(collection);
+        const interpolated: AuthOAuth2 = {
+          type: 'oauth2', flow: auth.flow,
+          accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, vars) : undefined,
+          refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, vars) : undefined,
+          clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, vars) : undefined,
+          clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, vars) : undefined,
+          username: auth.username ? this._environmentService.interpolate(auth.username, vars) : undefined,
+          password: auth.password ? this._environmentService.interpolate(auth.password, vars) : undefined,
+          scope: auth.scope ? this._environmentService.interpolate(auth.scope, vars) : undefined,
+          credentialsPlacement: auth.credentialsPlacement,
+          credentialsId: auth.credentialsId,
+          autoFetchToken: true,
+          autoRefreshToken: auth.autoRefreshToken,
+        };
+        const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+        await this._oauth2Service.getToken(interpolated, collection.id, envName);
+        webview.postMessage({ type: 'sending', message: 'Sending request…' });
+      }
       const response = await this._httpClient.send(requestData, collection, folderDefaults);
       webview.postMessage({ type: 'response', response });
     } catch (e: any) {

@@ -9,12 +9,18 @@ let lastResponseBody = '';
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 
-export function showLoading(): void {
+export function showLoading(text?: string): void {
   $('respLoading').style.display = 'flex';
   $('respEmpty').style.display = 'none';
   $('respBodyWrap').style.display = 'none';
   $('responseBar').style.display = 'none';
   $('respTabs').style.display = 'none';
+  if (text) setLoadingText(text);
+}
+
+export function setLoadingText(text: string): void {
+  const el = $('respLoading').querySelector('span');
+  if (el) el.textContent = text;
 }
 
 export function hideLoading(): void {

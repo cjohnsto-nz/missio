@@ -24,7 +24,7 @@ import {
 } from './autocomplete';
 import {
   showResponse, showLoading, hideLoading, clearResponse,
-  getLastResponse, getLastResponseBody,
+  getLastResponse, getLastResponseBody, setLoadingText,
 } from './response';
 
 // ── Document update scheduling ───────────────────
@@ -749,7 +749,6 @@ function saveRequest(): void {
 // ── Load request into UI ────────────────────────
 function loadRequest(req: any): void {
   setCurrentRequest(req);
-  clearResponse();
   $('exampleIndicator').style.display = 'none';
   const http = req.http || {};
   (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
@@ -835,7 +834,8 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'sending':
       $('sendBtn').classList.add('sending');
       ($('sendBtn') as HTMLButtonElement).disabled = true;
-      $('sendBtn').textContent = msg.message || 'Sending...';
+      $('sendBtn').textContent = 'Sending...';
+      if (msg.message) setLoadingText(msg.message);
       break;
     case 'saved':
       break;
@@ -912,6 +912,12 @@ $('varToggleBtn').addEventListener('click', () => {
   syncAllVarOverlays();
 });
 $('sendBtn').addEventListener('click', sendRequest);
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    sendRequest();
+  }
+});
 $('copyRespBtn').addEventListener('click', () => {
   const body = getLastResponseBody();
   if (!body) return;
