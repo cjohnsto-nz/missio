@@ -23,6 +23,10 @@ import {
   setAutocompleteSyncCallbacks,
 } from './autocomplete';
 import {
+  handleODataAutocomplete, handleODataKeydown,
+  hideODataAutocomplete, isODataAutocompleteActive,
+} from './odataAutocomplete';
+import {
   showResponse, showLoading, hideLoading, clearResponse,
   getLastResponse, getLastResponseBody, setLoadingText,
 } from './response';
@@ -113,14 +117,19 @@ function addParam(name = '', value = '', type = 'query', disabled = false): void
   tr.innerHTML =
     '<td><input type="checkbox" class="p-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="p-name" value="' + esc(name) + '" placeholder="name" /></td>' +
-    '<td><input type="text" class="p-value" value="' + esc(value) + '" placeholder="value" /></td>' +
-    '<td><select class="p-type auth-select" style="margin:0;"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
+    '<td class="val-cell"><div class="val-ce p-value" contenteditable="true" data-placeholder="value"></div></td>' +
+    '<td><select class="p-type select-borderless"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
   tr.addEventListener('change', scheduleDocumentUpdate);
-  enableVarOverlay(tr.querySelector('.p-name') as HTMLInputElement);
-  enableVarOverlay(tr.querySelector('.p-value') as HTMLInputElement);
+  const nameInput = tr.querySelector('.p-name') as HTMLInputElement;
+  enableVarOverlay(nameInput);
+  nameInput.addEventListener('input', () => { handleODataAutocomplete(nameInput); scheduleDocumentUpdate(); });
+  nameInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isODataAutocompleteActive()) handleODataKeydown(e);
+  });
+  nameInput.addEventListener('blur', () => hideODataAutocomplete());
+  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value);
   tbody.appendChild(tr);
   updateBadges();
 }
@@ -132,15 +141,81 @@ function addHeader(name = '', value = '', disabled = false): void {
   tr.innerHTML =
     '<td><input type="checkbox" class="h-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
-    '<td><input type="text" class="h-value" value="' + esc(value) + '" placeholder="value" /></td>' +
+    '<td class="val-cell"><div class="val-ce h-value" contenteditable="true" data-placeholder="value"></div></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
   tr.addEventListener('change', scheduleDocumentUpdate);
-  enableVarOverlay(tr.querySelector('.h-name') as HTMLInputElement);
-  enableVarOverlay(tr.querySelector('.h-value') as HTMLInputElement);
+  const hNameInput = tr.querySelector('.h-name') as HTMLInputElement;
+  enableVarOverlay(hNameInput);
+  hNameInput.addEventListener('input', scheduleDocumentUpdate);
+  enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value);
   tbody.appendChild(tr);
   updateBadges();
+}
+
+// ── Contenteditable value field (same pattern as URL bar) ───
+function enableContentEditableValue(el: HTMLElement, initialValue: string): void {
+  // Backing store for raw text
+  let rawText = initialValue || '';
+  (el as any)._getRawText = () => rawText;
+
+  function syncHighlightCE(): void {
+    if (!rawText) {
+      el.innerHTML = '';
+      return;
+    }
+    const sel = window.getSelection();
+    let cursorOffset = 0;
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const preRange = document.createRange();
+      preRange.selectNodeContents(el);
+      preRange.setEnd(range.startContainer, range.startOffset);
+      cursorOffset = preRange.toString().length;
+    }
+    el.innerHTML = highlightVariables(escHtml(rawText));
+    if (sel && document.activeElement === el) {
+      restoreCursor(el, cursorOffset);
+    }
+  }
+
+  // Initial render
+  syncHighlightCE();
+
+  el.addEventListener('input', () => {
+    if (getShowResolvedVars()) {
+      breakIllusion();
+      restoreCursor(el, rawText.length);
+      return;
+    }
+    const sel = window.getSelection();
+    let cursorOffset = 0;
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const preRange = document.createRange();
+      preRange.selectNodeContents(el);
+      preRange.setEnd(range.startContainer, range.startOffset);
+      cursorOffset = preRange.toString().length;
+    }
+    rawText = el.textContent || '';
+    syncHighlightCE();
+    restoreCursor(el, cursorOffset);
+    handleAutocompleteContentEditable(el, syncHighlightCE);
+    scheduleDocumentUpdate();
+  });
+
+  el.addEventListener('click', (e: Event) => {
+    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+    if (target && target.dataset.var) {
+      showVarTooltipAt(target, target.dataset.var);
+    }
+  });
+
+  el.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isAutocompleteActive()) {
+      handleAutocompleteKeydown(e);
+    }
+  });
 }
 
 // ── Generic Variable Overlay for Text Inputs ────
@@ -197,6 +272,16 @@ function syncAllVarOverlays(): void {
     const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
     if (input && overlay && cell.classList.contains('var-overlay-active')) {
       overlay.innerHTML = highlightVariables(escHtml(input.value));
+    }
+  });
+  // Re-highlight contenteditable value fields
+  document.querySelectorAll('.val-ce').forEach((el) => {
+    const getRaw = (el as any)._getRawText;
+    if (getRaw && document.activeElement !== el) {
+      const raw = getRaw();
+      if (raw) {
+        el.innerHTML = highlightVariables(escHtml(raw));
+      }
     }
   });
 }
@@ -670,7 +755,7 @@ function buildRequest(): any {
   document.querySelectorAll('#paramsBody tr').forEach((tr) => {
     params.push({
       name: (tr.querySelector('.p-name') as HTMLInputElement).value,
-      value: (tr.querySelector('.p-value') as HTMLInputElement).value,
+      value: ((tr.querySelector('.p-value') as any)._getRawText ? (tr.querySelector('.p-value') as any)._getRawText() : (tr.querySelector('.p-value') as HTMLElement).textContent || ''),
       type: (tr.querySelector('.p-type') as HTMLSelectElement).value,
       disabled: !(tr.querySelector('.p-enabled') as HTMLInputElement).checked,
     });
@@ -682,7 +767,7 @@ function buildRequest(): any {
   document.querySelectorAll('#headersBody tr').forEach((tr) => {
     headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
-      value: (tr.querySelector('.h-value') as HTMLInputElement).value,
+      value: ((tr.querySelector('.h-value') as any)._getRawText ? (tr.querySelector('.h-value') as any)._getRawText() : (tr.querySelector('.h-value') as HTMLElement).textContent || ''),
       disabled: !(tr.querySelector('.h-enabled') as HTMLInputElement).checked,
     });
   });

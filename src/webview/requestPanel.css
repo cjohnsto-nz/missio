@@ -101,6 +101,8 @@ body {
   right: 0;
   top: 0;
   z-index: 100;
+  height: auto;
+  min-height: 100%;
   white-space: pre-wrap;
   word-break: break-all;
   overflow: visible;
@@ -301,6 +303,60 @@ body {
 }
 .kv-table .row-delete:hover { color: var(--badge-error); background: rgba(239,68,68,0.1); }
 
+/* ── Expandable value cells (contenteditable) ── */
+.kv-table td.val-cell {
+  position: relative;
+  max-width: 0;
+  height: 1px;
+}
+.val-ce {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  color: var(--fg);
+  padding: 0 6px 0 12px;
+  font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  outline: none;
+  cursor: text;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 100%;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+.val-ce:focus {
+  z-index: 100;
+  height: auto;
+  bottom: auto;
+  top: 3px;
+  min-height: calc(100% - 3px);
+  max-height: 30vh;
+  display: block;
+  padding: 4px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: visible;
+  overflow-y: auto;
+  text-overflow: clip;
+  background: var(--input-bg);
+  border-color: var(--btn-bg);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.val-ce:empty::before {
+  content: attr(data-placeholder);
+  color: var(--vscode-input-placeholderForeground, #888);
+  pointer-events: none;
+}
+
 /* ── Generic Variable Highlight Overlay ───── */
 .var-cell {
   position: relative;
@@ -461,6 +517,21 @@ td.var-cell .var-overlay {
 .tk-tag { color: #569cd6; }
 .tk-attr { color: #9cdcfe; }
 .tk-bracket { color: #ffd700; }
+
+/* ── Borderless select ────────────────── */
+.select-borderless {
+  background: transparent;
+  color: #888;
+  border: none;
+  padding: 4px 2px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.select-borderless:hover { color: var(--fg); }
+.select-borderless:focus { color: var(--fg); }
+.select-borderless option { background: var(--input-bg); color: var(--fg); }
 
 /* ── Auth select (consistent) ──────────── */
 .auth-select {

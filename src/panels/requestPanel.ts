@@ -474,6 +474,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         <!-- Params -->
         <div class="tab-panel" id="panel-params">
           <table class="kv-table" id="paramsTable">
+            <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup>
             <thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>
             <tbody id="paramsBody"></tbody>
           </table>
@@ -482,6 +483,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         <!-- Headers -->
         <div class="tab-panel" id="panel-headers">
           <table class="kv-table" id="headersTable">
+            <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
             <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
             <tbody id="headersBody"></tbody>
           </table>
