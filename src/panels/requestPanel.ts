@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, RequestDefaults, AuthOAuth2, MissioCollection } from '../models/types';
-import type { HttpClient } from '../services/httpClient';
+import { type HttpClient, requestLog } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -180,6 +180,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
   }
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
+    const _t0 = Date.now();
+    const _rlog = (msg: string) => {
+      const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+      requestLog.appendLine(`[${ts}] ${msg}`);
+    };
+    _rlog(`── _sendRequest start ──`);
     // Determine effective auth for progress reporting
     let effectiveAuth = requestData.http?.auth;
     if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
@@ -220,10 +226,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
           autoRefreshToken: auth.autoRefreshToken,
         };
         const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+        _rlog(`  oauth2 resolve fields: ${Date.now() - _t0}ms`);
         await this._oauth2Service.getToken(interpolated, collection.id, envName);
+        _rlog(`  oauth2 getToken: ${Date.now() - _t0}ms`);
         webview.postMessage({ type: 'sending', message: 'Sending request…' });
       }
+      _rlog(`  pre-send: ${Date.now() - _t0}ms`);
       const response = await this._httpClient.send(requestData, collection, folderDefaults);
+      _rlog(`  httpClient.send done: ${Date.now() - _t0}ms`);
       webview.postMessage({ type: 'response', response });
     } catch (e: any) {
       webview.postMessage({

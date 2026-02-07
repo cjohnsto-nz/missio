@@ -11,6 +11,13 @@ import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
 
+const _logChannel = vscode.window.createOutputChannel('Missio Requests');
+function _log(msg: string): void {
+  const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+  _logChannel.appendLine(`[${ts}] ${msg}`);
+}
+export { _logChannel as requestLog };
+
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
@@ -31,7 +38,10 @@ export class HttpClient implements vscode.Disposable {
     collection: MissioCollection,
     folderDefaults?: import('../models/types').RequestDefaults,
   ): Promise<HttpResponse> {
+    const t0 = Date.now();
+    _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    _log(`  resolveVariables: ${Date.now() - t0}ms`);
     const details = request.http;
     if (!details?.url || !details?.method) {
       throw new Error('Request must have a URL and method');
@@ -97,6 +107,7 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _log(`  interpolate+params: ${Date.now() - t0}ms`);
     // Auth: request -> folder -> collection (first non-inherit wins)
     let auth: Auth | undefined = details.auth;
     if (!auth || auth === 'inherit') {
@@ -113,6 +124,7 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _log(`  auth: ${Date.now() - t0}ms`);
     // Body
     let body: string | Buffer | undefined;
     const resolvedBody = this._resolveBody(details.body);
@@ -121,6 +133,7 @@ export class HttpClient implements vscode.Disposable {
       body = result;
     }
 
+    _log(`  body: ${Date.now() - t0}ms`);
     // Resolve $secret references in URL, headers, and body
     const providers = collection.data.config?.secretProviders ?? [];
     if (providers.length > 0 && this._secretService) {
@@ -134,7 +147,9 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _log(`  secrets: ${Date.now() - t0}ms`);
     // Execute
+    _log(`  executing: ${details.method} ${url}`);
     const parsedUrl = new URL(url);
     const isHttps = parsedUrl.protocol === 'https:';
     const requestModule = isHttps ? https : http;

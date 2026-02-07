@@ -46,12 +46,15 @@ function updateRespLineNumbers(): void {
     html += '<span>' + i + '</span>';
   }
   gutter.innerHTML = html;
-  // Match each gutter span height to its corresponding content line
+  // Batch-read all heights first (single reflow), then batch-write
+  const heights: number[] = [];
+  for (let i = 0; i < lineDivs.length; i++) {
+    heights.push((lineDivs[i] as HTMLElement).offsetHeight);
+  }
   const spans = gutter.children;
   for (let i = 0; i < spans.length; i++) {
-    const div = lineDivs[i] as HTMLElement | undefined;
-    if (div) {
-      (spans[i] as HTMLElement).style.height = div.offsetHeight + 'px';
+    if (heights[i]) {
+      (spans[i] as HTMLElement).style.height = heights[i] + 'px';
     }
   }
 }
@@ -105,11 +108,18 @@ export function showResponse(resp: any): void {
   }
 
   lastResponseBody = bodyText;
+  console.time('resp:highlight');
   const lines = bodyText.split('\n');
-  $('respBodyPre').innerHTML = lines.map((line: string) =>
+  const html = lines.map((line: string) =>
     '<div class="code-line">' + highlight(line, lang) + '\n</div>'
   ).join('');
+  console.timeEnd('resp:highlight');
+  console.time('resp:innerHTML');
+  $('respBodyPre').innerHTML = html;
+  console.timeEnd('resp:innerHTML');
+  console.time('resp:lineNumbers');
   updateRespLineNumbers();
+  console.timeEnd('resp:lineNumbers');
 
   // Headers
   const tbody = $('respHeadersBody');
