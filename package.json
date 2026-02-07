@@ -232,6 +232,12 @@
         "title": "Show in Finder",
         "category": "Missio",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "missio.deleteCollection",
+        "title": "Delete Collection",
+        "category": "Missio",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -272,6 +278,11 @@
           "command": "missio.showCollectionInFinder",
           "when": "view == missio.collections && viewItem == collection && isMac",
           "group": "1_open@1"
+        },
+        {
+          "command": "missio.deleteCollection",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "2_delete@1"
         },
         {
           "command": "missio.newRequest",

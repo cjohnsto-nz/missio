@@ -34,6 +34,53 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     await vscode.commands.executeCommand('workbench.view.explorer');
     await vscode.commands.executeCommand('revealInExplorer', target);
   };
+  const deleteCollection = async (nodeOrId?: any): Promise<void> => {
+    const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
+    let collection;
+    if (collectionId) {
+      collection = collectionService.getCollection(collectionId);
+    } else {
+      const collections = collectionService.getCollections();
+      if (collections.length === 1) {
+        collection = collections[0];
+      } else if (collections.length > 1) {
+        const pick = await vscode.window.showQuickPick(
+          collections.map(c => ({
+            label: c.data.info?.name ?? path.basename(c.rootDir),
+            description: c.rootDir,
+            collection: c,
+          })),
+          { placeHolder: 'Select a collection to delete' },
+        );
+        collection = pick?.collection;
+      }
+    }
+    if (!collection) return;
+
+    const name = collection.data.info?.name ?? path.basename(collection.rootDir);
+    const confirm = await vscode.window.showWarningMessage(
+      `Delete collection "${name}"?`,
+      {
+        modal: true,
+        detail: 'This will delete the entire collection folder and all files inside it.',
+      },
+      'Delete Collection',
+    );
+    if (confirm !== 'Delete Collection') return;
+
+    try {
+      await vscode.workspace.fs.delete(vscode.Uri.file(collection.rootDir), {
+        recursive: true,
+        useTrash: true,
+      });
+      collectionService.refresh();
+      vscode.window.showInformationMessage(`Collection "${name}" deleted.`);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to delete collection "${name}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
 
   return [
     vscode.commands.registerCommand('missio.refreshCollections', () => {
@@ -110,5 +157,6 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
 
     vscode.commands.registerCommand('missio.showCollectionInExplorer', revealCollectionInExplorer),
     vscode.commands.registerCommand('missio.showCollectionInFinder', revealCollectionInExplorer),
+    vscode.commands.registerCommand('missio.deleteCollection', deleteCollection),
   ];
 }
