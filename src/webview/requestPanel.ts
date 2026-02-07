@@ -106,11 +106,6 @@ document.addEventListener('mouseup', () => {
 // ── Method color ────────────────────────────────
 const methodSelect = $('method') as HTMLSelectElement;
 const methodPicker = $('methodPicker') as HTMLDivElement;
-const platform = navigator.platform || '';
-const userAgent = navigator.userAgent || '';
-const isMacOsDesktop = /^Mac/i.test(platform) && !/iPhone|iPad|iPod/i.test(userAgent);
-const isUnixDesktop = /Linux|X11|Unix/i.test(platform);
-const useCustomMethodPicker = isMacOsDesktop || isUnixDesktop;
 let methodMenu: HTMLDivElement | null = null;
 let methodTrigger: HTMLButtonElement | null = null;
 
@@ -135,7 +130,6 @@ function setMethodValue(method: string): void {
 }
 
 function setupMethodPicker(): void {
-  if (!useCustomMethodPicker) return;
   methodPicker.classList.add('custom');
 
   methodTrigger = document.createElement('button');
