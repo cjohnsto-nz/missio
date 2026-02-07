@@ -62,6 +62,34 @@
 .env-toolbar-btn.env-toolbar-delete { color: var(--m-fg-muted); }
 .env-toolbar-btn.env-toolbar-delete:hover { color: var(--badge-error); border-color: var(--badge-error); background: rgba(239,68,68,0.05); }
 
+/* ── Add Environment Menu ─────────────── */
+.env-add-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  min-width: 110px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.env-add-menu-item {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font-size: 12px;
+  border-radius: 4px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.env-add-menu-item:hover {
+  background: rgba(0, 120, 212, 0.15);
+}
+
 /* ── Environment Detail ─────────────────── */
 .env-detail-empty {
   display: flex;
