@@ -15,7 +15,7 @@
   --m-border: var(--vscode-panel-border, var(--vscode-widget-border, #333));
 
   /* Inputs */
-  --m-input-bg: var(--vscode-input-background, #1f1f1f);
+  --m-input-bg: color-mix(in srgb, var(--vscode-input-background, #1f1f1f) 85%, black);
   --m-input-fg: var(--vscode-input-foreground);
   --m-input-border: var(--vscode-input-border, #444);
   --m-input-placeholder: var(--vscode-input-placeholderForeground, #888);
