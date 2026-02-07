@@ -1,14 +1,15 @@
 /**
  * Centralized variable tooltip component shared by all panels.
- * Shows an editable value field for both resolved and unresolved variables,
- * with Postman-style color-coded scope badges and a dropdown to choose
- * where to persist the variable.
+ * Identical layout for every variable type: editable input + scope dropdown.
+ * For secrets (env secrets & provider secrets) the input starts as
+ * type="password" with a small reveal toggle; otherwise type="text".
  */
 
 export interface VarTooltipContext {
   getResolvedVariables: () => Record<string, string>;
   getVariableSources: () => Record<string, string>;
   getSecretKeys?: () => Set<string>;
+  getSecretVarNames?: () => Set<string>;
   postMessage?: (msg: any) => void;
   onEditVariable?: (name: string) => void;
 }
@@ -22,6 +23,9 @@ const SCOPES: ScopeDef[] = [
   { key: 'global',      label: 'Globals',      badge: 'G', badgeClass: 'var-scope-badge-G' },
 ];
 
+// SVG eye icon that works in both light and dark themes
+const EYE_SVG = "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>";
+
 function scopeDefForSource(source: string): ScopeDef {
   if (source === 'environment' || source === 'dotenv') return SCOPES[0];
   if (source === 'collection' || source === 'folder') return SCOPES[1];
@@ -33,8 +37,6 @@ function scopeDefForSource(source: string): ScopeDef {
 
 let activeTooltip: HTMLElement | null = null;
 let _pendingSecretRef: string | null = null;
-let _resolvedSecretValue: string | null = null;
-let _secretRevealed = false;
 
 // ── Helpers ──
 
@@ -60,88 +62,72 @@ export function hideVarTooltip(): void {
   document.removeEventListener('click', onTooltipOutsideClick);
 }
 
-/** Called when the extension host responds with a resolved secret value. */
+/** Called when the extension host responds with a resolved secret provider value. */
 export function handleSecretValueResolved(msg: { secretRef: string; value?: string; error?: string }): void {
   if (!activeTooltip || msg.secretRef !== _pendingSecretRef) return;
-  const valueEl = activeTooltip.querySelector('.var-secret-value') as HTMLElement;
-  const revealBtn = activeTooltip.querySelector('.var-action-btn[data-action="reveal"]') as HTMLElement;
+  const valueInput = activeTooltip.querySelector('.var-tooltip-value-input') as HTMLInputElement;
+  if (!valueInput) return;
 
   if (msg.error) {
-    if (valueEl) { valueEl.textContent = msg.error; valueEl.style.color = '#f48771'; valueEl.style.fontStyle = 'normal'; }
-    if (revealBtn) revealBtn.textContent = 'Reveal Value';
+    valueInput.value = '';
+    valueInput.placeholder = msg.error;
     return;
   }
-
-  const val = msg.value ?? '';
-  _resolvedSecretValue = val;
-  if (valueEl) { valueEl.textContent = val; valueEl.style.cssText = ''; }
-  if (revealBtn) revealBtn.textContent = 'Hide Value';
-  _secretRevealed = true;
-
-  const copyBtn = activeTooltip.querySelector('.var-action-btn[data-action="copy"]') as HTMLElement;
-  if (copyBtn) { copyBtn.textContent = 'Copy Value'; copyBtn.dataset.secretValue = val; }
+  valueInput.value = msg.value ?? '';
 }
 
 export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: VarTooltipContext): void {
   hideVarTooltip();
-  _resolvedSecretValue = null;
-  _secretRevealed = false;
 
   const rect = anchorEl.getBoundingClientRect();
   const vars = ctx.getResolvedVariables();
   const sources = ctx.getVariableSources();
   const secretKeys = ctx.getSecretKeys?.() ?? new Set<string>();
+  const secretVarNames = ctx.getSecretVarNames?.() ?? new Set<string>();
   const resolved = varName in vars;
-  const isSecret = secretKeys.has(varName);
-  const source = sources[varName] || (isSecret ? 'secret' : '');
-  const isSecretProvider = isSecret && !resolved;
+  const isProviderSecret = secretKeys.has(varName);
+  const isEnvSecret = secretVarNames.has(varName);
+  const isAnySecret = isProviderSecret || isEnvSecret;
+  const source = sources[varName] || (isProviderSecret ? 'secret' : '');
 
   const tooltip = document.createElement('div');
   tooltip.className = 'var-tooltip';
 
-  // ── Build HTML ──
+  // ── Build HTML — identical layout for every type ──
 
-  let html = '';
+  const currentValue = resolved ? vars[varName] : '';
+  const inputType = isAnySecret ? 'password' : 'text';
 
-  if (isSecretProvider) {
-    // Secret provider reference — show reveal/copy only
-    html +=
-      "<div class='var-name'>{{" + esc(varName) + "}}</div>" +
-      "<div class='var-source tk-src-secret'>Secret Provider</div>" +
-      "<div class='var-secret-value var-value' style='font-style:italic;opacity:0.7'>Value hidden</div>" +
-      "<div class='var-actions'>" +
-        (ctx.postMessage ? "<button class='var-action-btn' data-action='reveal'>Reveal Value</button>" : '') +
-        "<button class='var-action-btn' data-action='copy'>Copy Name</button>" +
-      "</div>";
-  } else {
-    // Resolved or unresolved — editable value + scope selector
-    const currentValue = resolved ? vars[varName] : '';
-    const currentScope = resolved ? scopeDefForSource(source) : null;
-
-    // Editable value input
-    html += "<input type='text' class='var-tooltip-value-input' placeholder='Enter value' value='" + esc(currentValue).replace(/'/g, '&#39;') + "' />";
-
-    // Scope selector row
-    const selectedScope = currentScope || SCOPES[0];
-    html += "<div class='var-tooltip-scope-row'>" +
-      "<div class='var-scope-dropdown'>" +
-        "<button class='var-scope-trigger'>" +
-          "<span class='var-scope-badge " + selectedScope.badgeClass + "'>" + selectedScope.badge + "</span>" +
-          "<span>Save to " + selectedScope.label + " \u25BE</span>" +
-        "</button>" +
-        "<div class='var-scope-menu'>" +
-          SCOPES.map(s =>
-            "<button class='var-scope-option' data-scope='" + s.key + "'>" +
-              "<span class='var-scope-badge " + s.badgeClass + "'>" + s.badge + "</span>" +
-              "<span>" + s.label + "</span>" +
-            "</button>"
-          ).join('') +
-        "</div>" +
-      "</div>" +
-    "</div>";
+  // Value input row — for secrets, add a reveal toggle button
+  let inputHtml = "<div class='var-tooltip-input-row'>" +
+    "<input type='" + inputType + "' class='var-tooltip-value-input' placeholder='Enter value' value='" + esc(currentValue).replace(/'/g, '&#39;') + "' />";
+  if (isAnySecret) {
+    inputHtml += "<button class='var-tooltip-reveal' title='Show/hide value'>" + EYE_SVG + "</button>";
   }
+  inputHtml += "</div>";
 
-  tooltip.innerHTML = html;
+  // Scope selector row — identical for all types
+  const currentScope = resolved ? scopeDefForSource(source) : (isProviderSecret ? { badge: 'S', badgeClass: 'var-scope-badge-secret', label: 'Secret Provider', key: 'secret' } as any : null);
+  const selectedScope = currentScope || SCOPES[0];
+
+  const scopeHtml = "<div class='var-tooltip-scope-row'>" +
+    "<div class='var-scope-dropdown'>" +
+      "<button class='var-scope-trigger'>" +
+        "<span class='var-scope-badge " + selectedScope.badgeClass + "'>" + selectedScope.badge + "</span>" +
+        "<span>Save to " + selectedScope.label + " \u25BE</span>" +
+      "</button>" +
+      "<div class='var-scope-menu'>" +
+        SCOPES.map(s =>
+          "<button class='var-scope-option' data-scope='" + s.key + "'>" +
+            "<span class='var-scope-badge " + s.badgeClass + "'>" + s.badge + "</span>" +
+            "<span>" + s.label + "</span>" +
+          "</button>"
+        ).join('') +
+      "</div>" +
+    "</div>" +
+  "</div>";
+
+  tooltip.innerHTML = inputHtml + scopeHtml;
 
   // ── Position ──
   tooltip.style.left = rect.left + 'px';
@@ -152,7 +138,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   // ── Wire interactions ──
 
   // Scope dropdown
-  let selectedScopeKey = (resolved ? scopeDefForSource(source) : SCOPES[0]).key;
+  let selectedScopeKey = (currentScope?.key ?? SCOPES[0].key);
   const scopeTrigger = tooltip.querySelector('.var-scope-trigger');
   const scopeMenu = tooltip.querySelector('.var-scope-menu');
   if (scopeTrigger && scopeMenu) {
@@ -174,55 +160,39 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
     });
   }
 
-  // Value input — Enter to save
+  // Reveal toggle for secrets
+  const revealBtn = tooltip.querySelector('.var-tooltip-reveal') as HTMLElement;
   const valueInput = tooltip.querySelector('.var-tooltip-value-input') as HTMLInputElement;
+  if (revealBtn && valueInput) {
+    revealBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isProviderSecret && !valueInput.value) {
+        // Provider secret — need to fetch from extension host first
+        _pendingSecretRef = varName;
+        valueInput.placeholder = 'Resolving\u2026';
+        ctx.postMessage?.({ type: 'resolveSecret', secretRef: varName });
+      }
+      valueInput.type = valueInput.type === 'password' ? 'text' : 'password';
+    });
+  }
+
+  // Value input — Enter to save, Escape to close
   if (valueInput) {
     setTimeout(() => valueInput.focus(), 0);
     valueInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        submitValue();
+        const value = valueInput.value ?? '';
+        if (ctx.postMessage) {
+          ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
+        }
+        hideVarTooltip();
       }
       if (e.key === 'Escape') {
         hideVarTooltip();
       }
     });
   }
-
-  function submitValue(): void {
-    const value = valueInput?.value ?? '';
-    if (!ctx.postMessage) return;
-    ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
-    hideVarTooltip();
-  }
-
-  // Secret provider reveal
-  tooltip.querySelectorAll('.var-action-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const action = (btn as HTMLElement).dataset.action;
-      if (action === 'copy') {
-        const secretVal = (btn as HTMLElement).dataset.secretValue;
-        const text = secretVal ?? (resolved ? vars[varName] : '{{' + varName + '}}');
-        navigator.clipboard.writeText(text).catch(() => {});
-        hideVarTooltip();
-      } else if (action === 'reveal') {
-        const valueEl = tooltip.querySelector('.var-secret-value') as HTMLElement;
-        if (_resolvedSecretValue !== null) {
-          _secretRevealed = !_secretRevealed;
-          if (valueEl) {
-            valueEl.textContent = _secretRevealed ? _resolvedSecretValue : '\u2022'.repeat(Math.min(_resolvedSecretValue.length, 20));
-          }
-          (btn as HTMLElement).textContent = _secretRevealed ? 'Hide Value' : 'Show Value';
-        } else {
-          _pendingSecretRef = varName;
-          if (valueEl) { valueEl.textContent = 'Resolving\u2026'; valueEl.style.cssText = 'font-style:italic;opacity:0.7'; }
-          (btn as HTMLElement).textContent = 'Resolving\u2026';
-          ctx.postMessage!({ type: 'resolveSecret', secretRef: varName });
-        }
-      }
-    });
-  });
 
   setTimeout(() => {
     document.addEventListener('click', onTooltipOutsideClick);

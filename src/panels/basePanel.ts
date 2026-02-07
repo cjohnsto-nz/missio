@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import type { MissioCollection } from '../models/types';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
@@ -151,31 +152,39 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
           } catch { /* silently fail */ }
           return;
         }
-        if (msg.type === 'storeSecureValue') {
+        if (msg.type === 'storeSecretValue') {
           try {
-            if (!msg.secureId) return;
-            await this._environmentService.storeSecureValue(msg.secureId, msg.value ?? '');
-            webviewPanel.webview.postMessage({ type: 'secureValueStored', secureId: msg.secureId });
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            await this._environmentService.storeSecretValue(msg.collectionRoot, msg.envName, msg.varName, msg.value ?? '');
+            webviewPanel.webview.postMessage({ type: 'secretValueStored', envName: msg.envName, varName: msg.varName });
             await sendVariables();
           } catch { /* silently fail */ }
           return;
         }
-        if (msg.type === 'getSecureStatus') {
+        if (msg.type === 'peekSecretValue') {
           try {
-            if (!msg.secureId) return;
-            const value = await this._environmentService.getSecureValue(msg.secureId);
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            const val = await this._environmentService.getSecretValue(msg.collectionRoot, msg.envName, msg.varName);
             webviewPanel.webview.postMessage({
-              type: 'secureStatus',
-              secureId: msg.secureId,
-              hasValue: value !== undefined,
+              type: 'secretValuePeek',
+              envName: msg.envName,
+              varName: msg.varName,
+              value: val ?? '',
             });
           } catch { /* silently fail */ }
           return;
         }
-        if (msg.type === 'deleteSecureValue') {
+        if (msg.type === 'deleteSecretValue') {
           try {
-            if (!msg.secureId) return;
-            await this._environmentService.deleteSecureValue(msg.secureId);
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            await this._environmentService.deleteSecretValue(msg.collectionRoot, msg.envName, msg.varName);
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'renameSecretValue') {
+          try {
+            if (!msg.collectionRoot || !msg.envName || !msg.oldName || !msg.newName) return;
+            await this._environmentService.renameSecretValue(msg.collectionRoot, msg.envName, msg.oldName, msg.newName);
           } catch { /* silently fail */ }
           return;
         }
@@ -209,7 +218,15 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
                   if (env) {
                     if (!env.variables) env.variables = [];
                     const existing = env.variables.find((v: any) => v.name === varName);
-                    if (existing) { existing.value = value ?? ''; } else { env.variables.push({ name: varName, value: value ?? '' }); }
+                    if (existing && existing.secret) {
+                      // Secret env var — store value in SecretStorage, don't write to YAML
+                      const collRoot = path.dirname(collection.filePath);
+                      await this._environmentService.storeSecretValue(collRoot, envName, varName, value ?? '');
+                    } else if (existing) {
+                      existing.value = value ?? '';
+                    } else {
+                      env.variables.push({ name: varName, value: value ?? '' });
+                    }
                   }
                 }
               }

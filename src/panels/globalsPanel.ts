@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { EnvironmentService, type GlobalVariable } from '../services/environmentService';
+import type { EnvironmentService, GlobalVariable } from '../services/environmentService';
 
 /**
  * Standalone WebviewPanel for managing global variables.
@@ -94,34 +94,6 @@ export class GlobalsPanel implements vscode.Disposable {
       }
       return;
     }
-    if (msg.type === 'storeSecureValue') {
-      if (msg.secureId) {
-        await this._environmentService.storeSecureValue(msg.secureId, msg.value ?? '');
-        if (this._panel) {
-          this._panel.webview.postMessage({ type: 'secureValueStored', secureId: msg.secureId });
-        }
-      }
-      return;
-    }
-    if (msg.type === 'getSecureStatus') {
-      if (msg.secureId) {
-        const val = await this._environmentService.getSecureValue(msg.secureId);
-        if (this._panel) {
-          this._panel.webview.postMessage({
-            type: 'secureStatus',
-            secureId: msg.secureId,
-            hasValue: val !== undefined,
-          });
-        }
-      }
-      return;
-    }
-    if (msg.type === 'deleteSecureValue') {
-      if (msg.secureId) {
-        await this._environmentService.deleteSecureValue(msg.secureId);
-      }
-      return;
-    }
   }
 
   private async _sendData(webview: vscode.Webview): Promise<void> {
@@ -130,19 +102,13 @@ export class GlobalsPanel implements vscode.Disposable {
     await this._sendVariablesResolved(webview);
   }
 
-  private async _sendVariablesResolved(webview: vscode.Webview): Promise<void> {
+  private _sendVariablesResolved(webview: vscode.Webview): void {
     const variables = this._environmentService.getGlobalVariables();
     const resolved: Record<string, string> = {};
     const sources: Record<string, string> = {};
     for (const v of variables) {
       if (!v.name || v.disabled) continue;
-      if (v.secret && v.secure) {
-        const uuid = EnvironmentService.extractSecureId(v.value);
-        if (uuid) {
-          const val = await this._environmentService.getSecureValue(uuid);
-          if (val !== undefined) { resolved[v.name] = val; sources[v.name] = 'global'; }
-        }
-      } else if (v.value !== undefined) {
+      if (v.value !== undefined) {
         resolved[v.name] = v.value;
         sources[v.name] = 'global';
       }
@@ -182,12 +148,9 @@ export class GlobalsPanel implements vscode.Disposable {
     <p class="hint" style="opacity:0.6;margin:4px 0 12px;font-size:12px;">Global variables apply across all collections. For better organization, consider using collection or environment variables instead.</p>
   </div>
   <div class="panel-body">
-    <div id="hiddenWarning" class="hidden-var-warning" style="display:none;">
-      <strong>\u26a0 Warning:</strong> Variables set to <em>hidden</em> are stored as plain text in your global state. They are only hidden from the UI. Use a <strong>secret provider</strong> with <em>secure</em> type for portable, encrypted secrets.
-    </div>
     <table class="kv-table">
-      <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup>
-      <thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>
+      <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
+      <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
       <tbody id="varsBody"></tbody>
     </table>
     <button class="add-row-btn" id="addVarBtn">+ Add Variable</button>

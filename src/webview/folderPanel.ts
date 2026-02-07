@@ -28,18 +28,6 @@ function esc(s: string): string {
 
 // Variable state and field infrastructure imported from varFields.ts
 
-const SECURE_PREFIX = 'secure:';
-function generateSecureRef(): string {
-  const hex = () => Math.floor(Math.random() * 16).toString(16);
-  const s = (n: number) => Array.from({ length: n }, hex).join('');
-  return SECURE_PREFIX + s(8) + '-' + s(4) + '-4' + s(3) + '-' + s(4) + '-' + s(12);
-}
-function extractSecureId(value: string | undefined): string | undefined {
-  if (value && value.startsWith(SECURE_PREFIX)) return value.slice(SECURE_PREFIX.length);
-  return undefined;
-}
-const _secureValueCache: Record<string, string> = {};
-
 // ── Debounced auto-save ──────────────────────
 function scheduleUpdate() {
   if (isLoading) return;
@@ -155,33 +143,19 @@ function renderDefaultVars(variables: any[]) {
   const tbody = $('defaultVarsBody');
   tbody.innerHTML = '';
   defaultVars.forEach((_v: any, i: number) => addDefaultVarRow(i));
-  updateDefaultVarsHiddenWarning();
-}
-
-function updateDefaultVarsHiddenWarning(): void {
-  const warn = document.getElementById('defaultVarsHiddenWarning');
-  if (!warn) return;
-  const hasHidden = defaultVars.some((v: any) => v.secret === true && !v.secure);
-  warn.style.display = hasHidden ? 'block' : 'none';
 }
 
 function addDefaultVarRow(idx: number) {
   const tbody = $('defaultVarsBody');
   const v = defaultVars[idx];
   const tr = document.createElement('tr');
-  const isSecret = v.secret === true;
-  const isSecure = isSecret && v.secure === true;
   const chk = v.disabled ? '' : 'checked';
-  const val = isSecret ? (isSecure ? '' : (v.value || '')) : (typeof v.value === 'string' ? v.value : (v.value && v.value.data ? v.value.data : ''));
+  const val = typeof v.value === 'string' ? v.value : (v.value && v.value.data ? v.value.data : '');
 
   tr.innerHTML =
     `<td><input type="checkbox" ${chk} data-field="disabled" /></td>` +
     `<td><input type="text" value="${esc(v.name || '')}" placeholder="Variable name" data-field="name" /></td>` +
-    `${isSecret
-      ? '<td><div class="secret-value-wrap"><input type="password" value="' + (isSecure ? '' : esc(val)) + '"' + (isSecure ? ' placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"' : '') + ' data-field="value" /><button class="secret-toggle" title="Show/hide">&#9673;</button></div></td>'
-      : '<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value" data-field="value"></div></td>'
-    }` +
-    `<td><select class="type-select select-borderless" data-field="type"><option value="var"${!isSecret ? ' selected' : ''}>var</option><option value="hidden"${isSecret && !isSecure ? ' selected' : ''}>hidden</option><option value="secure"${isSecure ? ' selected' : ''}>secure</option></select></td>` +
+    '<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value" data-field="value"></div></td>' +
     `<td><button class="row-delete">\u00d7</button></td>`;
 
   // Wire inputs
@@ -189,95 +163,26 @@ function addDefaultVarRow(idx: number) {
     const field = inp.dataset.field!;
     if (inp.type === 'checkbox') {
       inp.addEventListener('change', () => { defaultVars[idx].disabled = !inp.checked; scheduleUpdate(); });
-    } else if (isSecure && field === 'value') {
-      let debounce: ReturnType<typeof setTimeout> | null = null;
-      inp.addEventListener('input', () => {
-        if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          const secureId = extractSecureId(defaultVars[idx].value);
-          if (secureId) vscode.postMessage({ type: 'storeSecureValue', secureId, value: inp.value });
-        }, 500);
-      });
     } else {
       inp.addEventListener('input', () => { defaultVars[idx][field] = inp.value; scheduleUpdate(); });
     }
   });
 
-  // Wire contenteditable value for non-secret vars
-  if (!isSecret) {
-    const valCE = tr.querySelector('.val-ce[data-field="value"]') as HTMLElement;
-    if (valCE) {
-      enableContentEditableValue(valCE, val, () => {
-        defaultVars[idx].value = (valCE as any)._getRawText ? (valCE as any)._getRawText() : (valCE.textContent || '');
-        scheduleUpdate();
-      });
-    }
+  // Wire contenteditable value
+  const valCE = tr.querySelector('.val-ce[data-field="value"]') as HTMLElement;
+  if (valCE) {
+    enableContentEditableValue(valCE, val, () => {
+      defaultVars[idx].value = (valCE as any)._getRawText ? (valCE as any)._getRawText() : (valCE.textContent || '');
+      scheduleUpdate();
+    });
   }
-
-  // Type dropdown
-  const typeSelect = tr.querySelector<HTMLSelectElement>('.type-select');
-  typeSelect?.addEventListener('change', () => {
-    const newType = typeSelect.value;
-    const wasSecure = defaultVars[idx].secure === true;
-    let currentPlainValue = '';
-    if (!wasSecure) {
-      const valCE = tr.querySelector('.val-ce[data-field="value"]') as any;
-      const valInp = tr.querySelector<HTMLInputElement>('input[data-field="value"]');
-      currentPlainValue = valCE?._getRawText ? valCE._getRawText() : (valInp?.value ?? defaultVars[idx].value ?? '');
-    }
-
-    if (newType === 'hidden') {
-      if (wasSecure) {
-        const oldId = extractSecureId(defaultVars[idx].value);
-        defaultVars[idx].value = (oldId && _secureValueCache[oldId]) || '';
-      }
-      defaultVars[idx].secret = true;
-      delete defaultVars[idx].secure;
-    } else if (newType === 'secure') {
-      defaultVars[idx].secret = true;
-      defaultVars[idx].secure = true;
-      if (!extractSecureId(defaultVars[idx].value)) {
-        const ref = generateSecureRef();
-        const secureId = extractSecureId(ref)!;
-        defaultVars[idx].value = ref;
-        if (currentPlainValue) {
-          _secureValueCache[secureId] = currentPlainValue;
-          vscode.postMessage({ type: 'storeSecureValue', secureId, value: currentPlainValue });
-        }
-      }
-    } else {
-      if (wasSecure) {
-        const oldId = extractSecureId(defaultVars[idx].value);
-        defaultVars[idx].value = (oldId && _secureValueCache[oldId]) || '';
-      } else {
-        defaultVars[idx].value = currentPlainValue;
-      }
-      delete defaultVars[idx].secret;
-      delete defaultVars[idx].secure;
-    }
-    renderDefaultVars(defaultVars);
-    scheduleUpdate();
-  });
-
-  // Secret toggle
-  const toggleBtn = tr.querySelector('.secret-toggle');
-  toggleBtn?.addEventListener('click', () => {
-    const inp = tr.querySelector<HTMLInputElement>('input[data-field="value"]');
-    if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
-  });
 
   // Delete
   tr.querySelector('.row-delete')!.addEventListener('click', () => {
-    const oldId = extractSecureId(defaultVars[idx].value);
-    if (oldId) vscode.postMessage({ type: 'deleteSecureValue', secureId: oldId });
     defaultVars.splice(idx, 1);
     renderDefaultVars(defaultVars);
     scheduleUpdate();
   });
-
-  // Check secure status
-  const secureId = extractSecureId(v.value);
-  if (isSecure && secureId) vscode.postMessage({ type: 'getSecureStatus', secureId });
 
   tbody.appendChild(tr);
 }

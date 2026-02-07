@@ -364,14 +364,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <!-- Auth -->
         <div class="tab-panel" id="panel-auth">
           <div class="auth-section">
-            <select class="auth-select" id="authType">
+            <div class="form-field"><label>Type</label><select class="auth-select" id="authType">
               <option value="none">No Auth</option>
               <option value="inherit">Inherit</option>
               <option value="bearer">Bearer Token</option>
               <option value="basic">Basic Auth</option>
               <option value="apikey">API Key</option>
               <option value="oauth2">OAuth 2.0</option>
-            </select>
+            </select></div>
             <div id="authFields"></div>
           </div>
         </div>

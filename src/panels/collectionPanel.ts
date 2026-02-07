@@ -76,7 +76,8 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     } catch {
       collection = {} as OpenCollection;
     }
-    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath });
+    const collectionRoot = require('path').dirname(document.uri.fsPath);
+    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath, collectionRoot });
   }
 
   protected _getDocumentDataKey(): string { return 'collection'; }
@@ -194,13 +195,13 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Auth -->
       <div class="tab-panel" id="panel-auth">
         <div class="auth-section">
-          <select class="auth-select" id="defaultAuthType">
+          <div class="form-field"><label>Type</label><select class="auth-select" id="defaultAuthType">
             <option value="none">No Auth</option>
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
             <option value="apikey">API Key</option>
             <option value="oauth2">OAuth 2.0</option>
-          </select>
+          </select></div>
           <div id="defaultAuthFields"></div>
         </div>
       </div>
@@ -217,12 +218,9 @@ export class CollectionEditorProvider extends BaseEditorProvider {
 
       <!-- Variables -->
       <div class="tab-panel" id="panel-variables">
-        <div id="defaultVarsHiddenWarning" class="hidden-var-warning" style="display:none;">
-          <strong>\u26a0 Warning:</strong> Variables set to <em>hidden</em> are stored as plain text in your collection file. They are only hidden from the UI. Use a <strong>secret provider</strong> with <em>secure</em> type for portable, encrypted secrets.
-        </div>
         <table class="kv-table" id="defaultVarsTable">
-          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup>
-          <thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
+          <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultVarsBody"></tbody>
         </table>
         <button class="add-row-btn" id="addDefaultVarBtn">+ Add Variable</button>
@@ -242,7 +240,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Environments -->
       <div class="tab-panel" id="panel-environments">
         <div class="env-toolbar">
-          <select class="auth-select" id="envSelector"></select>
+          <div class="form-field"><label>Environment</label><select class="auth-select" id="envSelector"></select></div>
           <button class="env-toolbar-btn" id="addEnvBtn" title="Add Environment">+</button>
           <button class="env-toolbar-btn env-toolbar-delete" id="removeEnvBtn" title="Remove Environment">\u00d7</button>
         </div>
