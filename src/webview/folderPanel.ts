@@ -1,17 +1,11 @@
 import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
-import { showVarTooltipAt, hideVarTooltip } from './varTooltip';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
-import { escHtml, highlightVariables as _hlVars } from './varlib';
+import { escHtml } from './varlib';
 import {
-  handleAutocomplete,
-  handleAutocompleteContentEditable,
-  handleAutocompleteKeydown,
-  hideAutocomplete,
-  isAutocompleteActive,
-  setAutocompleteSyncCallbacks,
-  setResolvedVariablesGetter,
-  setSecretProviderNames,
-} from './autocomplete';
+  highlightVariables, enableVarOverlay, enableContentEditableValue,
+  restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
+} from './varFields';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -30,173 +24,7 @@ function esc(s: string): string {
   return d.innerHTML;
 }
 
-// ── Variable Resolution State ────────────────
-let resolvedVariables: Record<string, string> = {};
-let variableSources: Record<string, string> = {};
-let showResolvedVars = false;
-
-function highlightVariables(html: string): string {
-  return _hlVars(html, { resolved: resolvedVariables, sources: variableSources, showResolved: showResolvedVars });
-}
-
-function enableVarOverlay(input: HTMLInputElement): void {
-  const parent = input.parentElement!;
-  parent.classList.add('var-cell');
-  const overlay = document.createElement('div');
-  overlay.className = 'var-overlay';
-  parent.appendChild(overlay);
-
-  function sync() {
-    overlay.innerHTML = highlightVariables(escHtml(input.value));
-  }
-  function activate() {
-    parent.classList.add('var-overlay-active');
-    sync();
-  }
-  function deactivate() {
-    parent.classList.remove('var-overlay-active');
-  }
-
-  input.addEventListener('input', () => { sync(); handleAutocomplete(input, sync); });
-  input.addEventListener('focus', deactivate);
-  input.addEventListener('blur', () => { activate(); hideAutocomplete(); });
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
-  });
-
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, {
-        getResolvedVariables: () => resolvedVariables,
-        getVariableSources: () => variableSources,
-      });
-    } else {
-      deactivate();
-      input.focus();
-    }
-  });
-
-  if (document.activeElement !== input) {
-    activate();
-  }
-}
-
-function syncAllVarOverlays(): void {
-  document.querySelectorAll('.var-cell').forEach((cell) => {
-    const input = cell.querySelector('input[type="text"]') as HTMLInputElement | null;
-    const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
-    if (input && overlay && cell.classList.contains('var-overlay-active')) {
-      overlay.innerHTML = highlightVariables(escHtml(input.value));
-    }
-  });
-  document.querySelectorAll('.val-ce').forEach((el) => {
-    const getRaw = (el as any)._getRawText;
-    if (getRaw && document.activeElement !== el) {
-      const raw = getRaw();
-      if (raw) {
-        el.innerHTML = highlightVariables(escHtml(raw));
-      }
-    }
-  });
-}
-
-function restoreCursor(el: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = document.createRange();
-  let charCount = 0;
-  let found = false;
-  function walk(node: Node): boolean {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = (node.textContent || '').length;
-      if (charCount + len >= offset) {
-        range.setStart(node, offset - charCount);
-        range.collapse(true);
-        return true;
-      }
-      charCount += len;
-    } else {
-      for (let i = 0; i < node.childNodes.length; i++) {
-        if (walk(node.childNodes[i])) return true;
-      }
-    }
-    return false;
-  }
-  found = walk(el);
-  if (!found) {
-    range.selectNodeContents(el);
-    range.collapse(false);
-  }
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-function enableContentEditableValue(el: HTMLElement, initialValue: string, onChange: () => void): void {
-  let rawText = initialValue || '';
-  (el as any)._getRawText = () => rawText;
-  (el as any)._setRawText = (t: string) => { rawText = t; };
-
-  function syncHighlightCE(): void {
-    if (!rawText) {
-      el.innerHTML = '';
-      return;
-    }
-    const sel = window.getSelection();
-    let cursorOffset = 0;
-    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(el);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      cursorOffset = preRange.toString().length;
-    }
-    el.innerHTML = highlightVariables(escHtml(rawText));
-    if (sel && document.activeElement === el) {
-      restoreCursor(el, cursorOffset);
-    }
-  }
-
-  syncHighlightCE();
-
-  el.addEventListener('input', () => {
-    if (showResolvedVars) {
-      showResolvedVars = false;
-      syncAllVarOverlays();
-      return;
-    }
-    const sel = window.getSelection();
-    let cursorOffset = 0;
-    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(el);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      cursorOffset = preRange.toString().length;
-    }
-    rawText = el.textContent || '';
-    syncHighlightCE();
-    restoreCursor(el, cursorOffset);
-    onChange();
-    handleAutocompleteContentEditable(el, syncHighlightCE);
-  });
-
-  el.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
-  });
-
-  el.addEventListener('blur', () => { hideAutocomplete(); });
-
-  el.addEventListener('click', (e: Event) => {
-    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (target && target.dataset.var) {
-      showVarTooltipAt(target, target.dataset.var, {
-        getResolvedVariables: () => resolvedVariables,
-        getVariableSources: () => variableSources,
-      });
-    }
-  });
-}
+// Variable state and field infrastructure imported from varFields.ts
 
 // ── Debounced auto-save ──────────────────────
 function scheduleUpdate() {
@@ -398,16 +226,15 @@ function loadFolder(data: any) {
 }
 
 // ── Wire up events ───────────────────────────
-setResolvedVariablesGetter(() => resolvedVariables);
-setAutocompleteSyncCallbacks(syncAllVarOverlays, syncAllVarOverlays, restoreCursor);
+initVarFields();
 initTabs('mainTabs');
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); updateBadges(); scheduleUpdate(); });
 $('addDefaultVarBtn').addEventListener('click', () => { addDefaultVarRow(); updateBadges(); scheduleUpdate(); });
 $('varToggleBtn').addEventListener('click', () => {
-  showResolvedVars = !showResolvedVars;
-  $('varToggleBtn').classList.toggle('active', showResolvedVars);
+  setShowResolvedVars(!getShowResolvedVars());
+  $('varToggleBtn').classList.toggle('active', getShowResolvedVars());
   syncAllVarOverlays();
 });
 
@@ -428,11 +255,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     loadFolder(msg.folder);
   }
-  if (msg.type === 'variablesResolved') {
-    resolvedVariables = msg.variables || {};
-    variableSources = msg.sources || {};
-    setSecretProviderNames(msg.secretProviderNames || []);
-    syncAllVarOverlays();
+  if (handleVariablesResolved(msg)) {
     tokenStatusCtrl.requestStatus();
   }
   if (msg.type === 'oauth2TokenStatus') {

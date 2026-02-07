@@ -4,15 +4,12 @@
 import {
   vscode, $, $input, esc,
   currentRequest, setCurrentRequest,
-  setResolvedVariables, getResolvedVariables,
-  setVariableSources, getVariableSources,
-  setShowResolvedVars, getShowResolvedVars,
   updateDocumentTimer, setUpdateDocumentTimer,
   ignoreNextLoad, setIgnoreNextLoad,
   currentBodyType, setCurrentBodyType,
   currentLang, setCurrentLang,
 } from './state';
-import { highlight, highlightVariables, escHtml } from './highlight';
+import { highlight, escHtml } from './highlight';
 import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
 import {
@@ -21,11 +18,12 @@ import {
   handleAutocompleteKeydown,
   hideAutocomplete,
   isAutocompleteActive,
-  setAutocompleteSyncCallbacks,
-  setSecretProviderNames,
-  setSecretNamesForProvider,
-  setResolvedVariablesGetter,
 } from './autocomplete';
+import {
+  highlightVariables, enableVarOverlay, enableContentEditableValue,
+  restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
+} from './varFields';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -133,7 +131,7 @@ function addParam(name = '', value = '', type = 'query', disabled = false): void
     if (isODataAutocompleteActive()) handleODataKeydown(e);
   });
   nameInput.addEventListener('blur', () => hideODataAutocomplete());
-  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value);
+  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value, scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
 }
@@ -152,144 +150,13 @@ function addHeader(name = '', value = '', disabled = false): void {
   const hNameInput = tr.querySelector('.h-name') as HTMLInputElement;
   enableVarOverlay(hNameInput);
   hNameInput.addEventListener('input', scheduleDocumentUpdate);
-  enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value);
+  enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value, scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
 }
 
-// ── Contenteditable value field (same pattern as URL bar) ───
-function enableContentEditableValue(el: HTMLElement, initialValue: string): void {
-  // Backing store for raw text
-  let rawText = initialValue || '';
-  (el as any)._getRawText = () => rawText;
-  (el as any)._setRawText = (t: string) => { rawText = t; };
-
-  function syncHighlightCE(): void {
-    if (!rawText) {
-      el.innerHTML = '';
-      return;
-    }
-    const sel = window.getSelection();
-    let cursorOffset = 0;
-    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(el);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      cursorOffset = preRange.toString().length;
-    }
-    el.innerHTML = highlightVariables(escHtml(rawText));
-    if (sel && document.activeElement === el) {
-      restoreCursor(el, cursorOffset);
-    }
-  }
-
-  // Initial render
-  syncHighlightCE();
-
-  el.addEventListener('input', () => {
-    if (getShowResolvedVars()) {
-      breakIllusion();
-      restoreCursor(el, rawText.length);
-      return;
-    }
-    const sel = window.getSelection();
-    let cursorOffset = 0;
-    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
-      const range = sel.getRangeAt(0);
-      const preRange = document.createRange();
-      preRange.selectNodeContents(el);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      cursorOffset = preRange.toString().length;
-    }
-    rawText = el.textContent || '';
-    syncHighlightCE();
-    restoreCursor(el, cursorOffset);
-    handleAutocompleteContentEditable(el, syncHighlightCE);
-    scheduleDocumentUpdate();
-  });
-
-  el.addEventListener('click', (e: Event) => {
-    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (target && target.dataset.var) {
-      showVarTooltipAt(target, target.dataset.var);
-    }
-  });
-
-  el.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (isAutocompleteActive()) {
-      handleAutocompleteKeydown(e);
-    }
-  });
-}
-
-// ── Generic Variable Overlay for Text Inputs ────
-function enableVarOverlay(input: HTMLInputElement): void {
-  const parent = input.parentElement!;
-  parent.classList.add('var-cell');
-  const overlay = document.createElement('div');
-  overlay.className = 'var-overlay';
-  parent.appendChild(overlay);
-
-  function sync() {
-    overlay.innerHTML = highlightVariables(escHtml(input.value));
-  }
-  function activate() {
-    parent.classList.add('var-overlay-active');
-    sync();
-  }
-  function deactivate() {
-    parent.classList.remove('var-overlay-active');
-  }
-
-  input.addEventListener('input', () => {
-    if (getShowResolvedVars()) {
-      breakIllusion();
-    }
-    sync();
-    handleAutocomplete(input as unknown as HTMLTextAreaElement, sync);
-  });
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    handleAutocompleteKeydown(e);
-  });
-  input.addEventListener('focus', deactivate);
-  input.addEventListener('blur', activate);
-
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var);
-    } else {
-      deactivate();
-      input.focus();
-    }
-  });
-
-  // Activate immediately if input is not focused
-  if (document.activeElement !== input) {
-    activate();
-  }
-}
-
-function syncAllVarOverlays(): void {
-  document.querySelectorAll('.var-cell').forEach((cell) => {
-    const input = cell.querySelector('input[type="text"]') as HTMLInputElement | null;
-    const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
-    if (input && overlay && cell.classList.contains('var-overlay-active')) {
-      overlay.innerHTML = highlightVariables(escHtml(input.value));
-    }
-  });
-  // Re-highlight contenteditable value fields
-  document.querySelectorAll('.val-ce').forEach((el) => {
-    const getRaw = (el as any)._getRawText;
-    if (getRaw && document.activeElement !== el) {
-      const raw = getRaw();
-      if (raw) {
-        el.innerHTML = highlightVariables(escHtml(raw));
-      }
-    }
-  });
-}
+// enableVarOverlay, enableContentEditableValue, syncAllVarOverlays, restoreCursor
+// are all imported from varFields.ts — single source of truth for all panels.
 
 function breakIllusion(): void {
   setShowResolvedVars(false);
@@ -495,43 +362,13 @@ function syncUrlHighlight(): void {
   }
 }
 
-function restoreCursor(el: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = document.createRange();
-  let charCount = 0;
-  let found = false;
+// restoreCursor imported from varFields.ts
 
-  function walk(node: Node): boolean {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = (node.textContent || '').length;
-      if (charCount + len >= offset) {
-        range.setStart(node, offset - charCount);
-        range.collapse(true);
-        return true;
-      }
-      charCount += len;
-    } else {
-      for (let i = 0; i < node.childNodes.length; i++) {
-        if (walk(node.childNodes[i])) return true;
-      }
-    }
-    return false;
-  }
-
-  found = walk(el);
-  if (!found) {
-    range.selectNodeContents(el);
-    range.collapse(false);
-  }
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-// Wire autocomplete
-setResolvedVariablesGetter(getResolvedVariables);
-setAutocompleteSyncCallbacks(syncHighlight, syncUrlHighlight, restoreCursor, (text: string) => {
-  _rawUrlTemplate = text;
+// Wire autocomplete and variable fields
+initVarFields({
+  extraSyncHighlight: syncHighlight,
+  extraSyncUrlHighlight: syncUrlHighlight,
+  setRawUrl: (text: string) => { _rawUrlTemplate = text; },
 });
 
 $('url').addEventListener('click', (e: Event) => {
@@ -967,17 +804,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       $('exampleIndicator').style.display = 'none';
       break;
     case 'variablesResolved': {
-      setResolvedVariables(msg.variables || {});
-      setVariableSources(msg.sources || {});
-      setSecretProviderNames(msg.secretProviderNames || []);
-      // Populate autocomplete with cached secret names from extension host
-      const sn: Record<string, string[]> = msg.secretNames || {};
-      for (const [prov, names] of Object.entries(sn)) {
-        setSecretNamesForProvider(prov, names as string[]);
-      }
+      handleVariablesResolved(msg);
       syncHighlight();
       syncUrlHighlight();
-      syncAllVarOverlays();
       requestTokenStatus();
       break;
     }

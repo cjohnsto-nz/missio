@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest, RequestDefaults, AuthOAuth2 } from '../models/types';
+import type { HttpRequest, RequestDefaults, AuthOAuth2, MissioCollection } from '../models/types';
 import type { HttpClient } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
-import { stringifyYaml, readFolderFile } from '../services/yamlParser';
-import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
+import { readFolderFile } from '../services/yamlParser';
+import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
  * CustomTextEditorProvider for OpenCollection request YAML files.
@@ -19,10 +19,10 @@ import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
  * - Undo/redo support
  * - Proper restore on window reload
  */
-export class RequestEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {
+export class RequestEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.requestEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
-  private _disposables: vscode.Disposable[] = [];
+  private readonly _httpClient: HttpClient;
 
   static postMessageToPanel(filePath: string, message: any): boolean {
     const panel = RequestEditorProvider._panels.get(filePath.toLowerCase());
@@ -34,13 +34,16 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
   }
 
   constructor(
-    private readonly _context: vscode.ExtensionContext,
-    private readonly _httpClient: HttpClient,
-    private readonly _collectionService: CollectionService,
-    private readonly _environmentService: EnvironmentService,
-    private readonly _oauth2Service: OAuth2Service,
-    private readonly _secretService: SecretService,
-  ) {}
+    context: vscode.ExtensionContext,
+    httpClient: HttpClient,
+    collectionService: CollectionService,
+    environmentService: EnvironmentService,
+    oauth2Service: OAuth2Service,
+    secretService: SecretService,
+  ) {
+    super(context, collectionService, environmentService, oauth2Service, secretService);
+    this._httpClient = httpClient;
+  }
 
   static register(
     context: vscode.ExtensionContext,
@@ -70,303 +73,96 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     await vscode.commands.executeCommand('vscode.openWith', uri, RequestEditorProvider.viewType);
   }
 
-  async resolveCustomTextEditor(
-    document: vscode.TextDocument,
-    webviewPanel: vscode.WebviewPanel,
-    _token: vscode.CancellationToken,
-  ): Promise<void> {
-    const disposables: vscode.Disposable[] = [];
+  // ── BaseEditorProvider implementation ──
 
-    // Configure webview
-    webviewPanel.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this._context.extensionUri],
-    };
-
-    // Set HTML
-    webviewPanel.webview.html = this._getHtml(webviewPanel.webview);
-
-    // Track if we're currently pushing an edit from the webview to the document
-    let isUpdatingDocument = false;
-
-    // Find collection for this file
-    const filePath = document.uri.fsPath;
-    const collectionId = this._findCollectionId(filePath);
-
-    // Track this panel
-    RequestEditorProvider._panels.set(filePath.toLowerCase(), webviewPanel);
-    disposables.push({
-      dispose: () => RequestEditorProvider._panels.delete(filePath.toLowerCase()),
-    });
-
-    // Parse document and send to webview
-    const updateWebview = () => {
-      if (isUpdatingDocument) return;
-      try {
-        const request = parseYaml(document.getText()) as HttpRequest;
-        webviewPanel.webview.postMessage({
-          type: 'requestLoaded',
-          request,
-          filePath: document.uri.fsPath,
-        });
-      } catch {
-        // Invalid YAML, don't update webview
-      }
-    };
-
-    // Listen for document changes (external edits, undo/redo)
-    disposables.push(
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.uri.toString() === document.uri.toString()) {
-          updateWebview();
-        }
-      }),
-    );
-
-    // Live-reload variables when collection or environment data changes
-    disposables.push(
-      this._collectionService.onDidChange(() => {
-        this._sendVariables(webviewPanel.webview, collectionId, filePath);
-      }),
-      this._environmentService.onDidChange(() => {
-        this._sendVariables(webviewPanel.webview, collectionId, filePath);
-      }),
-    );
-
-    // Handle messages from webview
-    disposables.push(
-      webviewPanel.webview.onDidReceiveMessage(async (msg) => {
-        switch (msg.type) {
-          case 'ready': {
-            updateWebview();
-            await this._sendVariables(webviewPanel.webview, collectionId, filePath);
-            break;
-          }
-          case 'updateDocument': {
-            // Webview wants to update the document content (makes it dirty)
-            const yaml = stringifyYaml(msg.request, { lineWidth: 120 });
-            // Skip if content hasn't actually changed
-            if (yaml === document.getText()) break;
-            isUpdatingDocument = true;
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              document.uri,
-              new vscode.Range(0, 0, document.lineCount, 0),
-              yaml,
-            );
-            await vscode.workspace.applyEdit(edit);
-            isUpdatingDocument = false;
-            break;
-          }
-          case 'saveDocument': {
-            // Webview wants to save (build request -> update doc -> save)
-            const saveYaml = stringifyYaml(msg.request, { lineWidth: 120 });
-            if (saveYaml !== document.getText()) {
-              isUpdatingDocument = true;
-              const saveEdit = new vscode.WorkspaceEdit();
-              saveEdit.replace(
-                document.uri,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                saveYaml,
-              );
-              await vscode.workspace.applyEdit(saveEdit);
-              isUpdatingDocument = false;
-            }
-            await document.save();
-            webviewPanel.webview.postMessage({ type: 'saved' });
-            break;
-          }
-          case 'sendRequest': {
-            await this._sendRequest(webviewPanel.webview, msg.request, collectionId, filePath);
-            break;
-          }
-          case 'editVariable': {
-            await this._editVariable(msg.variableName, collectionId);
-            break;
-          }
-          case 'resolveVariables': {
-            await this._sendVariables(webviewPanel.webview, collectionId, filePath);
-            break;
-          }
-          case 'fetchSecretNames': {
-            if (!collectionId) break;
-            try {
-              const col = this._collectionService.getCollection(collectionId);
-              if (!col) break;
-              const vars = await this._environmentService.resolveVariables(col);
-              const names = await this._secretService.listSecretNames(msg.provider, vars);
-              webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames: names });
-            } catch { /* silently fail */ }
-            break;
-          }
-          case 'getTokenStatus':
-          case 'getToken': {
-            await this._handleTokenMessage(webviewPanel.webview, msg, collectionId);
-            break;
-          }
-          case 'methodChanged': {
-            // Could update tab icon here if supported
-            break;
-          }
-          case 'saveExample': {
-            const exampleName = await vscode.window.showInputBox({
-              prompt: 'Name for this example',
-              value: `Example ${msg.response.status}`,
-            });
-            if (!exampleName) break;
-
-            // Parse current document, add example, write back
-            try {
-              const current = parseYaml(document.getText()) as any;
-              if (!current.examples) current.examples = [];
-
-              // Build example response headers as array
-              const respHeaders: any[] = [];
-              if (msg.response.headers) {
-                for (const [k, v] of Object.entries(msg.response.headers)) {
-                  respHeaders.push({ name: k, value: String(v) });
-                }
-              }
-
-              // Detect body type from content-type
-              const ct = (msg.response.headers?.['content-type'] ?? '') as string;
-              let bodyType = 'text';
-              if (ct.includes('json')) bodyType = 'json';
-              else if (ct.includes('xml')) bodyType = 'xml';
-              else if (ct.includes('html')) bodyType = 'html';
-
-              current.examples.push({
-                name: exampleName,
-                request: {
-                  method: msg.request?.http?.method,
-                  url: msg.request?.http?.url,
-                },
-                response: {
-                  status: msg.response.status,
-                  statusText: msg.response.statusText,
-                  headers: respHeaders,
-                  body: {
-                    type: bodyType,
-                    data: msg.response.body ?? '',
-                  },
-                },
-              });
-
-              const yaml = stringifyYaml(current, { lineWidth: 120 });
-              isUpdatingDocument = true;
-              const exEdit = new vscode.WorkspaceEdit();
-              exEdit.replace(
-                document.uri,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                yaml,
-              );
-              await vscode.workspace.applyEdit(exEdit);
-              isUpdatingDocument = false;
-              // Update webview's examples cache
-              webviewPanel.webview.postMessage({
-                type: 'examplesUpdated',
-                examples: current.examples,
-              });
-              vscode.window.showInformationMessage(`Saved example "${exampleName}".`);
-            } catch (e: any) {
-              vscode.window.showErrorMessage(`Failed to save example: ${e.message}`);
-            }
-            break;
-          }
-        }
-      }),
-    );
-
-    // Clean up on dispose
-    webviewPanel.onDidDispose(() => {
-      disposables.forEach(d => d.dispose());
-    });
-  }
-
-  private _findCollectionId(filePath: string): string | undefined {
-    const collections = this._collectionService.getCollections();
+  protected _findCollection(filePath: string): MissioCollection | undefined {
     const normalized = filePath.replace(/\\/g, '/');
-    const collection = collections.find(c => {
+    return this._collectionService.getCollections().find(c => {
       const root = c.rootDir.replace(/\\/g, '/');
       return normalized.startsWith(root + '/') || normalized === root;
     });
-    return collection?.id;
   }
 
-  private async _sendVariables(webview: vscode.Webview, collectionId: string | undefined, requestFilePath?: string): Promise<void> {
-    if (!collectionId) return;
+  protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
     try {
-      const collection = this._collectionService.getCollection(collectionId);
-      if (!collection) return;
-
-      // Find folder defaults by looking for folder.yml in the request's parent directory
-      let folderDefaults: RequestDefaults | undefined;
-      if (requestFilePath) {
-        const dir = path.dirname(requestFilePath);
-        // Only look for folder.yml if we're inside the collection (not at root level)
-        if (dir.toLowerCase() !== collection.rootDir.toLowerCase()) {
-          for (const name of ['folder.yml', 'folder.yaml']) {
-            try {
-              const folderData = await readFolderFile(path.join(dir, name));
-              if (folderData?.request) {
-                folderDefaults = folderData.request;
-              }
-              break;
-            } catch {
-              // No folder.yml — that's fine
-            }
-          }
-        }
-      }
-
-      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults);
-      const varsObj: Record<string, string> = {};
-      const sourcesObj: Record<string, string> = {};
-      for (const [k, v] of varsWithSource) {
-        varsObj[k] = v.value;
-        sourcesObj[k] = v.source;
-      }
-
-      const enabledProviders = (collection.data.config?.secretProviders ?? []).filter((p: any) => !p.disabled);
-      const secretProviderNames = enabledProviders.map((p: any) => p.name as string);
-
-      // Use cached secret names (sync), then prefetch in background
-      const secretNames: Record<string, string[]> = {};
-      for (const p of enabledProviders) {
-        const cached = this._secretService.getCachedSecretNames(p.name);
-        if (cached.length > 0) {
-          secretNames[p.name] = cached;
-          for (const sn of cached) {
-            const key = `$secret.${p.name}.${sn}`;
-            if (!(key in varsObj)) {
-              varsObj[key] = '••••••';
-              sourcesObj[key] = 'secret';
-            }
-          }
-        }
-      }
-
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj, secretProviderNames, secretNames });
-
-      // Prefetch in background
-      const variables = await this._environmentService.resolveVariables(collection);
-      this._secretService.prefetchSecretNames(enabledProviders, variables).then(() => {
-        let hasNew = false;
-        for (const p of enabledProviders) {
-          const fresh = this._secretService.getCachedSecretNames(p.name);
-          if (fresh.length > 0 && !secretNames[p.name]) { hasNew = true; break; }
-          if (fresh.length !== (secretNames[p.name]?.length ?? 0)) { hasNew = true; break; }
-        }
-        if (hasNew) { this._sendVariables(webview, collectionId, requestFilePath); }
-      });
-    } catch {
-      // Variables unavailable
-    }
+      const request = parseYaml(document.getText()) as HttpRequest;
+      webview.postMessage({ type: 'requestLoaded', request, filePath: document.uri.fsPath });
+    } catch { /* Invalid YAML, don't update webview */ }
   }
 
-  private async _editVariable(variableName: string, collectionId: string | undefined): Promise<void> {
-    if (!collectionId) return;
-    const collection = this._collectionService.getCollection(collectionId);
+  protected _getScriptFilename(): string { return 'requestPanel.js'; }
+  protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
+
+  protected _onPanelCreated(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _disposables: vscode.Disposable[],
+  ): void {
+    RequestEditorProvider._panels.set(document.uri.fsPath.toLowerCase(), webviewPanel);
+  }
+
+  protected _onPanelDisposed(document: vscode.TextDocument): void {
+    RequestEditorProvider._panels.delete(document.uri.fsPath.toLowerCase());
+  }
+
+  protected async _getFolderDefaults(filePath: string, collection: MissioCollection): Promise<RequestDefaults | undefined> {
+    const dir = path.dirname(filePath);
+    if (dir.toLowerCase() === collection.rootDir.toLowerCase()) return undefined;
+    for (const name of ['folder.yml', 'folder.yaml']) {
+      try {
+        const folderData = await readFolderFile(path.join(dir, name));
+        if (folderData?.request) return folderData.request;
+        break;
+      } catch { /* No folder.yml */ }
+    }
+    return undefined;
+  }
+
+  protected async _onMessage(
+    webview: vscode.Webview,
+    msg: any,
+    ctx: EditorContext,
+  ): Promise<boolean> {
+    const filePath = ctx.document.uri.fsPath;
+    switch (msg.type) {
+      case 'saveDocument': {
+        await ctx.applyEdit(msg.request);
+        await ctx.document.save();
+        webview.postMessage({ type: 'saved' });
+        return true;
+      }
+      case 'sendRequest': {
+        const collection = this._findCollection(filePath);
+        if (!collection) {
+          webview.postMessage({ type: 'error', message: 'Collection not found' });
+          return true;
+        }
+        const folderDefaults = await this._getFolderDefaults(filePath, collection);
+        await this._sendRequest(webview, msg.request, collection, folderDefaults);
+        return true;
+      }
+      case 'editVariable': {
+        const collection = this._findCollection(filePath);
+        await this._editVariable(msg.variableName, collection);
+        return true;
+      }
+      case 'resolveVariables': {
+        await this._sendVariables(webview, filePath);
+        return true;
+      }
+      case 'methodChanged':
+        return true;
+      case 'saveExample': {
+        await this._saveExample(webview, msg, ctx);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── Request-specific logic ──
+
+  private async _editVariable(variableName: string, collection: MissioCollection | undefined): Promise<void> {
     if (!collection) return;
     const vars = await this._environmentService.resolveVariables(collection);
     const currentValue = vars.get(variableName) || '';
@@ -382,43 +178,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     }
   }
 
-  private async _handleTokenMessage(webview: vscode.Webview, msg: any, collectionId: string | undefined): Promise<void> {
-    if (!collectionId) return;
-    const collection = this._collectionService.getCollection(collectionId);
-    if (!collection) return;
-    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
-  }
-
-  private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collectionId: string | undefined, requestFilePath?: string): Promise<void> {
-    if (!collectionId) {
-      webview.postMessage({ type: 'error', message: 'Collection not found' });
-      return;
-    }
-    const collection = this._collectionService.getCollection(collectionId);
-    if (!collection) {
-      webview.postMessage({ type: 'error', message: 'Collection not found' });
-      return;
-    }
-
-    // Find folder defaults for auth/header inheritance
-    let folderDefaults: RequestDefaults | undefined;
-    if (requestFilePath) {
-      const dir = path.dirname(requestFilePath);
-      if (dir.toLowerCase() !== collection.rootDir.toLowerCase()) {
-        for (const name of ['folder.yml', 'folder.yaml']) {
-          try {
-            const folderData = await readFolderFile(path.join(dir, name));
-            if (folderData?.request) {
-              folderDefaults = folderData.request;
-            }
-            break;
-          } catch {
-            // No folder.yml
-          }
-        }
-      }
-    }
-
+  private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
     // Determine effective auth for progress reporting
     let effectiveAuth = requestData.http?.auth;
     if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
@@ -433,7 +193,6 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
 
     try {
       if (isOAuth2) {
-        // Pre-acquire the token so we can update the spinner before the HTTP call
         const auth = effectiveAuth as AuthOAuth2;
         const vars = await this._environmentService.resolveVariables(collection);
         const interpolated: AuthOAuth2 = {
@@ -459,37 +218,56 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     } catch (e: any) {
       webview.postMessage({
         type: 'response',
-        response: {
-          status: 0,
-          statusText: 'Error',
-          headers: {},
-          body: e.message,
-          duration: 0,
-          size: 0,
-        },
+        response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
       });
     }
   }
 
-  private _getHtml(webview: vscode.Webview): string {
-    const nonce = this._getNonce();
+  private async _saveExample(webview: vscode.Webview, msg: any, ctx: EditorContext): Promise<void> {
+    const exampleName = await vscode.window.showInputBox({
+      prompt: 'Name for this example',
+      value: `Example ${msg.response.status}`,
+    });
+    if (!exampleName) return;
 
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'requestPanel.js'),
-    );
-    const cssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'requestPanel.css'),
-    );
+    try {
+      const current = parseYaml(ctx.document.getText()) as any;
+      if (!current.examples) current.examples = [];
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${cssUri}">
-</head>
-<body>
+      const respHeaders: any[] = [];
+      if (msg.response.headers) {
+        for (const [k, v] of Object.entries(msg.response.headers)) {
+          respHeaders.push({ name: k, value: String(v) });
+        }
+      }
+
+      const ct = (msg.response.headers?.['content-type'] ?? '') as string;
+      let bodyType = 'text';
+      if (ct.includes('json')) bodyType = 'json';
+      else if (ct.includes('xml')) bodyType = 'xml';
+      else if (ct.includes('html')) bodyType = 'html';
+
+      current.examples.push({
+        name: exampleName,
+        request: { method: msg.request?.http?.method, url: msg.request?.http?.url },
+        response: {
+          status: msg.response.status,
+          statusText: msg.response.statusText,
+          headers: respHeaders,
+          body: { type: bodyType, data: msg.response.body ?? '' },
+        },
+      });
+
+      await ctx.applyEdit(current);
+      webview.postMessage({ type: 'examplesUpdated', examples: current.examples });
+      vscode.window.showInformationMessage(`Saved example "${exampleName}".`);
+    } catch (e: any) {
+      vscode.window.showErrorMessage(`Failed to save example: ${e.message}`);
+    }
+  }
+
+  protected _getBodyHtml(_webview: vscode.Webview): string {
+    return `
   <!-- URL Bar -->
   <div class="url-bar">
     <select class="method-select" id="method">
@@ -641,23 +419,6 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         </div>
       </div>
     </div>
-  </div>
-
-<script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-
-  private _getNonce(): string {
-    let text = '';
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return text;
-  }
-
-  dispose(): void {
-    this._disposables.forEach(d => d.dispose());
+  </div>`;
   }
 }

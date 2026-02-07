@@ -1,12 +1,11 @@
 import * as vscode from 'vscode';
 import { parse as parseYaml } from 'yaml';
-import type { OpenCollection } from '../models/types';
-import { stringifyYaml } from '../services/yamlParser';
+import type { OpenCollection, MissioCollection } from '../models/types';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
-import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
+import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
  * CustomTextEditorProvider for OpenCollection collection.yml files.
@@ -17,18 +16,9 @@ import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
  * - Undo/redo support
  * - Proper restore on window reload
  */
-export class CollectionEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {
+export class CollectionEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.collectionEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
-  private _disposables: vscode.Disposable[] = [];
-
-  constructor(
-    private readonly _context: vscode.ExtensionContext,
-    private readonly _collectionService: CollectionService,
-    private readonly _environmentService: EnvironmentService,
-    private readonly _oauth2Service: OAuth2Service,
-    private readonly _secretService: SecretService,
-  ) {}
 
   static register(
     context: vscode.ExtensionContext,
@@ -62,7 +52,6 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
    */
   static async openTab(filePath: string, tab: string, envName?: string): Promise<void> {
     await CollectionEditorProvider.open(filePath);
-    // Give the webview a moment to initialize, then send the tab switch
     const key = vscode.Uri.file(filePath).toString();
     const sendSwitch = () => {
       const panel = CollectionEditorProvider._panels.get(key);
@@ -70,139 +59,72 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
         panel.webview.postMessage({ type: 'switchTab', tab, envName });
       }
     };
-    // Retry briefly in case the panel hasn't registered yet
     setTimeout(sendSwitch, 100);
     setTimeout(sendSwitch, 500);
   }
 
-  async resolveCustomTextEditor(
-    document: vscode.TextDocument,
-    webviewPanel: vscode.WebviewPanel,
-    _token: vscode.CancellationToken,
-  ): Promise<void> {
-    const disposables: vscode.Disposable[] = [];
+  // ── BaseEditorProvider implementation ──
 
-    webviewPanel.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
-    };
-
-    webviewPanel.webview.html = this._getHtml(webviewPanel.webview);
-
-    const docKey = document.uri.toString();
-    CollectionEditorProvider._panels.set(docKey, webviewPanel);
-
-    let isUpdatingDocument = false;
-
-    function sendDocumentToWebview() {
-      const text = document.getText();
-      let collection: OpenCollection;
-      try {
-        collection = parseYaml(text) || {};
-      } catch {
-        collection = {} as OpenCollection;
-      }
-      webviewPanel.webview.postMessage({
-        type: 'collectionLoaded',
-        collection,
-        filePath: document.uri.fsPath,
-      });
-    }
-
-    // Resolve collection ID from the file path
-    const collectionId = this._collectionService.getCollections()
-      .find(c => c.filePath === document.uri.fsPath)?.id;
-
-    const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
-
-    // Live-reload variables when collection or environment data changes
-    disposables.push(
-      this._collectionService.onDidChange(() => sendVariables()),
-      this._environmentService.onDidChange(() => sendVariables()),
-    );
-
-    // Listen for messages from the webview
-    disposables.push(
-      webviewPanel.webview.onDidReceiveMessage(async (msg) => {
-        if (msg.type === 'ready') {
-          sendDocumentToWebview();
-          await sendVariables();
-          return;
-        }
-        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
-          await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
-          return;
-        }
-        if (msg.type === 'testSecretProvider') {
-          try {
-            const collection = this._collectionService.getCollections().find(c => c.filePath === document.uri.fsPath);
-            const variables = collection
-              ? await this._environmentService.resolveVariables(collection)
-              : new Map<string, string>();
-            const result = await this._secretService.testConnection(msg.provider, variables);
-            const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
-            webviewPanel.webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
-          } catch (e: any) {
-            webviewPanel.webview.postMessage({ type: 'testSecretProviderResult', success: false, error: e.message, providerIdx: msg.providerIdx });
-          }
-          return;
-        }
-        if (msg.type === 'fetchSecretNames') {
-          try {
-            const collection = this._collectionService.getCollections().find(c => c.filePath === document.uri.fsPath);
-            const variables = collection
-              ? await this._environmentService.resolveVariables(collection)
-              : new Map<string, string>();
-            const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
-            webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames });
-          } catch {
-            // silently fail — autocomplete just won't have secret names
-          }
-          return;
-        }
-        if (msg.type === 'updateDocument') {
-          if (isUpdatingDocument) return;
-          isUpdatingDocument = true;
-          try {
-            // Detect env rename: compare old env names with new
-            this._trackEnvRename(document, msg.collection);
-
-            const yaml = stringifyYaml(msg.collection, { lineWidth: 120 });
-            // Skip if content hasn't actually changed
-            if (yaml === document.getText()) return;
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              document.uri,
-              new vscode.Range(0, 0, document.lineCount, 0),
-              yaml,
-            );
-            await vscode.workspace.applyEdit(edit);
-          } finally {
-            isUpdatingDocument = false;
-          }
-        }
-      }),
-    );
-
-    // Listen for external changes to the document
-    disposables.push(
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.uri.toString() === document.uri.toString() && !isUpdatingDocument) {
-          sendDocumentToWebview();
-          sendVariables();
-        }
-      }),
-    );
-
-    // Clean up on dispose
-    webviewPanel.onDidDispose(() => {
-      CollectionEditorProvider._panels.delete(docKey);
-      disposables.forEach(d => d.dispose());
-    });
+  protected _findCollection(filePath: string): MissioCollection | undefined {
+    return this._collectionService.getCollections().find(c => c.filePath === filePath);
   }
 
+  protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
+    let collection: OpenCollection;
+    try {
+      collection = parseYaml(document.getText()) || {};
+    } catch {
+      collection = {} as OpenCollection;
+    }
+    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath });
+  }
+
+  protected _getScriptFilename(): string { return 'collectionPanel.js'; }
+  protected _getCssFilenames(): string[] { return ['requestPanel.css', 'collectionPanel.css']; }
+
+  protected _onPanelCreated(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _disposables: vscode.Disposable[],
+  ): void {
+    CollectionEditorProvider._panels.set(document.uri.toString(), webviewPanel);
+  }
+
+  protected _onPanelDisposed(document: vscode.TextDocument): void {
+    CollectionEditorProvider._panels.delete(document.uri.toString());
+  }
+
+  protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
+    // Detect env rename before applying the edit
+    this._trackEnvRename(document, msg.collection);
+    await super._applyDocumentEdit(document, msg);
+  }
+
+  protected async _onMessage(
+    webview: vscode.Webview,
+    msg: any,
+    ctx: EditorContext,
+  ): Promise<boolean> {
+    if (msg.type === 'testSecretProvider') {
+      try {
+        const collection = this._findCollection(ctx.document.uri.fsPath);
+        const variables = collection
+          ? await this._environmentService.resolveVariables(collection)
+          : new Map<string, string>();
+        const result = await this._secretService.testConnection(msg.provider, variables);
+        const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
+        webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
+      } catch (e: any) {
+        webview.postMessage({ type: 'testSecretProviderResult', success: false, error: e.message, providerIdx: msg.providerIdx });
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // ── Collection-specific logic ──
+
   private _trackEnvRename(document: vscode.TextDocument, newCollection: any): void {
-    // Find which collection this file belongs to
     const filePath = document.uri.fsPath;
     const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
     if (!collection) return;
@@ -210,54 +132,23 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     const activeName = this._environmentService.getActiveEnvironmentName(collection.id);
     if (!activeName) return;
 
-    // Parse old env names from current document
     let oldData: any;
     try { oldData = parseYaml(document.getText()); } catch { return; }
     const oldEnvs: any[] = oldData?.config?.environments || [];
     const newEnvs: any[] = newCollection?.config?.environments || [];
 
-    // Check if active env name still exists in new data
     if (newEnvs.some((e: any) => e.name === activeName)) return;
 
-    // Find the old index of the active env
     const oldIdx = oldEnvs.findIndex((e: any) => e.name === activeName);
     if (oldIdx < 0) return;
 
-    // If there's an env at the same index with a different name, it was renamed
     if (oldIdx < newEnvs.length && newEnvs[oldIdx].name) {
       this._environmentService.setActiveEnvironment(collection.id, newEnvs[oldIdx].name);
     }
   }
 
-  private async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
-    const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
-    if (!collection) return;
-    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
-  }
-
-  private _getHtml(webview: vscode.Webview): string {
-    const nonce = this._getNonce();
-
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'collectionPanel.js'),
-    );
-    const sharedCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'requestPanel.css'),
-    );
-    const collCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'collectionPanel.css'),
-    );
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${sharedCssUri}">
-<link rel="stylesheet" href="${collCssUri}">
-</head>
-<body>
+  protected _getBodyHtml(_webview: vscode.Webview): string {
+    return `
   <!-- Collection Header -->
   <div class="collection-header">
     <span class="collection-icon">\u{1F4DA}</span>
@@ -355,75 +246,6 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       </div>
 
     </div>
-  </div>
-
-<script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-
-  private async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {
-    try {
-      const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
-      if (!collection) return;
-      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
-      const varsObj: Record<string, string> = {};
-      const sourcesObj: Record<string, string> = {};
-      for (const [k, v] of varsWithSource) {
-        varsObj[k] = v.value;
-        sourcesObj[k] = v.source;
-      }
-
-      const providers: any[] = collection.data.config?.secretProviders ?? [];
-      const enabledProviders = providers.filter((p: any) => !p.disabled);
-      const secretProviderNames = enabledProviders.map((p: any) => p.name as string);
-
-      // Use cached secret names (sync), then prefetch in background for next time
-      const secretNames: Record<string, string[]> = {};
-      for (const p of enabledProviders) {
-        const cached = this._secretService.getCachedSecretNames(p.name);
-        if (cached.length > 0) {
-          secretNames[p.name] = cached;
-          // Mark each $secret.provider.key as a resolved variable for highlighting
-          for (const sn of cached) {
-            const key = `$secret.${p.name}.${sn}`;
-            if (!(key in varsObj)) {
-              varsObj[key] = '••••••';
-              sourcesObj[key] = 'secret';
-            }
-          }
-        }
-      }
-
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj, secretProviderNames, secretNames });
-
-      // Prefetch in background (will be cached for next resolve)
-      const variables = await this._environmentService.resolveVariables(collection);
-      this._secretService.prefetchSecretNames(enabledProviders, variables).then(() => {
-        // If we got new names, re-send variables
-        let hasNew = false;
-        for (const p of enabledProviders) {
-          const fresh = this._secretService.getCachedSecretNames(p.name);
-          if (fresh.length > 0 && !secretNames[p.name]) { hasNew = true; break; }
-          if (fresh.length !== (secretNames[p.name]?.length ?? 0)) { hasNew = true; break; }
-        }
-        if (hasNew) { this._sendVariables(webview, filePath); }
-      });
-    } catch {
-      // Variables unavailable
-    }
-  }
-
-  private _getNonce(): string {
-    let text = '';
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return text;
-  }
-
-  dispose(): void {
-    this._disposables.forEach(d => d.dispose());
+  </div>`;
   }
 }

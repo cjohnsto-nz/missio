@@ -1,9 +1,10 @@
 // Syntax highlighting and line numbers for the webview.
 
-import { getResolvedVariables, getVariableSources, getShowResolvedVars } from './state';
-import { escHtml as _escHtml, highlightVariables as _highlightVariables } from './varlib';
+import { escHtml as _escHtml } from './varlib';
+import { highlightVariables } from './varFields';
 
 export { escHtml } from './varlib';
+export { highlightVariables } from './varFields';
 
 export function highlightJSON(code: string): string {
   let h = _escHtml(code);
@@ -19,14 +20,6 @@ export function highlightXML(code: string): string {
   h = h.replace(/(&lt;\/?)([\w:-]+)/g, "$1<span class='tk-tag'>$2</span>");
   h = h.replace(/([\w:-]+)(=)(")((?:[^"]*))(")/g, "<span class='tk-attr'>$1</span>$2<span class='tk-str'>&quot;$4&quot;</span>");
   return h;
-}
-
-export function highlightVariables(html: string): string {
-  return _highlightVariables(html, {
-    resolved: getResolvedVariables(),
-    sources: getVariableSources(),
-    showResolved: getShowResolvedVars(),
-  });
 }
 
 export function highlight(code: string, lang: string): string {

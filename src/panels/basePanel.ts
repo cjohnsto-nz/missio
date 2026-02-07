@@ -1,0 +1,268 @@
+import * as vscode from 'vscode';
+import type { MissioCollection } from '../models/types';
+import type { CollectionService } from '../services/collectionService';
+import type { EnvironmentService } from '../services/environmentService';
+import type { OAuth2Service } from '../services/oauth2Service';
+import type { SecretService } from '../services/secretService';
+import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
+import { sendVariablesAndPrefetch } from './panelHelper';
+
+/** Context passed to subclass message handlers for safe document editing. */
+export interface EditorContext {
+  document: vscode.TextDocument;
+  webviewPanel: vscode.WebviewPanel;
+  /** Apply a YAML edit to the document with proper isUpdatingDocument guarding. */
+  applyEdit: (data: any) => Promise<void>;
+}
+
+/**
+ * Base class for all CustomTextEditorProviders in Missio.
+ * Owns shared infrastructure: service dependencies, variable resolution,
+ * OAuth2 token handling, HTML boilerplate, nonce generation.
+ *
+ * Subclasses must implement:
+ * - _findCollection(filePath): find the MissioCollection for a given file
+ * - _getBodyHtml(webview): return the <body> inner HTML (no <html>/<head>)
+ * - _getScriptFilename(): return the JS filename in media/ (e.g. 'requestPanel.js')
+ * - _getCssFilenames(): return CSS filenames in media/ to load
+ *
+ * Subclasses may override:
+ * - _getFolderDefaults(filePath, collection): return folder-level RequestDefaults (request panel only)
+ * - _onMessage(webview, msg, document): handle panel-specific messages
+ * - _onReady(webview, document): called after sending initial document + variables
+ */
+export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {
+  protected _disposables: vscode.Disposable[] = [];
+
+  constructor(
+    protected readonly _context: vscode.ExtensionContext,
+    protected readonly _collectionService: CollectionService,
+    protected readonly _environmentService: EnvironmentService,
+    protected readonly _oauth2Service: OAuth2Service,
+    protected readonly _secretService: SecretService,
+  ) {}
+
+  // ── Abstract methods subclasses must implement ──
+
+  /** Find the MissioCollection for a given file path. */
+  protected abstract _findCollection(filePath: string): MissioCollection | undefined;
+
+  /** Return the inner HTML for the <body> element. */
+  protected abstract _getBodyHtml(webview: vscode.Webview): string;
+
+  /** Return the JS script filename in media/ (e.g. 'requestPanel.js'). */
+  protected abstract _getScriptFilename(): string;
+
+  /** Return CSS filenames in media/ to load (e.g. ['requestPanel.css']). */
+  protected abstract _getCssFilenames(): string[];
+
+  /** Parse the document text and send it to the webview. */
+  protected abstract _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void;
+
+  // ── Optional overrides ──
+
+  /** Handle panel-specific messages. Return true if handled. */
+  protected async _onMessage(
+    _webview: vscode.Webview,
+    _msg: any,
+    _ctx: EditorContext,
+  ): Promise<boolean> {
+    return false;
+  }
+
+  // ── Shared implementation ──
+
+  async resolveCustomTextEditor(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _token: vscode.CancellationToken,
+  ): Promise<void> {
+    const disposables: vscode.Disposable[] = [];
+
+    webviewPanel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
+    };
+
+    webviewPanel.webview.html = this._getHtml(webviewPanel.webview);
+
+    let isUpdatingDocument = false;
+
+    // Context object passed to subclass message handlers
+    const ctx: EditorContext = {
+      document,
+      webviewPanel,
+      applyEdit: async (data: any) => {
+        if (isUpdatingDocument) return;
+        isUpdatingDocument = true;
+        try {
+          const { stringifyYaml } = await import('../services/yamlParser');
+          const yaml = stringifyYaml(data, { lineWidth: 120 });
+          if (yaml === document.getText()) return;
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), yaml);
+          await vscode.workspace.applyEdit(edit);
+        } finally {
+          isUpdatingDocument = false;
+        }
+      },
+    };
+
+    const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
+
+    // Live-reload variables when collection or environment data changes
+    disposables.push(
+      this._collectionService.onDidChange(() => sendVariables()),
+      this._environmentService.onDidChange(() => sendVariables()),
+    );
+
+    // Handle messages from webview
+    disposables.push(
+      webviewPanel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.type === 'ready') {
+          this._sendDocumentToWebview(webviewPanel.webview, document);
+          await sendVariables();
+          return;
+        }
+        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
+          await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
+          return;
+        }
+        if (msg.type === 'updateDocument') {
+          if (isUpdatingDocument) return;
+          isUpdatingDocument = true;
+          try {
+            await this._applyDocumentEdit(document, msg);
+          } finally {
+            isUpdatingDocument = false;
+          }
+          return;
+        }
+        if (msg.type === 'fetchSecretNames') {
+          try {
+            const collection = this._findCollection(document.uri.fsPath);
+            if (!collection) return;
+            const variables = await this._environmentService.resolveVariables(collection);
+            const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
+            webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames });
+          } catch { /* silently fail */ }
+          return;
+        }
+        // Delegate to subclass
+        await this._onMessage(webviewPanel.webview, msg, ctx);
+      }),
+    );
+
+    // Listen for external changes to the document
+    disposables.push(
+      vscode.workspace.onDidChangeTextDocument((e) => {
+        if (e.document.uri.toString() === document.uri.toString() && !isUpdatingDocument) {
+          this._sendDocumentToWebview(webviewPanel.webview, document);
+          sendVariables();
+        }
+      }),
+    );
+
+    // Clean up on dispose
+    webviewPanel.onDidDispose(() => {
+      this._onPanelDisposed(document);
+      disposables.forEach(d => d.dispose());
+    });
+
+    // Let subclass do additional setup
+    this._onPanelCreated(document, webviewPanel, disposables);
+  }
+
+  /** Called when a panel is created. Subclasses can override to track panels. */
+  protected _onPanelCreated(
+    _document: vscode.TextDocument,
+    _webviewPanel: vscode.WebviewPanel,
+    _disposables: vscode.Disposable[],
+  ): void {}
+
+  /** Called when a panel is disposed. Subclasses can override to untrack panels. */
+  protected _onPanelDisposed(_document: vscode.TextDocument): void {}
+
+  /** Apply a document edit from the webview's updateDocument message. Subclasses can override for custom field names. */
+  protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
+    const { stringifyYaml } = await import('../services/yamlParser');
+    // msg contains the data under a key like 'request', 'collection', or 'folder'
+    const data = msg.request || msg.collection || msg.folder;
+    if (!data) return;
+    const yaml = stringifyYaml(data, { lineWidth: 120 });
+    if (yaml === document.getText()) return;
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      document.uri,
+      new vscode.Range(0, 0, document.lineCount, 0),
+      yaml,
+    );
+    await vscode.workspace.applyEdit(edit);
+  }
+
+  protected async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {
+    try {
+      const collection = this._findCollection(filePath);
+      if (!collection) return;
+      const folderDefaults = await this._getFolderDefaults(filePath, collection);
+      await sendVariablesAndPrefetch(
+        webview, collection, this._environmentService, this._secretService,
+        folderDefaults, () => this._sendVariables(webview, filePath),
+      );
+    } catch { /* Variables unavailable */ }
+  }
+
+  /** Return folder-level RequestDefaults for variable resolution. Override in request panel. */
+  protected async _getFolderDefaults(
+    _filePath: string,
+    _collection: MissioCollection,
+  ): Promise<any | undefined> {
+    return undefined;
+  }
+
+  protected async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
+    const collection = this._findCollection(filePath);
+    if (!collection) return;
+    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
+  }
+
+  protected _getHtml(webview: vscode.Webview): string {
+    const nonce = this._getNonce();
+    const cssLinks = this._getCssFilenames()
+      .map(f => {
+        const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', f));
+        return `<link rel="stylesheet" href="${uri}">`;
+      })
+      .join('\n');
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', this._getScriptFilename()),
+    );
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+${cssLinks}
+</head>
+<body>
+${this._getBodyHtml(webview)}
+<script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
+  }
+
+  protected _getNonce(): string {
+    let text = '';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return text;
+  }
+
+  dispose(): void {
+    this._disposables.forEach(d => d.dispose());
+  }
+}

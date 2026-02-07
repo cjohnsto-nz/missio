@@ -15,6 +15,8 @@ export interface VarState {
   resolved: Record<string, string>;
   sources: Record<string, string>;
   showResolved: boolean;
+  /** Known $secret.provider.key names — treated as resolved for highlighting but not shown in autocomplete level 1 */
+  secretKeys?: Set<string>;
 }
 
 const BUILTIN_NAMES = new Set(['$guid', '$timestamp', '$randomInt']);
@@ -24,7 +26,9 @@ export function highlightVariables(html: string, state: VarState): string {
     const key = name.trim();
     const isResolved = key in state.resolved;
     const isBuiltin = BUILTIN_NAMES.has(key);
-    const source = state.sources[key] || (isBuiltin ? 'dynamic' : 'unknown');
+    const isSecret = state.secretKeys?.has(key) ?? false;
+    const isKnown = isResolved || isBuiltin || isSecret;
+    const source = state.sources[key] || (isSecret ? 'secret' : isBuiltin ? 'dynamic' : 'unknown');
 
     if (state.showResolved && isResolved) {
       const cls = 'tk-var-resolved tk-src-' + source;
@@ -32,7 +36,7 @@ export function highlightVariables(html: string, state: VarState): string {
         + escHtml(state.resolved[key]) + "</span>";
     }
 
-    const cls = (isResolved || isBuiltin) ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
+    const cls = isKnown ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
     return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
   });
 }
