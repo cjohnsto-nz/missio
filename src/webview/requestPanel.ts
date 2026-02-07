@@ -25,7 +25,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { showVarTooltipAt, handleSecretValueResolved } from './varTooltip';
+import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -365,12 +365,7 @@ function tooltipCtx() {
   };
 }
 
-$('bodyHighlight').addEventListener('click', (e: Event) => {
-  const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-  if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
-  }
-});
+setupVarHover($('bodyHighlight'), tooltipCtx());
 
 // ── URL contenteditable highlighting ────────────
 let _rawUrlTemplate = '';
@@ -421,12 +416,7 @@ setBreakIllusionCallback(() => {
   syncUrlHighlight();
 });
 
-$('url').addEventListener('click', (e: Event) => {
-  const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-  if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
-  }
-});
+setupVarHover($('url'), tooltipCtx());
 
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
@@ -472,19 +462,30 @@ $('bodyData').addEventListener('input', () => {
 });
 $('bodyData').addEventListener('scroll', syncScroll);
 
-$('bodyData').addEventListener('click', (e: Event) => {
-  const me = e as MouseEvent;
-  const textarea = $('bodyData');
-  textarea.style.pointerEvents = 'none';
-  const el = document.elementFromPoint(me.clientX, me.clientY);
-  textarea.style.pointerEvents = '';
-  if (el) {
-    const varEl = (el as HTMLElement).closest('.tk-var') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
+// Hover-based tooltip for body textarea (peeks through to highlight layer)
+{
+  let _lastBodyVar = '';
+  $('bodyData').addEventListener('mousemove', (e: Event) => {
+    const me = e as MouseEvent;
+    const textarea = $('bodyData');
+    textarea.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(me.clientX, me.clientY);
+    textarea.style.pointerEvents = '';
+    if (el) {
+      const varEl = (el as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+      if (varEl && varEl.dataset.var && varEl.dataset.var !== _lastBodyVar) {
+        _lastBodyVar = varEl.dataset.var;
+        showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
+      }
+    } else {
+      _lastBodyVar = '';
     }
-  }
-});
+  });
+  $('bodyData').addEventListener('mouseleave', () => {
+    _lastBodyVar = '';
+    scheduleDismiss();
+  });
+}
 
 // ── Autocomplete keyboard ────────────────────────
 $('bodyData').addEventListener('keydown', (e: Event) => {

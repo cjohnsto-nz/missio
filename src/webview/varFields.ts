@@ -4,7 +4,7 @@
 // Each panel imports from here instead of duplicating.
 
 import { escHtml, highlightVariables as _hlVars } from './varlib';
-import { showVarTooltipAt } from './varTooltip';
+import { setupVarHover } from './varTooltip';
 import {
   handleAutocomplete,
   handleAutocompleteContentEditable,
@@ -129,20 +129,17 @@ export function enableVarOverlay(input: HTMLInputElement): void {
     if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
   });
 
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, {
-        getResolvedVariables: () => _resolved,
-        getVariableSources: () => _sources,
-        getSecretKeys: () => _secretKeys,
-        getSecretVarNames: () => _secretVarNames,
-        postMessage: _postMessage ?? undefined,
-      });
-    } else {
-      deactivate();
-      input.focus();
-    }
+  setupVarHover(overlay, {
+    getResolvedVariables: () => _resolved,
+    getVariableSources: () => _sources,
+    getSecretKeys: () => _secretKeys,
+    getSecretVarNames: () => _secretVarNames,
+    postMessage: _postMessage ?? undefined,
+  });
+
+  overlay.addEventListener('click', () => {
+    deactivate();
+    input.focus();
   });
 
   if (document.activeElement !== input) {
@@ -207,17 +204,12 @@ export function enableContentEditableValue(el: HTMLElement, initialValue: string
 
   el.addEventListener('blur', () => { hideAutocomplete(); });
 
-  el.addEventListener('click', (e: Event) => {
-    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (target && target.dataset.var) {
-      showVarTooltipAt(target, target.dataset.var, {
-        getResolvedVariables: () => _resolved,
-        getVariableSources: () => _sources,
-        getSecretKeys: () => _secretKeys,
-        getSecretVarNames: () => _secretVarNames,
-        postMessage: _postMessage ?? undefined,
-      });
-    }
+  setupVarHover(el, {
+    getResolvedVariables: () => _resolved,
+    getVariableSources: () => _sources,
+    getSecretKeys: () => _secretKeys,
+    getSecretVarNames: () => _secretVarNames,
+    postMessage: _postMessage ?? undefined,
   });
 }
 

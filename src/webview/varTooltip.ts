@@ -37,6 +37,8 @@ function scopeDefForSource(source: string): ScopeDef {
 
 let activeTooltip: HTMLElement | null = null;
 let _pendingSecretRef: string | null = null;
+let _dismissTimer: ReturnType<typeof setTimeout> | null = null;
+const DISMISS_DELAY = 300; // ms before tooltip disappears after mouse leaves
 
 // ── Helpers ──
 
@@ -45,21 +47,24 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function onTooltipOutsideClick(e: MouseEvent): void {
-  if (activeTooltip && !activeTooltip.contains(e.target as Node)) {
-    hideVarTooltip();
-  }
+function cancelDismiss(): void {
+  if (_dismissTimer) { clearTimeout(_dismissTimer); _dismissTimer = null; }
+}
+
+export function scheduleDismiss(): void {
+  cancelDismiss();
+  _dismissTimer = setTimeout(() => hideVarTooltip(), DISMISS_DELAY);
 }
 
 // ── Public API ──
 
 export function hideVarTooltip(): void {
+  cancelDismiss();
   if (activeTooltip) {
     activeTooltip.remove();
     activeTooltip = null;
   }
   _pendingSecretRef = null;
-  document.removeEventListener('click', onTooltipOutsideClick);
 }
 
 /** Called when the extension host responds with a resolved secret provider value. */
@@ -135,6 +140,10 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   document.body.appendChild(tooltip);
   activeTooltip = tooltip;
 
+  // Keep tooltip open while mouse is over it
+  tooltip.addEventListener('mouseenter', cancelDismiss);
+  tooltip.addEventListener('mouseleave', scheduleDismiss);
+
   // ── Wire interactions ──
 
   // Scope dropdown
@@ -178,7 +187,6 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
 
   // Value input — Enter to save, Escape to close
   if (valueInput) {
-    setTimeout(() => valueInput.focus(), 0);
     valueInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -194,7 +202,21 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
     });
   }
 
-  setTimeout(() => {
-    document.addEventListener('click', onTooltipOutsideClick);
-  }, 0);
+}
+
+/**
+ * Wire up a container so that hovering over a variable span shows the tooltip.
+ * Call this once per container element (overlay, contenteditable, highlight div, etc.).
+ */
+export function setupVarHover(container: HTMLElement, ctx: VarTooltipContext): void {
+  container.addEventListener('mouseover', (e: Event) => {
+    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+    if (target && target.dataset.var) {
+      cancelDismiss();
+      showVarTooltipAt(target, target.dataset.var, ctx);
+    }
+  });
+  container.addEventListener('mouseleave', () => {
+    scheduleDismiss();
+  });
 }
