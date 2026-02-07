@@ -25,7 +25,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved } from './varTooltip';
+import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, cancelHoverTimer } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -465,6 +465,7 @@ $('bodyData').addEventListener('scroll', syncScroll);
 // Hover-based tooltip for body textarea (peeks through to highlight layer)
 {
   let _lastBodyVar = '';
+  let _bodyHoverTimer: ReturnType<typeof setTimeout> | null = null;
   $('bodyData').addEventListener('mousemove', (e: Event) => {
     const me = e as MouseEvent;
     const textarea = $('bodyData');
@@ -475,14 +476,22 @@ $('bodyData').addEventListener('scroll', syncScroll);
       const varEl = (el as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
       if (varEl && varEl.dataset.var && varEl.dataset.var !== _lastBodyVar) {
         _lastBodyVar = varEl.dataset.var;
-        showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
+        if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); }
+        cancelHoverTimer();
+        const varName = varEl.dataset.var;
+        _bodyHoverTimer = setTimeout(() => {
+          _bodyHoverTimer = null;
+          showVarTooltipAt(varEl, varName, tooltipCtx());
+        }, 250);
       }
     } else {
       _lastBodyVar = '';
+      if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
     }
   });
   $('bodyData').addEventListener('mouseleave', () => {
     _lastBodyVar = '';
+    if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
     scheduleDismiss();
   });
 }

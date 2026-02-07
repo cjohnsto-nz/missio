@@ -38,7 +38,9 @@ function scopeDefForSource(source: string): ScopeDef {
 let activeTooltip: HTMLElement | null = null;
 let _pendingSecretRef: string | null = null;
 let _dismissTimer: ReturnType<typeof setTimeout> | null = null;
-const DISMISS_DELAY = 300; // ms before tooltip disappears after mouse leaves
+let _hoverTimer: ReturnType<typeof setTimeout> | null = null;
+const DISMISS_DELAY = 150; // ms before tooltip disappears after mouse leaves
+const HOVER_DELAY = 250; // ms before tooltip appears on hover
 
 // ── Helpers ──
 
@@ -49,6 +51,10 @@ function esc(s: string): string {
 
 function cancelDismiss(): void {
   if (_dismissTimer) { clearTimeout(_dismissTimer); _dismissTimer = null; }
+}
+
+export function cancelHoverTimer(): void {
+  if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
 }
 
 export function scheduleDismiss(): void {
@@ -213,10 +219,16 @@ export function setupVarHover(container: HTMLElement, ctx: VarTooltipContext): v
     const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
     if (target && target.dataset.var) {
       cancelDismiss();
-      showVarTooltipAt(target, target.dataset.var, ctx);
+      cancelHoverTimer();
+      const varName = target.dataset.var;
+      _hoverTimer = setTimeout(() => {
+        _hoverTimer = null;
+        showVarTooltipAt(target, varName, ctx);
+      }, HOVER_DELAY);
     }
   });
   container.addEventListener('mouseleave', () => {
+    cancelHoverTimer();
     scheduleDismiss();
   });
 }
