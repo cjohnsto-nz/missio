@@ -4,6 +4,9 @@
 
 A lightweight, [OpenCollection](https://www.opencollection.com) compatible REST API client for VS Code.
 
+<img width="1813" height="1472" alt="image" src="https://github.com/user-attachments/assets/bd0c39bd-1a1a-49f4-8519-7cfcf65f1902" />
+
+
 ## Features
 
 ### Collections & Requests
