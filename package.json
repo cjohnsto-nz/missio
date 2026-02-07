@@ -52,6 +52,12 @@
           "id": "missio.environments",
           "name": "Environments",
           "icon": "$(server-environment)"
+        },
+        {
+          "id": "missio.globals",
+          "name": "Globals",
+          "icon": "$(globe)",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -120,6 +126,30 @@
         "title": "Edit Global Variables",
         "category": "Missio",
         "icon": "$(globe)"
+      },
+      {
+        "command": "missio.addGlobalVariable",
+        "title": "Add Global Variable",
+        "category": "Missio",
+        "icon": "$(add)"
+      },
+      {
+        "command": "missio.editGlobalVariable",
+        "title": "Edit Global Variable",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.toggleGlobalVariable",
+        "title": "Enable/Disable Global Variable",
+        "category": "Missio",
+        "icon": "$(circle-large-outline)"
+      },
+      {
+        "command": "missio.deleteGlobalVariable",
+        "title": "Delete Global Variable",
+        "category": "Missio",
+        "icon": "$(trash)"
       },
       {
         "command": "missio.importCollection",
@@ -288,6 +318,11 @@
           "group": "navigation"
         },
         {
+          "command": "missio.addGlobalVariable",
+          "when": "view == missio.globals",
+          "group": "navigation@2"
+        },
+        {
           "command": "missio.importCollection",
           "when": "view == missio.collections",
           "group": "2_import"
@@ -387,6 +422,31 @@
         {
           "command": "missio.editEnvironment",
           "when": "view == missio.environments && viewItem == environment"
+        },
+        {
+          "command": "missio.addGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariablesEmpty",
+          "group": "inline@1"
+        },
+        {
+          "command": "missio.editGlobalVariables",
+          "when": "view == missio.globals && viewItem == globalVariablesEmpty",
+          "group": "1_open@1"
+        },
+        {
+          "command": "missio.editGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "inline"
+        },
+        {
+          "command": "missio.toggleGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "missio.deleteGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "2_delete@1"
         }
       ],
       "editor/title": [

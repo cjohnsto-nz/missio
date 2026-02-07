@@ -6,6 +6,7 @@ import { SecretService } from './services/secretService';
 import { HttpClient } from './services/httpClient';
 import { CollectionTreeProvider } from './providers/collectionTreeProvider';
 import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
+import { GlobalsTreeProvider } from './providers/globalsTreeProvider';
 import { MissioCodeLensProvider } from './providers/codeLensProvider';
 import { ResponseDocumentProvider } from './providers/responseProvider';
 import { RequestEditorProvider } from './panels/requestPanel';
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const collectionTreeProvider = new CollectionTreeProvider(collectionService);
   const environmentTreeProvider = new EnvironmentTreeProvider(collectionService, environmentService);
+  const globalsTreeProvider = new GlobalsTreeProvider(environmentService);
 
   const collectionsTreeView = vscode.window.createTreeView('missio.collections', {
     treeDataProvider: collectionTreeProvider,
@@ -62,8 +64,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     collectionTreeProvider,
     environmentTreeProvider,
+    globalsTreeProvider,
     collectionsTreeView,
     vscode.window.registerTreeDataProvider('missio.environments', environmentTreeProvider),
+    vscode.window.registerTreeDataProvider('missio.globals', globalsTreeProvider),
   );
 
   // ── Custom Editor ──────────────────────────────────────────────
