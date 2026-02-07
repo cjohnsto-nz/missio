@@ -3,4 +3,6 @@ dist/
 out/
 *.vsix
 .vscode-test/
+media/*.js
+media/*.css
 media/*.map
