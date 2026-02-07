@@ -1,8 +1,0 @@
-info:
-  name: x3200.media
-  type: folder
-request:
-  auth: inherit
-  variables:
-    - name: base_url
-      value: https://x3200.media

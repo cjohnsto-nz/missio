@@ -1,9 +1,0 @@
-info:
-  name: Get User
-  type: http
-http:
-  method: GET
-  url: "{{resourceUrl}}/{{userId}}"
-  headers:
-    - name: X-Request-Header
-      value: "request-value"
