@@ -58,11 +58,8 @@ export interface Variable {
 export interface SecretVariable {
   secret: true;
   name?: string;
-  value?: string;
   description?: Description;
   disabled?: boolean;
-  type?: VariableValueType;
-  secure?: boolean;
 }
 
 // ── Scripts & Assertions & Actions ──────────────────────────────────
