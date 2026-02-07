@@ -96,11 +96,33 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       vscode.window.showInformationMessage('All active requests cancelled.');
     }),
 
-    vscode.commands.registerCommand('missio.newRequest', async () => {
-      const collections = collectionService.getCollections();
-      if (collections.length === 0) {
-        vscode.window.showWarningMessage('No collections found. Create one first.');
-        return;
+    vscode.commands.registerCommand('missio.newRequest', async (node?: any) => {
+      // Derive target directory from tree node context
+      let targetDir: string | undefined;
+      if (node?.dirPath) {
+        // Folder node
+        targetDir = node.dirPath;
+      } else if (node?.collection?.rootDir) {
+        // Collection node
+        targetDir = node.collection.rootDir;
+      } else {
+        // Fallback: pick a collection
+        const collections = collectionService.getCollections();
+        if (collections.length === 0) {
+          vscode.window.showWarningMessage('No collections found. Create one first.');
+          return;
+        }
+        const collection = collections.length === 1
+          ? collections[0]
+          : await vscode.window.showQuickPick(
+              collections.map(c => ({
+                label: c.data.info?.name ?? path.basename(c.rootDir),
+                collection: c,
+              })),
+              { placeHolder: 'Select a collection' },
+            ).then(r => r?.collection);
+        if (!collection) { return; }
+        targetDir = collection.rootDir;
       }
 
       const name = await vscode.window.showInputBox({
@@ -109,48 +131,32 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       });
       if (!name) { return; }
 
-      const method = await vscode.window.showQuickPick(
-        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
-        { placeHolder: 'HTTP method' },
-      );
-      if (!method) { return; }
-
-      const collection = collections.length === 1
-        ? collections[0]
-        : await vscode.window.showQuickPick(
-            collections.map(c => ({
-              label: c.data.info?.name ?? path.basename(c.rootDir),
-              collection: c,
-            })),
-            { placeHolder: 'Select a collection' },
-          ).then(r => r?.collection);
-
-      if (!collection) { return; }
-
-      const fileName = `${name}.yml`;
-      const filePath = vscode.Uri.file(path.join(collection.rootDir, fileName));
+      if (!targetDir) { return; }
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const fileName = `${slug}.yml`;
+      const filePath = path.join(targetDir, fileName);
 
       const template: HttpRequest = {
         info: { name, type: 'http', seq: 1 },
         http: {
-          method,
+          method: 'GET',
           url: '{{baseUrl}}/',
           headers: [],
           params: [],
         },
         settings: {
           encodeUrl: true,
-          timeout: 0,
+          timeout: 30000,
           followRedirects: true,
           maxRedirects: 5,
         },
       };
 
       const content = stringifyYaml(template, { lineWidth: 120 });
-      await vscode.workspace.fs.writeFile(filePath, Buffer.from(content, 'utf-8'));
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf-8'));
 
-      const doc = await vscode.workspace.openTextDocument(filePath);
-      await vscode.window.showTextDocument(doc);
+      // Open in the Missio request editor
+      await RequestEditorProvider.open(filePath);
     }),
 
     vscode.commands.registerCommand('missio.renameRequest', async (node: any) => {

@@ -139,7 +139,7 @@
         "command": "missio.editEnvironment",
         "title": "Edit Environment",
         "category": "Missio",
-        "icon": "$(edit)"
+        "icon": "$(settings-gear)"
       },
       {
         "command": "missio.newEnvironment",
@@ -234,6 +234,11 @@
           "command": "missio.newEnvironment",
           "when": "view == missio.environments",
           "group": "navigation"
+        },
+        {
+          "command": "missio.importCollection",
+          "when": "view == missio.collections",
+          "group": "2_import"
         }
       ],
       "view/item/context": [
@@ -250,11 +255,6 @@
         {
           "command": "missio.newFolder",
           "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
-          "group": "inline"
-        },
-        {
-          "command": "missio.sendRequest",
-          "when": "view == missio.collections && viewItem == httpRequest",
           "group": "inline"
         },
         {
@@ -288,7 +288,12 @@
           "group": "2_delete@1"
         },
         {
-          "command": "missio.selectEnvironment",
+          "command": "missio.openCollection",
+          "when": "view == missio.environments && viewItem == envGroup",
+          "group": "inline"
+        },
+        {
+          "command": "missio.editEnvironment",
           "when": "view == missio.environments && viewItem == environment",
           "group": "inline"
         },

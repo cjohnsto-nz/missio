@@ -25,7 +25,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { showVarTooltipAt, hideVarTooltip, handleSecretValueResolved } from './varTooltip';
+import { showVarTooltipAt, handleSecretValueResolved } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
