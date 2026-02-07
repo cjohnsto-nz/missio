@@ -6,6 +6,8 @@ import { varPatternGlobal } from '../models/varPattern';
 
 const execFileAsync = promisify(execFile);
 
+const _log = vscode.window.createOutputChannel('Missio Secrets');
+
 // ── Azure CLI token cache ────────────────────────────────────────────
 
 interface CachedToken {
@@ -149,7 +151,10 @@ export class SecretService implements vscode.Disposable {
     variables: Map<string, string>,
   ): Promise<string | undefined> {
     const provider = providers.find(p => p.name === providerName && !p.disabled);
-    if (!provider) { return undefined; }
+    if (!provider) {
+      _log.appendLine(`[resolveSecret] Provider "${providerName}" not found or disabled`);
+      return undefined;
+    }
 
     // Interpolate {{var}} in the vault URL using current environment variables
     const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
@@ -157,8 +162,12 @@ export class SecretService implements vscode.Disposable {
       return variables.has(key) ? variables.get(key)! : _match;
     });
 
+    _log.appendLine(`[resolveSecret] ${providerName}.${secretName} → vault=${vaultUrl}`);
+
     if (provider.type === 'azure-keyvault') {
-      return fetchKeyVaultSecret(vaultUrl, secretName);
+      const val = await fetchKeyVaultSecret(vaultUrl, secretName);
+      _log.appendLine(`[resolveSecret] ${providerName}.${secretName} → ${val ? `resolved (${val.length} chars)` : 'not found'}`);
+      return val;
     }
 
     return undefined;
@@ -172,10 +181,13 @@ export class SecretService implements vscode.Disposable {
     providers: SecretProvider[],
     variables: Map<string, string>,
   ): Promise<string> {
+    // Strip any remaining {{...}} wrappers around $secret refs (interpolate leaves them intact)
+    value = value.replace(/\{\{\s*(\$secret\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)\s*\}\}/g, '$1');
     const pattern = /\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/g;
     const matches = [...value.matchAll(pattern)];
     if (matches.length === 0) { return value; }
 
+    _log.appendLine(`[resolveSecretReferences] ${matches.length} ref(s) to resolve`);
     let result = value;
     for (const match of matches) {
       const [fullMatch, providerName, secretName] = match;
@@ -183,9 +195,12 @@ export class SecretService implements vscode.Disposable {
         const secret = await this.resolveSecret(providerName, secretName, providers, variables);
         if (secret !== undefined) {
           result = result.replace(fullMatch, secret);
+          _log.appendLine(`[resolveSecretReferences] ${fullMatch} → resolved (${secret.length} chars)`);
+        } else {
+          _log.appendLine(`[resolveSecretReferences] ${fullMatch} → undefined (not resolved)`);
         }
       } catch (e: any) {
-        // Leave unresolved — will show as-is
+        _log.appendLine(`[resolveSecretReferences] ${fullMatch} → ERROR: ${e.message}`);
         vscode.window.showWarningMessage(`Secret resolution failed: ${fullMatch} — ${e.message}`);
       }
     }

@@ -245,7 +245,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
   protected async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
     const collection = this._findCollection(filePath);
     if (!collection) return;
-    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
+    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service, this._secretService);
   }
 
   protected _getHtml(webview: vscode.Webview): string {

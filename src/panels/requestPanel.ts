@@ -196,15 +196,24 @@ export class RequestEditorProvider extends BaseEditorProvider {
       if (isOAuth2) {
         const auth = effectiveAuth as AuthOAuth2;
         const vars = await this._environmentService.resolveVariables(collection);
+        const providers = collection.data.config?.secretProviders ?? [];
+        const resolve = async (val: string | undefined): Promise<string | undefined> => {
+          if (!val) return undefined;
+          let result = this._environmentService.interpolate(val, vars);
+          if (providers.length > 0) {
+            result = await this._secretService.resolveSecretReferences(result, providers, vars);
+          }
+          return result;
+        };
         const interpolated: AuthOAuth2 = {
           type: 'oauth2', flow: auth.flow,
-          accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, vars) : undefined,
-          refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, vars) : undefined,
-          clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, vars) : undefined,
-          clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, vars) : undefined,
-          username: auth.username ? this._environmentService.interpolate(auth.username, vars) : undefined,
-          password: auth.password ? this._environmentService.interpolate(auth.password, vars) : undefined,
-          scope: auth.scope ? this._environmentService.interpolate(auth.scope, vars) : undefined,
+          accessTokenUrl: await resolve(auth.accessTokenUrl),
+          refreshTokenUrl: await resolve(auth.refreshTokenUrl),
+          clientId: await resolve(auth.clientId),
+          clientSecret: await resolve(auth.clientSecret),
+          username: await resolve(auth.username),
+          password: await resolve(auth.password),
+          scope: await resolve(auth.scope),
           credentialsPlacement: auth.credentialsPlacement,
           credentialsId: auth.credentialsId,
           autoFetchToken: true,

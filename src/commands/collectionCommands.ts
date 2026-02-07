@@ -13,7 +13,8 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       collectionService.refresh();
     }),
 
-    vscode.commands.registerCommand('missio.openCollection', async (collectionId?: string) => {
+    vscode.commands.registerCommand('missio.openCollection', async (nodeOrId?: any) => {
+      const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
       let collection;
       if (collectionId) {
         collection = collectionService.getCollection(collectionId);
