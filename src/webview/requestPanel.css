@@ -715,29 +715,30 @@ td.var-cell .var-overlay {
 .resp-code-wrap .code-highlight {
   position: relative;
   top: auto; left: auto; right: auto; bottom: auto;
-  padding: 8px 10px 8px 48px;
+  padding: 8px 10px 8px 10px;
   pointer-events: auto;
   cursor: text;
   user-select: text;
   overflow: visible;
   min-height: 0;
+  counter-reset: resp-line;
 }
-.resp-code-wrap .line-numbers {
+.resp-code-wrap .code-highlight .code-line {
+  padding-left: 40px;
+  position: relative;
+}
+.resp-code-wrap .code-highlight .code-line::before {
+  counter-increment: resp-line;
+  content: counter(resp-line);
   position: absolute;
   left: 0;
-  top: 0;
-  width: 36px;
+  width: 32px;
   text-align: right;
-  padding: 8px 4px 8px 0;
-  font-size: var(--vscode-editor-font-size, 13px);
-  line-height: 1.5;
   color: #555;
+  font-size: var(--vscode-editor-font-size, 13px);
   font-family: var(--vscode-editor-font-family, monospace);
   user-select: none;
   pointer-events: none;
-}
-.resp-code-wrap .line-numbers span {
-  display: block;
 }
 .copy-btn {
   position: absolute;

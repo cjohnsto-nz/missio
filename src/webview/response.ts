@@ -37,26 +37,9 @@ export function clearResponse(): void {
 }
 
 function updateRespLineNumbers(): void {
-  const gutter = $('respLineNumbers');
-  const pre = $('respBodyPre');
-  const lineDivs = pre.querySelectorAll(':scope > .code-line');
-  const lineCount = lineDivs.length || 1;
-  let html = '';
-  for (let i = 1; i <= lineCount; i++) {
-    html += '<span>' + i + '</span>';
-  }
-  gutter.innerHTML = html;
-  // Batch-read all heights first (single reflow), then batch-write
-  const heights: number[] = [];
-  for (let i = 0; i < lineDivs.length; i++) {
-    heights.push((lineDivs[i] as HTMLElement).offsetHeight);
-  }
-  const spans = gutter.children;
-  for (let i = 0; i < spans.length; i++) {
-    if (heights[i]) {
-      (spans[i] as HTMLElement).style.height = heights[i] + 'px';
-    }
-  }
+  // Line numbers are now rendered via CSS counter on .code-line::before
+  // No JS measurement needed — gutter is part of each line element
+  $('respLineNumbers').style.display = 'none';
 }
 
 function formatSize(bytes: number): string {
