@@ -126,7 +126,7 @@
   --m-timing-dur: var(--vscode-editor-foreground, #ccc);
   --m-timing-total-label: var(--vscode-editor-foreground, #ddd);
   --m-timing-total-dur: var(--vscode-editor-foreground, #fff);
-  --m-timing-track-bg: var(--vscode-progressBar-background, rgba(255,255,255,0.05));
+  --m-timing-track-bg: rgba(255,255,255,0.06);
 
   /* Line numbers */
   --m-line-num: var(--vscode-editorLineNumber-foreground, #555);
@@ -199,6 +199,9 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
 
   /* Status badges */
   --m-status-badge-text: #fff;
+
+  /* Timing */
+  --m-timing-track-bg: rgba(0,0,0,0.06);
 
   /* Shadow (lighter for light themes) */
   --m-shadow: rgba(0,0,0,0.12);
