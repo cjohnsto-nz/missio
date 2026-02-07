@@ -37,6 +37,13 @@ body {
   align-items: stretch;
   flex-shrink: 0;
 }
+.method-picker {
+  position: relative;
+  min-width: 100px;
+}
+.method-picker .method-select {
+  width: 100%;
+}
 .method-select {
   background-color: var(--input-bg);
   color: var(--input-fg);
@@ -71,6 +78,90 @@ body {
 .method-select option[value="DELETE"] { color: var(--m-method-delete); }
 .method-select option[value="HEAD"] { color: var(--m-method-head); }
 .method-select option[value="OPTIONS"] { color: var(--m-method-options); }
+.method-picker.custom .method-select {
+  display: none;
+}
+.method-picker-trigger {
+  width: 100%;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 6px 28px 6px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--vscode-editor-font-family, monospace);
+  text-align: left;
+  line-height: 1.4;
+  cursor: pointer;
+  position: relative;
+}
+.method-picker-trigger::after {
+  content: '';
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid #888;
+  border-bottom: 1.5px solid #888;
+  transform: translateY(-60%) rotate(45deg);
+  pointer-events: none;
+}
+.method-picker-trigger:focus {
+  outline: 1px solid var(--btn-bg);
+  border-color: var(--btn-bg);
+}
+.method-picker-trigger.get { color: var(--m-method-get); }
+.method-picker-trigger.post { color: var(--m-method-post); }
+.method-picker-trigger.put { color: var(--m-method-put); }
+.method-picker-trigger.patch { color: var(--m-method-patch); }
+.method-picker-trigger.delete { color: var(--m-method-delete); }
+.method-picker-trigger.head { color: var(--m-method-head); }
+.method-picker-trigger.options { color: var(--m-method-options); }
+.method-picker-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px var(--m-shadow);
+  padding: 4px;
+  z-index: 1000;
+}
+.method-picker.open .method-picker-menu {
+  display: flex;
+  flex-direction: column;
+}
+.method-picker-option {
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.method-picker-option:hover,
+.method-picker-option:focus {
+  background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.18));
+  outline: none;
+}
+.method-picker-option.active {
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 120, 212, 0.35));
+}
+.method-picker-option.get { color: var(--m-method-get); }
+.method-picker-option.post { color: var(--m-method-post); }
+.method-picker-option.put { color: var(--m-method-put); }
+.method-picker-option.patch { color: var(--m-method-patch); }
+.method-picker-option.delete { color: var(--m-method-delete); }
+.method-picker-option.head { color: var(--m-method-head); }
+.method-picker-option.options { color: var(--m-method-options); }
 
 .url-wrap {
   flex: 1;
@@ -1254,4 +1345,3 @@ td.var-cell .var-overlay {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
