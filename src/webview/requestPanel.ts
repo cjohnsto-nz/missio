@@ -115,6 +115,8 @@ methodSelect.addEventListener('change', () => {
 });
 
 // ── Params ──────────────────────────────────────
+let _syncingFromUrl = false; // guard to prevent infinite loops
+
 function addParam(name = '', value = '', type = 'query', disabled = false): void {
   const tbody = $('paramsBody');
   const tr = document.createElement('tr');
@@ -124,18 +126,106 @@ function addParam(name = '', value = '', type = 'query', disabled = false): void
     '<td class="val-cell"><div class="val-ce p-value" contenteditable="true" data-placeholder="value"></div></td>' +
     '<td><select class="p-type select-borderless"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
-  tr.addEventListener('change', scheduleDocumentUpdate);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); syncUrlFromParams(); scheduleDocumentUpdate(); });
+  const enabledCb = tr.querySelector('.p-enabled') as HTMLInputElement;
+  enabledCb.addEventListener('change', () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
+  const typeSelect = tr.querySelector('.p-type') as HTMLSelectElement;
+  typeSelect.addEventListener('change', () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
   const nameInput = tr.querySelector('.p-name') as HTMLInputElement;
   enableVarOverlay(nameInput);
-  nameInput.addEventListener('input', () => { handleODataAutocomplete(nameInput); scheduleDocumentUpdate(); });
+  nameInput.addEventListener('input', () => { handleODataAutocomplete(nameInput); syncUrlFromParams(); scheduleDocumentUpdate(); });
   nameInput.addEventListener('keydown', (e: KeyboardEvent) => {
     if (isODataAutocompleteActive()) handleODataKeydown(e);
   });
   nameInput.addEventListener('blur', () => hideODataAutocomplete());
-  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value, scheduleDocumentUpdate);
+  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value, () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
   tbody.appendChild(tr);
   updateBadges();
+}
+
+/** Build the display URL: base URL + query string from enabled query params */
+function composeDisplayUrl(): string {
+  let url = _rawUrlTemplate;
+  const parts: string[] = [];
+  document.querySelectorAll('#paramsBody tr').forEach((tr) => {
+    const enabled = (tr.querySelector('.p-enabled') as HTMLInputElement).checked;
+    const type = (tr.querySelector('.p-type') as HTMLSelectElement).value;
+    if (!enabled || type !== 'query') return;
+    const name = (tr.querySelector('.p-name') as HTMLInputElement).value;
+    const valEl = tr.querySelector('.p-value') as any;
+    const value = valEl._getRawText ? valEl._getRawText() : (valEl.textContent || '');
+    if (name) parts.push(name + '=' + value);
+  });
+  if (parts.length > 0) url += '?' + parts.join('&');
+  return url;
+}
+
+/** Sync URL bar from params table (params → URL direction) */
+function syncUrlFromParams(): void {
+  if (_syncingFromUrl) return;
+  syncUrlHighlight();
+}
+
+/** Parse the URL bar text and sync params table from it (URL → params direction) */
+function syncParamsFromUrl(fullUrl: string): void {
+  _syncingFromUrl = true;
+  const qIdx = fullUrl.indexOf('?');
+  const base = qIdx >= 0 ? fullUrl.substring(0, qIdx) : fullUrl;
+  const queryString = qIdx >= 0 ? fullUrl.substring(qIdx + 1) : '';
+  _rawUrlTemplate = base;
+
+  // Parse query params from URL
+  const urlParams: { name: string; value: string }[] = [];
+  if (queryString) {
+    for (const part of queryString.split('&')) {
+      const eqIdx = part.indexOf('=');
+      if (eqIdx >= 0) {
+        urlParams.push({ name: part.substring(0, eqIdx), value: part.substring(eqIdx + 1) });
+      } else if (part) {
+        urlParams.push({ name: part, value: '' });
+      }
+    }
+  }
+
+  // Get existing param rows
+  const rows = Array.from(document.querySelectorAll('#paramsBody tr'));
+  const existingQuery: { tr: Element; name: string; value: string; enabled: boolean }[] = [];
+  const nonQuery: Element[] = [];
+  for (const tr of rows) {
+    const type = (tr.querySelector('.p-type') as HTMLSelectElement).value;
+    if (type === 'query') {
+      const name = (tr.querySelector('.p-name') as HTMLInputElement).value;
+      const valEl = tr.querySelector('.p-value') as any;
+      const value = valEl._getRawText ? valEl._getRawText() : (valEl.textContent || '');
+      const enabled = (tr.querySelector('.p-enabled') as HTMLInputElement).checked;
+      existingQuery.push({ tr, name, value, enabled });
+    } else {
+      nonQuery.push(tr);
+    }
+  }
+
+  // Match URL params to existing rows by position, update in place
+  const tbody = $('paramsBody');
+  // Remove all query param rows
+  for (const eq of existingQuery) eq.tr.remove();
+
+  // Keep track of disabled params that aren't in the URL
+  const disabledParams = existingQuery.filter(eq => !eq.enabled);
+
+  // Re-add: first the URL-derived enabled params, then any previously disabled ones not in URL
+  for (const up of urlParams) {
+    addParam(up.name, up.value, 'query', false);
+  }
+  for (const dp of disabledParams) {
+    addParam(dp.name, dp.value, 'query', true);
+  }
+  // Re-append non-query (path) params at the end
+  for (const nq of nonQuery) {
+    tbody.appendChild(nq);
+  }
+
+  updateBadges();
+  _syncingFromUrl = false;
 }
 
 // ── Headers ─────────────────────────────────────
@@ -296,7 +386,8 @@ function setUrlText(text: string): void {
 
 function syncUrlHighlight(): void {
   const el = $('url');
-  if (!_rawUrlTemplate) {
+  const displayUrl = composeDisplayUrl();
+  if (!displayUrl) {
     el.innerHTML = '';
     return;
   }
@@ -309,7 +400,7 @@ function syncUrlHighlight(): void {
     preRange.setEnd(range.startContainer, range.startOffset);
     cursorOffset = preRange.toString().length;
   }
-  el.innerHTML = highlightVariables(escHtml(_rawUrlTemplate));
+  el.innerHTML = highlightVariables(escHtml(displayUrl));
   if (sel && document.activeElement === el) {
     restoreCursor(el, cursorOffset);
   }
@@ -321,7 +412,7 @@ function syncUrlHighlight(): void {
 initVarFields({
   extraSyncHighlight: syncHighlight,
   extraSyncUrlHighlight: syncUrlHighlight,
-  setRawUrl: (text: string) => { _rawUrlTemplate = text; },
+  setRawUrl: (text: string) => { syncParamsFromUrl(text); },
 });
 setPostMessage((msg: any) => vscode.postMessage(msg));
 setBreakIllusionCallback(() => {
@@ -340,10 +431,10 @@ $('url').addEventListener('click', (e: Event) => {
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
     breakIllusion();
-    restoreCursor($('url'), _rawUrlTemplate.length);
+    restoreCursor($('url'), composeDisplayUrl().length);
     return;
   }
-  // Capture cursor offset BEFORE syncUrlHighlight destroys it
+  // Capture cursor offset BEFORE sync destroys it
   const el = $('url');
   const sel = window.getSelection();
   let cursorOffset = 0;
@@ -354,7 +445,8 @@ $('url').addEventListener('input', () => {
     preRange.setEnd(range.startContainer, range.startOffset);
     cursorOffset = preRange.toString().length;
   }
-  _rawUrlTemplate = el.textContent || '';
+  const fullText = el.textContent || '';
+  syncParamsFromUrl(fullText);
   syncUrlHighlight();
   // Restore cursor so autocomplete can read it
   restoreCursor(el, cursorOffset);
@@ -630,11 +722,18 @@ function loadRequest(req: any): void {
   const http = req.http || {};
   (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
   updateMethodColor();
-  setUrlText(http.url || '');
 
-  // Params
+  // Params — load first so composeDisplayUrl works when we set the URL
   $('paramsBody').innerHTML = '';
   (http.params || []).forEach((p: any) => addParam(p.name, p.value, p.type || 'query', p.disabled));
+
+  // Strip baked-in query string from URL when params array has query params
+  let loadUrl = http.url || '';
+  const hasQueryParams = (http.params || []).some((p: any) => (p.type || 'query') === 'query');
+  if (hasQueryParams && loadUrl.includes('?')) {
+    loadUrl = loadUrl.split('?')[0];
+  }
+  setUrlText(loadUrl);
 
   // Headers
   $('headersBody').innerHTML = '';
@@ -811,7 +910,7 @@ $('saveExampleBtn').addEventListener('click', () => {
   const req = buildRequest();
   vscode.postMessage({ type: 'saveExample', request: req, response: getLastResponse() });
 });
-$('addParamBtn').addEventListener('click', () => addParam());
+$('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
 $('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });

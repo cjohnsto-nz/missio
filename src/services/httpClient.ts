@@ -44,11 +44,14 @@ export class HttpClient implements vscode.Disposable {
     // Interpolate URL
     let url = this._environmentService.interpolate(details.url, variables);
 
-    // Apply query params
-    const queryParams = (details.params ?? []).filter(p => p.type === 'query' && !p.disabled);
-    if (queryParams.length > 0) {
+    // Apply query params — params array is the source of truth, so strip any
+    // query string baked into the URL (common Postman import artifact)
+    const allQueryParams = (details.params ?? []).filter(p => p.type === 'query');
+    if (allQueryParams.length > 0) {
       const urlObj = new URL(url);
-      for (const p of queryParams) {
+      urlObj.search = '';
+      for (const p of allQueryParams) {
+        if (p.disabled) continue;
         urlObj.searchParams.set(
           this._environmentService.interpolate(p.name, variables),
           this._environmentService.interpolate(p.value, variables),
