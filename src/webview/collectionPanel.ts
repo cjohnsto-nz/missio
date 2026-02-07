@@ -244,6 +244,25 @@ function selectEnv(idx: number) {
   renderEnvDetail();
 }
 
+function hasActiveEnvironment(): boolean {
+  const envs = collectionData?.config?.environments || [];
+  return activeEnvIdx >= 0 && activeEnvIdx < envs.length;
+}
+
+function buildUniqueEnvironmentName(baseName: string): string {
+  const envs = collectionData?.config?.environments || [];
+  const existing = new Set(
+    envs
+      .map((env: any) => (typeof env?.name === 'string' ? env.name : ''))
+      .filter((name: string) => !!name),
+  );
+  if (!existing.has(baseName)) return baseName;
+
+  let suffix = 2;
+  while (existing.has(`${baseName}-${suffix}`)) suffix++;
+  return `${baseName}-${suffix}`;
+}
+
 function removeEnv() {
   const envs = collectionData?.config?.environments || [];
   if (activeEnvIdx < 0 || activeEnvIdx >= envs.length) return;
@@ -254,14 +273,67 @@ function removeEnv() {
   scheduleUpdate();
 }
 
-function addEnv() {
+function addEnv(mode: 'blank' | 'clone' = 'blank') {
   if (!collectionData.config) collectionData.config = {};
   if (!collectionData.config.environments) collectionData.config.environments = [];
-  collectionData.config.environments.push({ name: 'new-environment', variables: [] });
+
+  let newEnv: any;
+  if (mode === 'clone' && hasActiveEnvironment()) {
+    const source = collectionData.config.environments[activeEnvIdx];
+    newEnv = JSON.parse(JSON.stringify(source || {}));
+    const sourceName = typeof source?.name === 'string' && source.name.trim()
+      ? source.name.trim()
+      : 'environment';
+    newEnv.name = buildUniqueEnvironmentName(`${sourceName}-copy`);
+  } else {
+    newEnv = { name: buildUniqueEnvironmentName('new-environment'), variables: [] };
+  }
+
+  collectionData.config.environments.push(newEnv);
   activeEnvIdx = collectionData.config.environments.length - 1;
   renderEnvSelector();
   renderEnvDetail();
   scheduleUpdate();
+}
+
+function closeAddEnvMenu() {
+  const existing = document.querySelector('.env-add-menu');
+  if (existing) existing.remove();
+}
+
+function openAddEnvMenu(anchor: HTMLElement) {
+  closeAddEnvMenu();
+  const menu = document.createElement('div');
+  menu.className = 'env-add-menu';
+
+  const addOption = (label: string, mode: 'blank' | 'clone') => {
+    const btn = document.createElement('button');
+    btn.className = 'env-add-menu-item';
+    btn.textContent = label;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeAddEnvMenu();
+      addEnv(mode);
+    });
+    menu.appendChild(btn);
+  };
+
+  addOption('Blank', 'blank');
+  if (hasActiveEnvironment()) addOption('Clone', 'clone');
+
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = rect.bottom + 4 + 'px';
+  menu.style.left = rect.right + 'px';
+  menu.style.transform = 'translateX(-100%)';
+  menu.style.transformOrigin = 'top right';
+  document.body.appendChild(menu);
+
+  setTimeout(() => {
+    document.addEventListener('click', function handler() {
+      closeAddEnvMenu();
+      document.removeEventListener('click', handler);
+    });
+  }, 0);
 }
 
 function closeSwatchPopover() {
@@ -635,7 +707,14 @@ $('varToggleBtn').addEventListener('click', () => {
   syncAllVarOverlays();
 });
 $('addSecretProviderBtn').addEventListener('click', () => { addSecretProviderRow(); $('secretsBadge').textContent = String($('secretProvidersBody').children.length); scheduleUpdate(); });
-$('addEnvBtn').addEventListener('click', addEnv);
+$('addEnvBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (hasActiveEnvironment()) {
+    openAddEnvMenu($('addEnvBtn'));
+  } else {
+    addEnv('blank');
+  }
+});
 $('removeEnvBtn').addEventListener('click', removeEnv);
 $('envSelector').addEventListener('change', () => {
   const idx = parseInt(($('envSelector') as HTMLSelectElement).value, 10);
