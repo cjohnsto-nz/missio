@@ -75,6 +75,7 @@ export class FolderEditorProvider extends BaseEditorProvider {
     webview.postMessage({ type: 'folderLoaded', folder, filePath: document.uri.fsPath });
   }
 
+  protected _getDocumentDataKey(): string { return 'folder'; }
   protected _getScriptFilename(): string { return 'folderPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css', 'collectionPanel.css']; }
 

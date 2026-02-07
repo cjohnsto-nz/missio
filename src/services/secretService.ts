@@ -226,22 +226,23 @@ export class SecretService implements vscode.Disposable {
    * List secret names from a vault (for intellisense). Caches results.
    */
   async listSecretNames(provider: SecretProvider, variables: Map<string, string>): Promise<string[]> {
-    const cached = _secretNamesCache.get(provider.name);
-    if (cached && Date.now() - cached.fetchedAt < SECRET_NAMES_CACHE_TTL) {
-      return cached.names;
-    }
-
     const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
       const key = name.trim();
       return variables.has(key) ? variables.get(key)! : _match;
     });
+
+    const cacheKey = `${provider.name}|${vaultUrl}`;
+    const cached = _secretNamesCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < SECRET_NAMES_CACHE_TTL) {
+      return cached.names;
+    }
 
     let names: string[] = [];
     if (provider.type === 'azure-keyvault') {
       names = await listKeyVaultSecretNames(vaultUrl);
     }
 
-    _secretNamesCache.set(provider.name, { names, fetchedAt: Date.now() });
+    _secretNamesCache.set(cacheKey, { names, fetchedAt: Date.now() });
     return names;
   }
 
@@ -250,11 +251,15 @@ export class SecretService implements vscode.Disposable {
    * Returns empty array if not cached yet.
    */
   getCachedSecretNames(providerName: string): string[] {
-    const cached = _secretNamesCache.get(providerName);
-    if (cached && Date.now() - cached.fetchedAt < SECRET_NAMES_CACHE_TTL) {
-      return cached.names;
+    // Cache keys are "name|resolvedUrl" — find the most recent entry for this provider
+    const prefix = providerName + '|';
+    let best: { names: string[]; fetchedAt: number } | undefined;
+    for (const [key, entry] of _secretNamesCache) {
+      if (key.startsWith(prefix) && Date.now() - entry.fetchedAt < SECRET_NAMES_CACHE_TTL) {
+        if (!best || entry.fetchedAt > best.fetchedAt) best = entry;
+      }
     }
-    return [];
+    return best?.names ?? [];
   }
 
   /**
@@ -268,6 +273,11 @@ export class SecretService implements vscode.Disposable {
         await this.listSecretNames(p, variables);
       } catch { /* skip unavailable vaults */ }
     }
+  }
+
+  /** Clear only the secret names cache (e.g. on environment change). */
+  clearSecretNamesCache(): void {
+    _secretNamesCache.clear();
   }
 
   clearCache(): void {

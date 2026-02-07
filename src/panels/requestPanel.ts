@@ -90,6 +90,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
     } catch { /* Invalid YAML, don't update webview */ }
   }
 
+  protected _getDocumentDataKey(): string { return 'request'; }
   protected _getScriptFilename(): string { return 'requestPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
 

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import type { MissioCollection, RequestDefaults } from '../models/types';
-import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { SecretService } from '../services/secretService';
 

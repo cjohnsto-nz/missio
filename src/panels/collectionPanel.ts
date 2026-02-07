@@ -79,6 +79,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath });
   }
 
+  protected _getDocumentDataKey(): string { return 'collection'; }
   protected _getScriptFilename(): string { return 'collectionPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css', 'collectionPanel.css']; }
 

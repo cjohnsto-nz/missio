@@ -4,8 +4,10 @@ import { escHtml } from './varlib';
 import {
   highlightVariables, enableVarOverlay, enableContentEditableValue,
   restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  registerFlushOnSave, setPostMessage,
   getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
+import { handleSecretValueResolved } from './varTooltip';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -192,7 +194,7 @@ function updateBadges() {
 // ── Load Folder Data ─────────────────────────
 function loadFolder(data: any) {
   isLoading = true;
-  folderData = data;
+  folderData = JSON.parse(JSON.stringify(data));
 
   // Overview
   ($('infoName') as HTMLInputElement).value = data.info?.name || '';
@@ -227,6 +229,11 @@ function loadFolder(data: any) {
 
 // ── Wire up events ───────────────────────────
 initVarFields();
+setPostMessage((msg: any) => vscode.postMessage(msg));
+registerFlushOnSave(() => {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (!isLoading && folderData) buildAndSend();
+});
 initTabs('mainTabs');
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
@@ -257,6 +264,9 @@ window.addEventListener('message', (event: MessageEvent) => {
   }
   if (handleVariablesResolved(msg)) {
     tokenStatusCtrl.requestStatus();
+  }
+  if (msg.type === 'secretValueResolved') {
+    handleSecretValueResolved(msg);
   }
   if (msg.type === 'oauth2TokenStatus') {
     tokenStatusCtrl.handleStatus(msg.status);

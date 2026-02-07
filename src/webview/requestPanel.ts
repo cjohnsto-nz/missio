@@ -22,8 +22,10 @@ import {
 import {
   highlightVariables, enableVarOverlay, enableContentEditableValue,
   restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
-  getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
+  setBreakIllusionCallback, setPostMessage,
+  getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
+import { showVarTooltipAt, hideVarTooltip, handleSecretValueResolved } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -263,69 +265,20 @@ function syncHighlight(): void {
 }
 
 // ── Variable Tooltip ────────────────────────────
-let activeTooltip: HTMLElement | null = null;
-
-
-function showVarTooltipAt(anchorEl: HTMLElement, varName: string): void {
-  hideVarTooltip();
-  const rect = anchorEl.getBoundingClientRect();
-  const resolved = varName in getResolvedVariables();
-  const tooltip = document.createElement('div');
-  tooltip.className = 'var-tooltip';
-  const source = getVariableSources()[varName] || 'unknown';
-  const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
-  tooltip.innerHTML =
-    "<div class='var-name'>{{" + escHtml(varName) + "}}</div>" +
-    (resolved
-      ? "<div class='var-source tk-src-" + source + "'>" + sourceLabel + "</div>" +
-        "<div class='var-value'>" + escHtml(getResolvedVariables()[varName]) + "</div>"
-      : "<div class='var-unresolved'>Unresolved variable</div>") +
-    "<div class='var-actions'>" +
-    "<button class='var-action-btn' data-action='edit'>Edit Variable</button>" +
-    "<button class='var-action-btn' data-action='copy'>" + (resolved ? 'Copy Value' : 'Copy Name') + "</button>" +
-    "</div>";
-
-  tooltip.style.left = rect.left + 'px';
-  tooltip.style.top = (rect.bottom + 4) + 'px';
-  document.body.appendChild(tooltip);
-  activeTooltip = tooltip;
-
-  tooltip.querySelectorAll('.var-action-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const action = (btn as HTMLElement).dataset.action;
-      if (action === 'edit') {
-        vscode.postMessage({ type: 'editVariable', variableName: varName });
-      } else if (action === 'copy') {
-        const text = resolved ? getResolvedVariables()[varName] : '{{' + varName + '}}';
-        navigator.clipboard.writeText(text).catch(() => {});
-      }
-      hideVarTooltip();
-    });
-  });
-
-  setTimeout(() => {
-    document.addEventListener('click', onTooltipOutsideClick);
-  }, 0);
-}
-
-function hideVarTooltip(): void {
-  if (activeTooltip) {
-    activeTooltip.remove();
-    activeTooltip = null;
-  }
-  document.removeEventListener('click', onTooltipOutsideClick);
-}
-
-function onTooltipOutsideClick(e: MouseEvent): void {
-  if (activeTooltip && !activeTooltip.contains(e.target as Node)) {
-    hideVarTooltip();
-  }
+function tooltipCtx() {
+  return {
+    getResolvedVariables,
+    getVariableSources,
+    getSecretKeys,
+    postMessage: (msg: any) => vscode.postMessage(msg),
+    onEditVariable: (name: string) => vscode.postMessage({ type: 'editVariable', variableName: name }),
+  };
 }
 
 $('bodyHighlight').addEventListener('click', (e: Event) => {
   const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
   if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var);
+    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
   }
 });
 
@@ -370,11 +323,17 @@ initVarFields({
   extraSyncUrlHighlight: syncUrlHighlight,
   setRawUrl: (text: string) => { _rawUrlTemplate = text; },
 });
+setPostMessage((msg: any) => vscode.postMessage(msg));
+setBreakIllusionCallback(() => {
+  $('varToggleBtn').classList.remove('active');
+  syncHighlight();
+  syncUrlHighlight();
+});
 
 $('url').addEventListener('click', (e: Event) => {
   const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
   if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var);
+    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
   }
 });
 
@@ -430,7 +389,7 @@ $('bodyData').addEventListener('click', (e: Event) => {
   if (el) {
     const varEl = (el as HTMLElement).closest('.tk-var') as HTMLElement | null;
     if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var);
+      showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
     }
   }
 });
@@ -810,6 +769,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       requestTokenStatus();
       break;
     }
+    case 'secretValueResolved':
+      handleSecretValueResolved(msg);
+      break;
     case 'oauth2TokenStatus':
       updateOAuth2TokenStatus(msg.status);
       break;

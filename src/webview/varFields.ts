@@ -23,9 +23,13 @@ let _sources: Record<string, string> = {};
 let _showResolved = false;
 let _secretKeys: Set<string> = new Set();
 let _onBreakIllusion: (() => void) | null = null;
+let _postMessage: ((msg: any) => void) | null = null;
 
 /** Register a callback for when the resolved-vars illusion is broken (e.g. user edits a field while resolved vars are shown). */
 export function setBreakIllusionCallback(fn: () => void): void { _onBreakIllusion = fn; }
+
+/** Register the vscode postMessage function so tooltips can request secret resolution. */
+export function setPostMessage(fn: (msg: any) => void): void { _postMessage = fn; }
 
 export function getResolvedVariables(): Record<string, string> { return _resolved; }
 export function getVariableSources(): Record<string, string> { return _sources; }
@@ -127,6 +131,8 @@ export function enableVarOverlay(input: HTMLInputElement): void {
       showVarTooltipAt(varEl, varEl.dataset.var, {
         getResolvedVariables: () => _resolved,
         getVariableSources: () => _sources,
+        getSecretKeys: () => _secretKeys,
+        postMessage: _postMessage ?? undefined,
       });
     } else {
       deactivate();
@@ -202,6 +208,8 @@ export function enableContentEditableValue(el: HTMLElement, initialValue: string
       showVarTooltipAt(target, target.dataset.var, {
         getResolvedVariables: () => _resolved,
         getVariableSources: () => _sources,
+        getSecretKeys: () => _secretKeys,
+        postMessage: _postMessage ?? undefined,
       });
     }
   });
@@ -225,6 +233,21 @@ export function handleVariablesResolved(msg: any): boolean {
   syncAllVarOverlays();
   return true;
 }
+
+// ── Ctrl+S flush: ensure pending debounced updates are committed before native save ──
+let _flushFn: (() => void) | null = null;
+
+/** Register a flush function that commits pending debounced changes immediately.
+ *  Called once per panel at startup. The Ctrl+S listener is shared. */
+export function registerFlushOnSave(fn: () => void): void {
+  _flushFn = fn;
+}
+
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    _flushFn?.();
+  }
+});
 
 // ── Initialize autocomplete for a panel ─────────
 // Call once at panel startup.

@@ -7,8 +7,10 @@ import {
 import {
   highlightVariables, enableVarOverlay, enableContentEditableValue,
   restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  registerFlushOnSave, setPostMessage,
   getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
+import { handleSecretValueResolved } from './varTooltip';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -39,6 +41,7 @@ function scheduleUpdate() {
     buildAndSend();
   }, 400);
 }
+
 
 function buildAndSend() {
   const data = JSON.parse(JSON.stringify(collectionData));
@@ -539,6 +542,9 @@ window.addEventListener('message', (event) => {
       setSecretNamesForProvider(msg.providerName, msg.secretNames);
     }
   }
+  if (msg.type === 'secretValueResolved') {
+    handleSecretValueResolved(msg);
+  }
   if (msg.type === 'switchTab') {
     const tab = msg.tab;
     const container = $('mainTabs');
@@ -613,6 +619,11 @@ function buildSecretProviders(): any[] {
 
 // ── Init ─────────────────────────────────────
 initVarFields();
+setPostMessage((msg: any) => vscode.postMessage(msg));
+registerFlushOnSave(() => {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (!isLoading && collectionData) buildAndSend();
+});
 initTabs('mainTabs');
 
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); scheduleUpdate(); });

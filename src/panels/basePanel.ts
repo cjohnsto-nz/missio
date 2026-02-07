@@ -113,7 +113,10 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
     // Live-reload variables when collection or environment data changes
     disposables.push(
       this._collectionService.onDidChange(() => sendVariables()),
-      this._environmentService.onDidChange(() => sendVariables()),
+      this._environmentService.onDidChange(() => {
+        this._secretService.clearSecretNamesCache();
+        sendVariables();
+      }),
     );
 
     // Handle messages from webview
@@ -146,6 +149,23 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
             const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
             webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames });
           } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'resolveSecret') {
+          try {
+            const secretRef: string = msg.secretRef; // e.g. "$secret.kv-name.my-key"
+            const match = /^\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)$/.exec(secretRef);
+            if (!match) return;
+            const [, providerName, secretName] = match;
+            const collection = this._findCollection(document.uri.fsPath);
+            if (!collection) return;
+            const providers = collection.data.config?.secretProviders || [];
+            const variables = await this._environmentService.resolveVariables(collection);
+            const value = await this._secretService.resolveSecret(providerName, secretName, providers, variables);
+            webviewPanel.webview.postMessage({ type: 'secretValueResolved', secretRef, value: value ?? '' });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({ type: 'secretValueResolved', secretRef: msg.secretRef, error: e.message });
+          }
           return;
         }
         // Delegate to subclass
@@ -183,11 +203,13 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
   /** Called when a panel is disposed. Subclasses can override to untrack panels. */
   protected _onPanelDisposed(_document: vscode.TextDocument): void {}
 
-  /** Apply a document edit from the webview's updateDocument message. Subclasses can override for custom field names. */
+  /** Return the key in the updateDocument message that contains the document data (e.g. 'request', 'collection', 'folder'). */
+  protected abstract _getDocumentDataKey(): string;
+
+  /** Apply a document edit from the webview's updateDocument message. */
   protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
     const { stringifyYaml } = await import('../services/yamlParser');
-    // msg contains the data under a key like 'request', 'collection', or 'folder'
-    const data = msg.request || msg.collection || msg.folder;
+    const data = msg[this._getDocumentDataKey()];
     if (!data) return;
     const yaml = stringifyYaml(data, { lineWidth: 120 });
     if (yaml === document.getText()) return;
