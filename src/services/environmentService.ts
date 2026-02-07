@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
-import type { Environment, Variable, SecretVariable, MissioCollection, VariableValue, VariableTypedValue, VariableValueVariant, RequestDefaults, SecretProvider } from '../models/types';
+import type { Environment, Variable, SecretVariable, MissioCollection, VariableTypedValue, VariableValueVariant, RequestDefaults, SecretProvider } from '../models/types';
 import { varPatternGlobal } from '../models/varPattern';
 import type { SecretService } from './secretService';
 

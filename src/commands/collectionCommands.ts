@@ -6,7 +6,7 @@ import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
-  const { collectionService, extensionContext } = ctx;
+  const { collectionService } = ctx;
 
   return [
     vscode.commands.registerCommand('missio.refreshCollections', () => {

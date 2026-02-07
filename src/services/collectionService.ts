@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, isFolderFile } from './yamlParser';
-import type { MissioCollection, OpenCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
+import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile } from './yamlParser';
+import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
 export class CollectionService implements vscode.Disposable {
   private _collections: Map<string, MissioCollection> = new Map();

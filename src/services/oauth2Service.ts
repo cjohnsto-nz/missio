@@ -114,7 +114,7 @@ export class OAuth2Service implements vscode.Disposable {
   /**
    * Clear all tokens for a collection+environment.
    */
-  async clearAllTokens(collectionId: string, envName: string | undefined): Promise<void> {
+  async clearAllTokens(_collectionId: string, _envName: string | undefined): Promise<void> {
     // SecretStorage doesn't support listing keys, so we can only clear known keys.
     // For now, this is a no-op placeholder. Individual tokens are cleared via clearToken.
   }

@@ -5,7 +5,7 @@ import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposable[] {
-  const { collectionService, environmentService, extensionContext } = ctx;
+  const { collectionService, environmentService } = ctx;
 
   return [
     vscode.commands.registerCommand('missio.selectEnvironment', async (collectionId?: string, envName?: string) => {

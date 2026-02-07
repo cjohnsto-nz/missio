@@ -4,9 +4,8 @@ import * as https from 'https';
 import { URL } from 'url';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
-  HttpRequestHeader, HttpRequestParam,
   Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
-  MissioCollection, SecretProvider,
+  MissioCollection,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
@@ -204,7 +203,7 @@ export class HttpClient implements vscode.Disposable {
   }
 
   cancelAll(): void {
-    for (const [id, req] of this._activeRequests) {
+    for (const [, req] of this._activeRequests) {
       req.destroy(new Error('Request cancelled'));
     }
     this._activeRequests.clear();
