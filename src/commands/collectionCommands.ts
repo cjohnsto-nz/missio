@@ -7,6 +7,33 @@ import { stringifyYaml } from '../services/yamlParser';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService } = ctx;
+  const revealCollectionInExplorer = async (nodeOrId?: any): Promise<void> => {
+    const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
+    let collection;
+    if (collectionId) {
+      collection = collectionService.getCollection(collectionId);
+    } else {
+      const collections = collectionService.getCollections();
+      if (collections.length === 1) {
+        collection = collections[0];
+      } else if (collections.length > 1) {
+        const pick = await vscode.window.showQuickPick(
+          collections.map(c => ({
+            label: c.data.info?.name ?? path.basename(c.rootDir),
+            description: c.rootDir,
+            collection: c,
+          })),
+          { placeHolder: 'Select a collection to reveal in Explorer' },
+        );
+        collection = pick?.collection;
+      }
+    }
+    if (!collection) return;
+
+    const target = vscode.Uri.file(collection.rootDir);
+    await vscode.commands.executeCommand('workbench.view.explorer');
+    await vscode.commands.executeCommand('revealInExplorer', target);
+  };
 
   return [
     vscode.commands.registerCommand('missio.refreshCollections', () => {
@@ -80,5 +107,8 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       await CollectionEditorProvider.open(collFile.fsPath);
       vscode.window.showInformationMessage(`Collection "${name}" created.`);
     }),
+
+    vscode.commands.registerCommand('missio.showCollectionInExplorer', revealCollectionInExplorer),
+    vscode.commands.registerCommand('missio.showCollectionInFinder', revealCollectionInExplorer),
   ];
 }
