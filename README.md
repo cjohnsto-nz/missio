@@ -2,12 +2,12 @@
 
 # Missio REST Client
 
-A lightweight, [OpenCollection](https://www.opencollection.com)-compliant REST API client for VS Code.
+A lightweight, [OpenCollection](https://www.opencollection.com)-compatible REST API client for VS Code.
 
 ## Features
 
 ### Collections & Requests
-- **OpenCollection v1.0.0 compliant** — YAML-based collections, requests, and environments
+- **OpenCollection v1.0.0 compatible** — YAML-based collections, requests, and environments
 - **Auto-detect collections** — scans workspace for `collection.yml` / `workspace.yml`
 - **Custom editors** — visual editors for requests, folders, and collections with native dirty indicators, Ctrl+S save, and undo/redo
 - **Tree view sidebar** — browse collections, folders, and requests with inline actions
