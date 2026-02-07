@@ -6,19 +6,25 @@ import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
   HttpRequestHeader, HttpRequestParam,
   Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
+  MissioCollection, SecretProvider,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
-import type { MissioCollection } from '../models/types';
+import type { SecretService } from './secretService';
 
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
+  private _secretService: SecretService | undefined;
 
   constructor(private readonly _environmentService: EnvironmentService) {}
 
   setOAuth2Service(oauth2Service: OAuth2Service): void {
     this._oauth2Service = oauth2Service;
+  }
+
+  setSecretService(secretService: SecretService): void {
+    this._secretService = secretService;
   }
 
   async send(
@@ -111,6 +117,19 @@ export class HttpClient implements vscode.Disposable {
     if (resolvedBody) {
       const result = this._buildBody(resolvedBody, headers, variables);
       body = result;
+    }
+
+    // Resolve $secret references in URL, headers, and body
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0 && this._secretService) {
+      url = await this._secretService.resolveSecretReferences(url, providers, variables);
+      for (const [k, v] of Object.entries(headers)) {
+        const resolved = await this._secretService.resolveSecretReferences(v, providers, variables);
+        if (resolved !== v) headers[k] = resolved;
+      }
+      if (body && typeof body === 'string') {
+        body = await this._secretService.resolveSecretReferences(body, providers, variables);
+      }
     }
 
     // Execute

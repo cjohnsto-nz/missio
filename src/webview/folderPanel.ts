@@ -1,6 +1,17 @@
 import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
 import { showVarTooltipAt, hideVarTooltip } from './varTooltip';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
+import { escHtml, highlightVariables as _hlVars } from './varlib';
+import {
+  handleAutocomplete,
+  handleAutocompleteContentEditable,
+  handleAutocompleteKeydown,
+  hideAutocomplete,
+  isAutocompleteActive,
+  setAutocompleteSyncCallbacks,
+  setResolvedVariablesGetter,
+  setSecretProviderNames,
+} from './autocomplete';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -24,23 +35,8 @@ let resolvedVariables: Record<string, string> = {};
 let variableSources: Record<string, string> = {};
 let showResolvedVars = false;
 
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 function highlightVariables(html: string): string {
-  return html.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match: string, name: string) => {
-    const key = name.trim();
-    const resolved = key in resolvedVariables;
-    const source = variableSources[key] || 'unknown';
-    if (showResolvedVars && resolved) {
-      const cls = 'tk-var-resolved tk-src-' + source;
-      return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>"
-        + escHtml(resolvedVariables[key]) + "</span>";
-    }
-    const cls = resolved ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
-    return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
-  });
+  return _hlVars(html, { resolved: resolvedVariables, sources: variableSources, showResolved: showResolvedVars });
 }
 
 function enableVarOverlay(input: HTMLInputElement): void {
@@ -61,9 +57,12 @@ function enableVarOverlay(input: HTMLInputElement): void {
     parent.classList.remove('var-overlay-active');
   }
 
-  input.addEventListener('input', sync);
+  input.addEventListener('input', () => { sync(); handleAutocomplete(input, sync); });
   input.addEventListener('focus', deactivate);
-  input.addEventListener('blur', activate);
+  input.addEventListener('blur', () => { activate(); hideAutocomplete(); });
+  input.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
+  });
 
   overlay.addEventListener('click', (e: Event) => {
     const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
@@ -89,6 +88,112 @@ function syncAllVarOverlays(): void {
     const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
     if (input && overlay && cell.classList.contains('var-overlay-active')) {
       overlay.innerHTML = highlightVariables(escHtml(input.value));
+    }
+  });
+  document.querySelectorAll('.val-ce').forEach((el) => {
+    const getRaw = (el as any)._getRawText;
+    if (getRaw && document.activeElement !== el) {
+      const raw = getRaw();
+      if (raw) {
+        el.innerHTML = highlightVariables(escHtml(raw));
+      }
+    }
+  });
+}
+
+function restoreCursor(el: HTMLElement, offset: number): void {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  let charCount = 0;
+  let found = false;
+  function walk(node: Node): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = (node.textContent || '').length;
+      if (charCount + len >= offset) {
+        range.setStart(node, offset - charCount);
+        range.collapse(true);
+        return true;
+      }
+      charCount += len;
+    } else {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        if (walk(node.childNodes[i])) return true;
+      }
+    }
+    return false;
+  }
+  found = walk(el);
+  if (!found) {
+    range.selectNodeContents(el);
+    range.collapse(false);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function enableContentEditableValue(el: HTMLElement, initialValue: string, onChange: () => void): void {
+  let rawText = initialValue || '';
+  (el as any)._getRawText = () => rawText;
+  (el as any)._setRawText = (t: string) => { rawText = t; };
+
+  function syncHighlightCE(): void {
+    if (!rawText) {
+      el.innerHTML = '';
+      return;
+    }
+    const sel = window.getSelection();
+    let cursorOffset = 0;
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const preRange = document.createRange();
+      preRange.selectNodeContents(el);
+      preRange.setEnd(range.startContainer, range.startOffset);
+      cursorOffset = preRange.toString().length;
+    }
+    el.innerHTML = highlightVariables(escHtml(rawText));
+    if (sel && document.activeElement === el) {
+      restoreCursor(el, cursorOffset);
+    }
+  }
+
+  syncHighlightCE();
+
+  el.addEventListener('input', () => {
+    if (showResolvedVars) {
+      showResolvedVars = false;
+      syncAllVarOverlays();
+      return;
+    }
+    const sel = window.getSelection();
+    let cursorOffset = 0;
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const preRange = document.createRange();
+      preRange.selectNodeContents(el);
+      preRange.setEnd(range.startContainer, range.startOffset);
+      cursorOffset = preRange.toString().length;
+    }
+    rawText = el.textContent || '';
+    syncHighlightCE();
+    restoreCursor(el, cursorOffset);
+    onChange();
+    handleAutocompleteContentEditable(el, syncHighlightCE);
+  });
+
+  el.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
+  });
+
+  el.addEventListener('blur', () => { hideAutocomplete(); });
+
+  el.addEventListener('click', (e: Event) => {
+    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+    if (target && target.dataset.var) {
+      showVarTooltipAt(target, target.dataset.var, {
+        getResolvedVariables: () => resolvedVariables,
+        getVariableSources: () => variableSources,
+      });
     }
   });
 }
@@ -117,10 +222,11 @@ function buildAndSend() {
   // Default headers
   const headers: any[] = [];
   document.querySelectorAll('#defaultHeadersBody tr').forEach(tr => {
-    const inputs = tr.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
+    const valEl = tr.querySelector('.val-ce') as any;
     const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (inputs[0]?.value) {
-      const h: any = { name: inputs[0].value, value: inputs[1]?.value || '' };
+    if (nameInput?.value) {
+      const h: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
       if (chk && !chk.checked) h.disabled = true;
       headers.push(h);
     }
@@ -140,10 +246,11 @@ function buildAndSend() {
   // Default variables
   const vars: any[] = [];
   document.querySelectorAll('#defaultVarsBody tr').forEach(tr => {
-    const inputs = tr.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
+    const valEl = tr.querySelector('.val-ce') as any;
     const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (inputs[0]?.value) {
-      const v: any = { name: inputs[0].value, value: inputs[1]?.value || '' };
+    if (nameInput?.value) {
+      const v: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
       if (chk && !chk.checked) v.disabled = true;
       vars.push(v);
     }
@@ -190,15 +297,12 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
   tr.innerHTML =
     `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
     `<td><input type="text" value="${esc(name || '')}" placeholder="Header name" /></td>` +
-    `<td><input type="text" value="${esc(value || '')}" placeholder="Header value" /></td>` +
+    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Header value"></div></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', scheduleUpdate);
-    inp.addEventListener('change', scheduleUpdate);
-  });
-  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
-  if (valueInput) enableVarOverlay(valueInput);
+  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
+  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, value || '', scheduleUpdate);
   tbody.appendChild(tr);
 }
 
@@ -216,15 +320,12 @@ function addDefaultVarRow(name?: string, value?: string, disabled?: boolean) {
   tr.innerHTML =
     `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
     `<td><input type="text" value="${esc(name || '')}" placeholder="Variable name" /></td>` +
-    `<td><input type="text" value="${esc(val)}" placeholder="Variable value" /></td>` +
+    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value"></div></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', scheduleUpdate);
-    inp.addEventListener('change', scheduleUpdate);
-  });
-  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
-  if (valueInput) enableVarOverlay(valueInput);
+  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
+  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, val, scheduleUpdate);
   tbody.appendChild(tr);
 }
 
@@ -297,6 +398,8 @@ function loadFolder(data: any) {
 }
 
 // ── Wire up events ───────────────────────────
+setResolvedVariablesGetter(() => resolvedVariables);
+setAutocompleteSyncCallbacks(syncAllVarOverlays, syncAllVarOverlays, restoreCursor);
 initTabs('mainTabs');
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
@@ -328,6 +431,7 @@ window.addEventListener('message', (event: MessageEvent) => {
   if (msg.type === 'variablesResolved') {
     resolvedVariables = msg.variables || {};
     variableSources = msg.sources || {};
+    setSecretProviderNames(msg.secretProviderNames || []);
     syncAllVarOverlays();
     tokenStatusCtrl.requestStatus();
   }

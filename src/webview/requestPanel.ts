@@ -13,6 +13,7 @@ import {
   currentLang, setCurrentLang,
 } from './state';
 import { highlight, highlightVariables, escHtml } from './highlight';
+import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
 import {
   handleAutocomplete,
@@ -21,6 +22,9 @@ import {
   hideAutocomplete,
   isAutocompleteActive,
   setAutocompleteSyncCallbacks,
+  setSecretProviderNames,
+  setSecretNamesForProvider,
+  setResolvedVariablesGetter,
 } from './autocomplete';
 import {
   handleODataAutocomplete, handleODataKeydown,
@@ -158,6 +162,7 @@ function enableContentEditableValue(el: HTMLElement, initialValue: string): void
   // Backing store for raw text
   let rawText = initialValue || '';
   (el as any)._getRawText = () => rawText;
+  (el as any)._setRawText = (t: string) => { rawText = t; };
 
   function syncHighlightCE(): void {
     if (!rawText) {
@@ -393,16 +398,6 @@ function syncHighlight(): void {
 // ── Variable Tooltip ────────────────────────────
 let activeTooltip: HTMLElement | null = null;
 
-function findVarAtCursor(text: string, cursorPos: number): string | null {
-  const re = /\{\{(\s*[\w.]+\s*)\}\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (cursorPos >= m.index && cursorPos <= m.index + m[0].length) {
-      return m[1].trim();
-    }
-  }
-  return null;
-}
 
 function showVarTooltipAt(anchorEl: HTMLElement, varName: string): void {
   hideVarTooltip();
@@ -533,7 +528,8 @@ function restoreCursor(el: HTMLElement, offset: number): void {
   sel.addRange(range);
 }
 
-// Wire autocomplete sync callbacks
+// Wire autocomplete
+setResolvedVariablesGetter(getResolvedVariables);
 setAutocompleteSyncCallbacks(syncHighlight, syncUrlHighlight, restoreCursor, (text: string) => {
   _rawUrlTemplate = text;
 });
@@ -970,14 +966,21 @@ window.addEventListener('message', (event: MessageEvent) => {
       clearResponse();
       $('exampleIndicator').style.display = 'none';
       break;
-    case 'variablesResolved':
+    case 'variablesResolved': {
       setResolvedVariables(msg.variables || {});
       setVariableSources(msg.sources || {});
+      setSecretProviderNames(msg.secretProviderNames || []);
+      // Populate autocomplete with cached secret names from extension host
+      const sn: Record<string, string[]> = msg.secretNames || {};
+      for (const [prov, names] of Object.entries(sn)) {
+        setSecretNamesForProvider(prov, names as string[]);
+      }
       syncHighlight();
       syncUrlHighlight();
       syncAllVarOverlays();
       requestTokenStatus();
       break;
+    }
     case 'oauth2TokenStatus':
       updateOAuth2TokenStatus(msg.status);
       break;

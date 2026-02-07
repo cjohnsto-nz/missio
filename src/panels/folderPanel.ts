@@ -6,6 +6,7 @@ import { stringifyYaml } from '../services/yamlParser';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
+import type { SecretService } from '../services/secretService';
 import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
 /**
@@ -21,6 +22,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
     private readonly _oauth2Service: OAuth2Service,
+    private readonly _secretService: SecretService,
   ) {}
 
   static register(
@@ -28,8 +30,9 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
+    secretService: SecretService,
   ): vscode.Disposable {
-    const provider = new FolderEditorProvider(context, collectionService, environmentService, oauth2Service);
+    const provider = new FolderEditorProvider(context, collectionService, environmentService, oauth2Service, secretService);
     const registration = vscode.window.registerCustomEditorProvider(
       FolderEditorProvider.viewType,
       provider,
@@ -222,6 +225,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
       <!-- Headers -->
       <div class="tab-panel" id="panel-headers">
         <table class="kv-table" id="defaultHeadersTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultHeadersBody"></tbody>
         </table>
@@ -231,6 +235,7 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
       <!-- Variables -->
       <div class="tab-panel" id="panel-variables">
         <table class="kv-table" id="defaultVarsTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultVarsBody"></tbody>
         </table>
@@ -269,7 +274,37 @@ export class FolderEditorProvider implements vscode.CustomTextEditorProvider, vs
         varsObj[k] = v.value;
         sourcesObj[k] = v.source;
       }
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
+
+      const enabledProviders = (collection.data.config?.secretProviders ?? []).filter((p: any) => !p.disabled);
+      const secretProviderNames = enabledProviders.map((p: any) => p.name as string);
+
+      const secretNames: Record<string, string[]> = {};
+      for (const p of enabledProviders) {
+        const cached = this._secretService.getCachedSecretNames(p.name);
+        if (cached.length > 0) {
+          secretNames[p.name] = cached;
+          for (const sn of cached) {
+            const key = `$secret.${p.name}.${sn}`;
+            if (!(key in varsObj)) {
+              varsObj[key] = '••••••';
+              sourcesObj[key] = 'secret';
+            }
+          }
+        }
+      }
+
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj, secretProviderNames, secretNames });
+
+      const variables = await this._environmentService.resolveVariables(collection);
+      this._secretService.prefetchSecretNames(enabledProviders, variables).then(() => {
+        let hasNew = false;
+        for (const p of enabledProviders) {
+          const fresh = this._secretService.getCachedSecretNames(p.name);
+          if (fresh.length > 0 && !secretNames[p.name]) { hasNew = true; break; }
+          if (fresh.length !== (secretNames[p.name]?.length ?? 0)) { hasNew = true; break; }
+        }
+        if (hasNew) { this._sendVariables(webview, filePath); }
+      });
     } catch {
       // Variables unavailable
     }

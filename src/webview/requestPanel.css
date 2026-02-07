@@ -518,6 +518,37 @@ td.var-cell .var-overlay {
 .tk-attr { color: #9cdcfe; }
 .tk-bracket { color: #ffd700; }
 
+/* ── Test vault button ────────────────── */
+.btn-test-vault {
+  background: transparent;
+  color: var(--btn-bg);
+  border: 1px solid var(--btn-bg);
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1;
+  width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-test-vault:hover:not(:disabled) { background: rgba(0,120,212,0.1); }
+.btn-test-vault:disabled { opacity: 0.7; cursor: default; }
+
+.spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid rgba(0,120,212,0.3);
+  border-top-color: var(--btn-bg);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ── Borderless select ────────────────── */
 .select-borderless {
   background: transparent;
@@ -624,7 +655,7 @@ td.var-cell .var-overlay {
   color: #888;
   font-size: 13px;
 }
-.spinner {
+.loading-overlay .spinner {
   width: 28px;
   height: 28px;
   border: 3px solid var(--border);
@@ -760,6 +791,7 @@ td.var-cell .var-overlay {
 .tk-src-environment { color: var(--vscode-charts-green, #89d185); }
 .tk-src-dotenv { color: var(--vscode-charts-yellow, #cca700); }
 .tk-src-secret { color: var(--vscode-charts-orange, #d18616); }
+.tk-src-dynamic { color: #4ec9b0; }
 
 /* ── Resolved Variable Inline ────────────── */
 .tk-var-resolved {

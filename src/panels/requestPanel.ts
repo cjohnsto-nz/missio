@@ -6,6 +6,7 @@ import type { HttpClient } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
+import type { SecretService } from '../services/secretService';
 import { stringifyYaml, readFolderFile } from '../services/yamlParser';
 import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
@@ -38,6 +39,7 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
     private readonly _oauth2Service: OAuth2Service,
+    private readonly _secretService: SecretService,
   ) {}
 
   static register(
@@ -46,8 +48,9 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
+    secretService: SecretService,
   ): vscode.Disposable {
-    const provider = new RequestEditorProvider(context, httpClient, collectionService, environmentService, oauth2Service);
+    const provider = new RequestEditorProvider(context, httpClient, collectionService, environmentService, oauth2Service, secretService);
     const registration = vscode.window.registerCustomEditorProvider(
       RequestEditorProvider.viewType,
       provider,
@@ -185,6 +188,17 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
             await this._sendVariables(webviewPanel.webview, collectionId, filePath);
             break;
           }
+          case 'fetchSecretNames': {
+            if (!collectionId) break;
+            try {
+              const col = this._collectionService.getCollection(collectionId);
+              if (!col) break;
+              const vars = await this._environmentService.resolveVariables(col);
+              const names = await this._secretService.listSecretNames(msg.provider, vars);
+              webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames: names });
+            } catch { /* silently fail */ }
+            break;
+          }
           case 'getTokenStatus':
           case 'getToken': {
             await this._handleTokenMessage(webviewPanel.webview, msg, collectionId);
@@ -312,7 +326,39 @@ export class RequestEditorProvider implements vscode.CustomTextEditorProvider, v
         varsObj[k] = v.value;
         sourcesObj[k] = v.source;
       }
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
+
+      const enabledProviders = (collection.data.config?.secretProviders ?? []).filter((p: any) => !p.disabled);
+      const secretProviderNames = enabledProviders.map((p: any) => p.name as string);
+
+      // Use cached secret names (sync), then prefetch in background
+      const secretNames: Record<string, string[]> = {};
+      for (const p of enabledProviders) {
+        const cached = this._secretService.getCachedSecretNames(p.name);
+        if (cached.length > 0) {
+          secretNames[p.name] = cached;
+          for (const sn of cached) {
+            const key = `$secret.${p.name}.${sn}`;
+            if (!(key in varsObj)) {
+              varsObj[key] = '••••••';
+              sourcesObj[key] = 'secret';
+            }
+          }
+        }
+      }
+
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj, secretProviderNames, secretNames });
+
+      // Prefetch in background
+      const variables = await this._environmentService.resolveVariables(collection);
+      this._secretService.prefetchSecretNames(enabledProviders, variables).then(() => {
+        let hasNew = false;
+        for (const p of enabledProviders) {
+          const fresh = this._secretService.getCachedSecretNames(p.name);
+          if (fresh.length > 0 && !secretNames[p.name]) { hasNew = true; break; }
+          if (fresh.length !== (secretNames[p.name]?.length ?? 0)) { hasNew = true; break; }
+        }
+        if (hasNew) { this._sendVariables(webview, collectionId, requestFilePath); }
+      });
     } catch {
       // Variables unavailable
     }

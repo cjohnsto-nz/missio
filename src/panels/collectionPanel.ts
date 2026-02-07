@@ -5,6 +5,7 @@ import { stringifyYaml } from '../services/yamlParser';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
+import type { SecretService } from '../services/secretService';
 import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
 
 /**
@@ -26,6 +27,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     private readonly _collectionService: CollectionService,
     private readonly _environmentService: EnvironmentService,
     private readonly _oauth2Service: OAuth2Service,
+    private readonly _secretService: SecretService,
   ) {}
 
   static register(
@@ -33,8 +35,9 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
+    secretService: SecretService,
   ): vscode.Disposable {
-    const provider = new CollectionEditorProvider(context, collectionService, environmentService, oauth2Service);
+    const provider = new CollectionEditorProvider(context, collectionService, environmentService, oauth2Service, secretService);
     const registration = vscode.window.registerCustomEditorProvider(
       CollectionEditorProvider.viewType,
       provider,
@@ -128,6 +131,33 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
         }
         if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
           await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
+          return;
+        }
+        if (msg.type === 'testSecretProvider') {
+          try {
+            const collection = this._collectionService.getCollections().find(c => c.filePath === document.uri.fsPath);
+            const variables = collection
+              ? await this._environmentService.resolveVariables(collection)
+              : new Map<string, string>();
+            const result = await this._secretService.testConnection(msg.provider, variables);
+            const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
+            webviewPanel.webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({ type: 'testSecretProviderResult', success: false, error: e.message, providerIdx: msg.providerIdx });
+          }
+          return;
+        }
+        if (msg.type === 'fetchSecretNames') {
+          try {
+            const collection = this._collectionService.getCollections().find(c => c.filePath === document.uri.fsPath);
+            const variables = collection
+              ? await this._environmentService.resolveVariables(collection)
+              : new Map<string, string>();
+            const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
+            webviewPanel.webview.postMessage({ type: 'secretNamesResult', providerName: msg.provider.name, secretNames });
+          } catch {
+            // silently fail — autocomplete just won't have secret names
+          }
           return;
         }
         if (msg.type === 'updateDocument') {
@@ -245,6 +275,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <div class="tab" data-tab="headers">Headers <span class="badge" id="headersBadge">0</span></div>
       <div class="tab" data-tab="variables">Variables <span class="badge" id="variablesBadge">0</span></div>
       <div class="tab" data-tab="environments">Environments <span class="badge" id="envBadge">0</span></div>
+      <div class="tab" data-tab="secrets">Secrets <span class="badge" id="secretsBadge">0</span></div>
     </div>
     <div class="tab-content">
 
@@ -285,6 +316,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <!-- Headers -->
       <div class="tab-panel" id="panel-headers">
         <table class="kv-table" id="defaultHeadersTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultHeadersBody"></tbody>
         </table>
@@ -294,10 +326,22 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <!-- Variables -->
       <div class="tab-panel" id="panel-variables">
         <table class="kv-table" id="defaultVarsTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultVarsBody"></tbody>
         </table>
         <button class="add-row-btn" id="addDefaultVarBtn">+ Add Variable</button>
+      </div>
+
+      <!-- Secrets -->
+      <div class="tab-panel" id="panel-secrets">
+        <table class="kv-table" id="secretProvidersTable">
+          <colgroup><col style="width:22%"><col style="width:120px"><col><col style="width:70px"><col style="width:32px"></colgroup>
+          <thead><tr><th>Name</th><th>Type</th><th>URL</th><th></th><th></th></tr></thead>
+          <tbody id="secretProvidersBody"></tbody>
+        </table>
+        <button class="add-row-btn" id="addSecretProviderBtn">+ Add Secret Provider</button>
+        <div id="secretTestResult" style="margin-top:8px;font-size:12px;"></div>
       </div>
 
       <!-- Environments -->
@@ -329,7 +373,42 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
         varsObj[k] = v.value;
         sourcesObj[k] = v.source;
       }
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
+
+      const providers: any[] = collection.data.config?.secretProviders ?? [];
+      const enabledProviders = providers.filter((p: any) => !p.disabled);
+      const secretProviderNames = enabledProviders.map((p: any) => p.name as string);
+
+      // Use cached secret names (sync), then prefetch in background for next time
+      const secretNames: Record<string, string[]> = {};
+      for (const p of enabledProviders) {
+        const cached = this._secretService.getCachedSecretNames(p.name);
+        if (cached.length > 0) {
+          secretNames[p.name] = cached;
+          // Mark each $secret.provider.key as a resolved variable for highlighting
+          for (const sn of cached) {
+            const key = `$secret.${p.name}.${sn}`;
+            if (!(key in varsObj)) {
+              varsObj[key] = '••••••';
+              sourcesObj[key] = 'secret';
+            }
+          }
+        }
+      }
+
+      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj, secretProviderNames, secretNames });
+
+      // Prefetch in background (will be cached for next resolve)
+      const variables = await this._environmentService.resolveVariables(collection);
+      this._secretService.prefetchSecretNames(enabledProviders, variables).then(() => {
+        // If we got new names, re-send variables
+        let hasNew = false;
+        for (const p of enabledProviders) {
+          const fresh = this._secretService.getCachedSecretNames(p.name);
+          if (fresh.length > 0 && !secretNames[p.name]) { hasNew = true; break; }
+          if (fresh.length !== (secretNames[p.name]?.length ?? 0)) { hasNew = true; break; }
+        }
+        if (hasNew) { this._sendVariables(webview, filePath); }
+      });
     } catch {
       // Variables unavailable
     }
