@@ -56,6 +56,8 @@ A lightweight, [OpenCollection](https://www.opencollection.com)-compliant REST A
 
 ## Getting Started
 
+There is UI for all of this. You don't need to get into the .yml files unless you want to.
+
 ### 1. Create a collection
 
 Run **Missio: New Collection** from the command palette, or create a `collection.yml`:
