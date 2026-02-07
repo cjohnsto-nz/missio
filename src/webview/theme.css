@@ -9,16 +9,21 @@
   /* Surface & text */
   --m-bg: var(--vscode-editor-background);
   --m-fg: var(--vscode-editor-foreground);
-  --m-fg-muted: #888;
-  --m-fg-dim: #666;
-  --m-fg-faint: #555;
-  --m-border: var(--vscode-panel-border, #333);
+  --m-fg-muted: var(--vscode-descriptionForeground, #888);
+  --m-fg-dim: var(--vscode-disabledForeground, #666);
+  --m-fg-faint: var(--vscode-tab-inactiveForeground, #555);
+  --m-border: var(--vscode-panel-border, var(--vscode-widget-border, #333));
 
   /* Inputs */
-  --m-input-bg: #1f1f1f;
+  --m-input-bg: var(--vscode-input-background, #1f1f1f);
   --m-input-fg: var(--vscode-input-foreground);
   --m-input-border: var(--vscode-input-border, #444);
   --m-input-placeholder: var(--vscode-input-placeholderForeground, #888);
+
+  /* Theme-adaptive overlays & shadows */
+  --m-hover-overlay: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
+  --m-shadow: rgba(0,0,0,0.3);
+  --m-line-num-color: var(--vscode-editorLineNumber-foreground, rgba(255,255,255,0.2));
 
   /* Buttons */
   --m-btn-bg: var(--vscode-button-background);
@@ -98,13 +103,13 @@
   --m-scope-G: #283b6b;
 
   /* Tooltip / hover widgets */
-  --m-tooltip-bg: var(--vscode-editorHoverWidget-background, #252526);
-  --m-tooltip-border: var(--vscode-editorHoverWidget-border, #454545);
+  --m-tooltip-bg: var(--vscode-editorHoverWidget-background, var(--vscode-editor-background));
+  --m-tooltip-border: var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, #454545));
 
   /* Autocomplete / suggest */
-  --m-suggest-bg: var(--vscode-editorSuggestWidget-background, #252526);
-  --m-suggest-border: var(--vscode-editorSuggestWidget-border, #454545);
-  --m-suggest-highlight: var(--vscode-list-hoverBackground, #2a2d2e);
+  --m-suggest-bg: var(--vscode-editorSuggestWidget-background, var(--vscode-editor-background));
+  --m-suggest-border: var(--vscode-editorSuggestWidget-border, var(--vscode-panel-border, #454545));
+  --m-suggest-highlight: var(--vscode-list-hoverBackground);
 
   /* OAuth2 token status */
   --m-token-valid-border: rgba(137,209,133,0.3);
@@ -114,16 +119,17 @@
   --m-token-progress-color: #3794ff;
   --m-dot-valid: #89d185;
   --m-dot-expired: #f48771;
-  --m-dot-none: #888;
+  --m-dot-none: var(--vscode-descriptionForeground, #888);
 
   /* Response timing */
-  --m-timing-label: #aaa;
-  --m-timing-dur: #ccc;
-  --m-timing-total-label: #ddd;
-  --m-timing-total-dur: #fff;
+  --m-timing-label: var(--vscode-descriptionForeground, #aaa);
+  --m-timing-dur: var(--vscode-editor-foreground, #ccc);
+  --m-timing-total-label: var(--vscode-editor-foreground, #ddd);
+  --m-timing-total-dur: var(--vscode-editor-foreground, #fff);
+  --m-timing-track-bg: var(--vscode-progressBar-background, rgba(255,255,255,0.05));
 
   /* Line numbers */
-  --m-line-num: #555;
+  --m-line-num: var(--vscode-editorLineNumber-foreground, #555);
 
   /* Inherited badge */
   --m-inherited-color: var(--vscode-charts-purple, #b180d7);
@@ -135,13 +141,12 @@
 }
 
 /* ── Light mode overrides ────────────────── */
-/* VS Code sets data-vscode-theme-kind on <body> */
+/* VS Code sets data-vscode-theme-kind on <body>; we target both body and :root for full coverage */
+:root[data-vscode-theme-kind="vscode-light"],
+:root[data-vscode-theme-kind="vscode-high-contrast-light"],
 body[data-vscode-theme-kind="vscode-light"],
 body[data-vscode-theme-kind="vscode-high-contrast-light"] {
-  --m-fg-muted: #666;
-  --m-fg-dim: #999;
-  --m-fg-faint: #aaa;
-  --m-input-bg: #fff;
+  /* Syntax tokens (light-appropriate colors) */
   --m-tk-key: #001080;
   --m-tk-str: #a31515;
   --m-tk-num: #098658;
@@ -149,18 +154,52 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --m-tk-tag: #800000;
   --m-tk-attr: #ff0000;
   --m-tk-bracket: #0431fa;
+
+  /* HTTP methods (deeper for light backgrounds) */
+  --m-method-get: #2e7d32;
+  --m-method-post: #b8860b;
+  --m-method-put: #1565c0;
+  --m-method-patch: #6a1b9a;
+  --m-method-delete: #c62828;
+  --m-method-head: #2e7d32;
+  --m-method-options: #ad1457;
+
+  /* Variable highlighting */
   --m-var-color: #795e26;
   --m-var-bg: rgba(121,94,38,0.08);
   --m-var-bg-hover: rgba(121,94,38,0.18);
   --m-var-unresolved: #cd3131;
   --m-var-unresolved-bg: rgba(205,49,49,0.08);
   --m-var-unresolved-bg-hover: rgba(205,49,49,0.18);
+
+  /* Variable source colors (aligned with methods) */
+  --m-src-collection: #b8860b;
+  --m-src-folder: #6a1b9a;
+  --m-src-environment: #2e7d32;
+  --m-src-dotenv: #c62828;
+  --m-src-secret: #ad1457;
+  --m-src-global: #1565c0;
+  --m-src-dynamic: #00796b;
+
+  /* Resolved variable backgrounds */
   --m-resolved-bg: rgba(0,0,0,0.04);
   --m-resolved-bg-hover: rgba(0,0,0,0.1);
+  --m-resolved-collection-bg: rgba(184,134,11,0.08);
+  --m-resolved-collection-bg-hover: rgba(184,134,11,0.16);
+  --m-resolved-folder-bg: rgba(106,27,154,0.08);
+  --m-resolved-folder-bg-hover: rgba(106,27,154,0.16);
+  --m-resolved-environment-bg: rgba(46,125,50,0.08);
+  --m-resolved-environment-bg-hover: rgba(46,125,50,0.16);
+  --m-resolved-dotenv-bg: rgba(198,40,40,0.08);
+  --m-resolved-dotenv-bg-hover: rgba(198,40,40,0.16);
+  --m-resolved-secret-bg: rgba(173,20,87,0.08);
+  --m-resolved-secret-bg-hover: rgba(173,20,87,0.16);
+  --m-resolved-global-bg: rgba(21,101,192,0.08);
+  --m-resolved-global-bg-hover: rgba(21,101,192,0.16);
+
+  /* Status badges */
   --m-status-badge-text: #fff;
-  --m-line-num: #aaa;
-  --m-timing-label: #555;
-  --m-timing-dur: #333;
-  --m-timing-total-label: #222;
-  --m-timing-total-dur: #000;
+
+  /* Shadow (lighter for light themes) */
+  --m-shadow: rgba(0,0,0,0.12);
 }
