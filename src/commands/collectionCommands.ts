@@ -1,12 +1,87 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import type { OpenCollection } from '../models/types';
+import type { MissioCollection, OpenCollection } from '../models/types';
 import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
-  const { collectionService } = ctx;
+  const { collectionService, collectionTreeProvider } = ctx;
+
+  const resolveCollection = async (
+    nodeOrId: any,
+    placeHolder: string,
+  ): Promise<MissioCollection | undefined> => {
+    const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
+    if (collectionId) {
+      return collectionService.getCollection(collectionId);
+    }
+
+    const collections = collectionService.getCollections();
+    if (collections.length === 1) {
+      return collections[0];
+    }
+    if (collections.length > 1) {
+      const pick = await vscode.window.showQuickPick(
+        collections.map(c => ({
+          label: c.data.info?.name ?? path.basename(c.rootDir),
+          description: c.rootDir,
+          collection: c,
+        })),
+        { placeHolder },
+      );
+      return pick?.collection;
+    }
+    return undefined;
+  };
+  const revealCollectionInExplorer = async (nodeOrId?: any): Promise<void> => {
+    const collection = await resolveCollection(nodeOrId, 'Select a collection to reveal in Explorer');
+    if (!collection) return;
+
+    const target = vscode.Uri.file(collection.rootDir);
+    await vscode.commands.executeCommand('workbench.view.explorer');
+    await vscode.commands.executeCommand('revealInExplorer', target);
+  };
+  const deleteCollection = async (nodeOrId?: any): Promise<void> => {
+    const collection = await resolveCollection(nodeOrId, 'Select a collection to delete');
+    if (!collection) return;
+
+    const name = collection.data.info?.name ?? path.basename(collection.rootDir);
+    const confirm = await vscode.window.showWarningMessage(
+      `Delete collection "${name}"?`,
+      {
+        modal: true,
+        detail: 'This will delete the entire collection folder and all files inside it.',
+      },
+      'Delete Collection',
+    );
+    if (confirm !== 'Delete Collection') return;
+
+    try {
+      await vscode.workspace.fs.delete(vscode.Uri.file(collection.rootDir), {
+        recursive: true,
+        useTrash: true,
+      });
+      collectionService.refresh();
+      vscode.window.showInformationMessage(`Collection "${name}" deleted.`);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Failed to delete collection "${name}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
+  const expandFirstLevelFolders = async (nodeOrId?: any): Promise<void> => {
+    const collection = await resolveCollection(nodeOrId, 'Select a collection to expand first-level folders');
+    if (!collection) return;
+    await collectionTreeProvider.setFirstLevelFoldersExpanded(collection.id, true);
+  };
+
+  const collapseFirstLevelFolders = async (nodeOrId?: any): Promise<void> => {
+    const collection = await resolveCollection(nodeOrId, 'Select a collection to collapse first-level folders');
+    if (!collection) return;
+    await collectionTreeProvider.setFirstLevelFoldersExpanded(collection.id, false);
+  };
 
   return [
     vscode.commands.registerCommand('missio.refreshCollections', () => {
@@ -14,26 +89,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     }),
 
     vscode.commands.registerCommand('missio.openCollection', async (nodeOrId?: any) => {
-      const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
-      let collection;
-      if (collectionId) {
-        collection = collectionService.getCollection(collectionId);
-      } else {
-        const collections = collectionService.getCollections();
-        if (collections.length === 1) {
-          collection = collections[0];
-        } else if (collections.length > 1) {
-          const pick = await vscode.window.showQuickPick(
-            collections.map(c => ({
-              label: c.data.info?.name ?? path.basename(c.rootDir),
-              description: c.filePath,
-              collection: c,
-            })),
-            { placeHolder: 'Select a collection to configure' },
-          );
-          collection = pick?.collection;
-        }
-      }
+      const collection = await resolveCollection(nodeOrId, 'Select a collection to configure');
       if (collection) {
         await CollectionEditorProvider.open(collection.filePath);
       }
@@ -80,5 +136,11 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       await CollectionEditorProvider.open(collFile.fsPath);
       vscode.window.showInformationMessage(`Collection "${name}" created.`);
     }),
+
+    vscode.commands.registerCommand('missio.showCollectionInExplorer', revealCollectionInExplorer),
+    vscode.commands.registerCommand('missio.showCollectionInFinder', revealCollectionInExplorer),
+    vscode.commands.registerCommand('missio.expandFirstLevelFolders', expandFirstLevelFolders),
+    vscode.commands.registerCommand('missio.collapseFirstLevelFolders', collapseFirstLevelFolders),
+    vscode.commands.registerCommand('missio.deleteCollection', deleteCollection),
   ];
 }
