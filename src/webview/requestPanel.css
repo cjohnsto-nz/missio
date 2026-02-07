@@ -322,7 +322,7 @@ body {
   outline: none;
   cursor: text;
   box-sizing: border-box;
-  white-space: nowrap;
+  white-space: pre;
   overflow: hidden;
   text-overflow: ellipsis;
   min-height: 100%;
@@ -434,7 +434,7 @@ body {
   font-family: var(--vscode-editor-font-family, monospace);
   line-height: 1.4;
   pointer-events: none;
-  white-space: nowrap;
+  white-space: pre;
   overflow: hidden;
   text-overflow: ellipsis;
   border-radius: 3px;
