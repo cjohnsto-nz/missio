@@ -4,16 +4,24 @@ import * as https from 'https';
 import { URL } from 'url';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
-  HttpRequestHeader, HttpRequestParam,
   Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
+  MissioCollection,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
-import type { MissioCollection } from '../models/types';
+import type { SecretService } from './secretService';
+
+const _logChannel = vscode.window.createOutputChannel('Missio Requests');
+function _log(msg: string): void {
+  const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+  _logChannel.appendLine(`[${ts}] ${msg}`);
+}
+export { _logChannel as requestLog };
 
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
+  private _secretService: SecretService | undefined;
 
   constructor(private readonly _environmentService: EnvironmentService) {}
 
@@ -21,12 +29,23 @@ export class HttpClient implements vscode.Disposable {
     this._oauth2Service = oauth2Service;
   }
 
+  setSecretService(secretService: SecretService): void {
+    this._secretService = secretService;
+  }
+
   async send(
     request: HttpRequest,
     collection: MissioCollection,
     folderDefaults?: import('../models/types').RequestDefaults,
   ): Promise<HttpResponse> {
+    const t0 = Date.now();
+    const _timing: { label: string; start: number; end: number }[] = [];
+    const _mark = (label: string, start: number) => { _timing.push({ label, start: start - t0, end: Date.now() - t0 }); };
+    _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
+    let tPhase = Date.now();
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    _mark('Resolve Variables', tPhase);
+    _log(`  resolveVariables: ${Date.now() - t0}ms`);
     const details = request.http;
     if (!details?.url || !details?.method) {
       throw new Error('Request must have a URL and method');
@@ -38,11 +57,14 @@ export class HttpClient implements vscode.Disposable {
     // Interpolate URL
     let url = this._environmentService.interpolate(details.url, variables);
 
-    // Apply query params
-    const queryParams = (details.params ?? []).filter(p => p.type === 'query' && !p.disabled);
-    if (queryParams.length > 0) {
+    // Apply query params — params array is the source of truth, so strip any
+    // query string baked into the URL (common Postman import artifact)
+    const allQueryParams = (details.params ?? []).filter(p => p.type === 'query');
+    if (allQueryParams.length > 0) {
       const urlObj = new URL(url);
-      for (const p of queryParams) {
+      urlObj.search = '';
+      for (const p of allQueryParams) {
+        if (p.disabled) continue;
         urlObj.searchParams.set(
           this._environmentService.interpolate(p.name, variables),
           this._environmentService.interpolate(p.value, variables),
@@ -89,6 +111,9 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _mark('Interpolate + Params', tPhase);
+    _log(`  interpolate+params: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
     // Auth: request -> folder -> collection (first non-inherit wins)
     let auth: Auth | undefined = details.auth;
     if (!auth || auth === 'inherit') {
@@ -105,6 +130,9 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _mark('Auth', tPhase);
+    _log(`  auth: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
     // Body
     let body: string | Buffer | undefined;
     const resolvedBody = this._resolveBody(details.body);
@@ -113,7 +141,27 @@ export class HttpClient implements vscode.Disposable {
       body = result;
     }
 
+    _mark('Body', tPhase);
+    _log(`  body: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
+    // Resolve $secret references in URL, headers, and body
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0 && this._secretService) {
+      url = await this._secretService.resolveSecretReferences(url, providers, variables);
+      for (const [k, v] of Object.entries(headers)) {
+        const resolved = await this._secretService.resolveSecretReferences(v, providers, variables);
+        if (resolved !== v) headers[k] = resolved;
+      }
+      if (body && typeof body === 'string') {
+        body = await this._secretService.resolveSecretReferences(body, providers, variables);
+      }
+    }
+
+    _mark('Secrets', tPhase);
+    _log(`  secrets: ${Date.now() - t0}ms`);
     // Execute
+    _log(`  executing: ${details.method} ${url}`);
+    tPhase = Date.now();
     const parsedUrl = new URL(url);
     const isHttps = parsedUrl.protocol === 'https:';
     const requestModule = isHttps ? https : http;
@@ -151,6 +199,7 @@ export class HttpClient implements vscode.Disposable {
             }
           }
 
+          _mark('HTTP', tPhase);
           resolve({
             status: res.statusCode ?? 0,
             statusText: res.statusMessage ?? '',
@@ -158,7 +207,8 @@ export class HttpClient implements vscode.Disposable {
             body: buffer.toString('utf-8'),
             duration,
             size: buffer.length,
-          });
+            timing: _timing,
+          } as any);
         });
       });
 
@@ -182,7 +232,7 @@ export class HttpClient implements vscode.Disposable {
   }
 
   cancelAll(): void {
-    for (const [id, req] of this._activeRequests) {
+    for (const [, req] of this._activeRequests) {
       req.destroy(new Error('Request cancelled'));
     }
     this._activeRequests.clear();

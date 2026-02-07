@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { AuthOAuth2, MissioCollection } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
+import type { SecretService } from './secretService';
 
 /**
  * Shared helper for handling OAuth2 token status/fetch messages from webviews.
@@ -13,29 +14,44 @@ export async function handleOAuth2TokenMessage(
   collection: MissioCollection,
   environmentService: EnvironmentService,
   oauth2Service: OAuth2Service,
+  secretService?: SecretService,
 ): Promise<void> {
   const auth = msg.auth;
   if (!auth?.accessTokenUrl) return;
 
   try {
     const variables = await environmentService.resolveVariables(collection);
-    const accessTokenUrl = environmentService.interpolate(auth.accessTokenUrl, variables);
+    let accessTokenUrl = environmentService.interpolate(auth.accessTokenUrl, variables);
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (secretService && providers.length > 0) {
+      accessTokenUrl = await secretService.resolveSecretReferences(accessTokenUrl, providers, variables);
+    }
     const envName = environmentService.getActiveEnvironmentName(collection.id);
 
     if (msg.type === 'getTokenStatus') {
       const status = await oauth2Service.getTokenStatus(collection.id, envName, accessTokenUrl, auth.credentialsId);
       webview.postMessage({ type: 'oauth2TokenStatus', status });
     } else if (msg.type === 'getToken') {
+      // Clear existing token first so we always fetch fresh
+      await oauth2Service.clearToken(collection.id, envName, accessTokenUrl, auth.credentialsId);
+      const resolve = async (val: string | undefined): Promise<string | undefined> => {
+        if (!val) return undefined;
+        let result = environmentService.interpolate(val, variables);
+        if (secretService && providers.length > 0) {
+          result = await secretService.resolveSecretReferences(result, providers, variables);
+        }
+        return result;
+      };
       const interpolated: AuthOAuth2 = {
         type: 'oauth2',
         flow: auth.flow,
         accessTokenUrl,
-        refreshTokenUrl: auth.refreshTokenUrl ? environmentService.interpolate(auth.refreshTokenUrl, variables) : undefined,
-        clientId: auth.clientId ? environmentService.interpolate(auth.clientId, variables) : undefined,
-        clientSecret: auth.clientSecret ? environmentService.interpolate(auth.clientSecret, variables) : undefined,
-        username: auth.username ? environmentService.interpolate(auth.username, variables) : undefined,
-        password: auth.password ? environmentService.interpolate(auth.password, variables) : undefined,
-        scope: auth.scope ? environmentService.interpolate(auth.scope, variables) : undefined,
+        refreshTokenUrl: await resolve(auth.refreshTokenUrl),
+        clientId: await resolve(auth.clientId),
+        clientSecret: await resolve(auth.clientSecret),
+        username: await resolve(auth.username),
+        password: await resolve(auth.password),
+        scope: await resolve(auth.scope),
         credentialsPlacement: auth.credentialsPlacement,
         credentialsId: auth.credentialsId,
         autoFetchToken: true,

@@ -47,8 +47,12 @@ A lightweight, [OpenCollection](https://www.opencollection.com)-compliant REST A
 - **Collection-level defaults** — set default auth and headers for all requests
 
 ### Secret Providers
-- **Azure Key Vault** — fetch secrets at runtime
-- **Keeper Secrets Manager** — fetch secrets at runtime
+- **Azure Key Vault** — fetch secrets at runtime via `az cli` (no SDK required)
+- **Collection-scoped config** — secret providers defined in `collection.yml`, fully portable
+- **`$secret` syntax** — reference secrets with `{{$secret.providerName.secretName}}` in any field
+- **Secret autocomplete** — type `{{$secret.` to get provider and secret name suggestions
+- **On-demand reveal** — click a secret variable to see its source, then click "Reveal Value" to fetch and display it
+- **Test connection** — verify vault access and RBAC from the collection editor's Secrets tab
 
 ## Getting Started
 
@@ -139,42 +143,42 @@ collections:
 
 ## Secret Providers
 
+Secret providers are configured per-collection in `collection.yml`. Secrets are resolved at runtime — no secret values are stored in files.
+
 ### Azure Key Vault
 
-Configure in VS Code settings:
+Prerequisites: `az login` and RBAC access (Key Vault Secrets User) on the vault.
 
-```json
-{
-  "missio.secretProviders": {
-    "azureKeyVault": {
-      "vaultUrl": "https://my-vault.vault.azure.net"
-    }
-  }
-}
-```
-
-Then reference secrets in your environments:
+Add a provider to your collection:
 
 ```yaml
 config:
-  environments:
-    - name: production
-      variables:
-        - secret: true
-          name: "azureKeyVault:my-api-key"
+  secretProviders:
+    - name: my-vault
+      type: azure-keyvault
+      url: "https://my-vault.vault.azure.net"
 ```
 
-### Keeper Secrets Manager
+The vault URL supports variables — useful for per-environment vaults:
 
-```json
-{
-  "missio.secretProviders": {
-    "keeper": {
-      "configFile": "/path/to/keeper-config.json"
-    }
-  }
-}
+```yaml
+config:
+  secretProviders:
+    - name: kv
+      type: azure-keyvault
+      url: "https://{{vault_name}}.vault.azure.net"
 ```
+
+Then reference secrets anywhere you'd use a variable:
+
+```yaml
+http:
+  auth:
+    type: bearer
+    token: "{{$secret.my-vault.api-key}}"
+```
+
+Secrets are resolved at send time and during OAuth2 token acquisition. The collection editor's **Secrets** tab lets you test connections and see available secret names.
 
 ## Commands
 
@@ -191,7 +195,7 @@ config:
 | `Missio: Configure Collection` | Open the collection editor |
 | `Missio: Configure Folder` | Open the folder editor |
 | `Missio: Refresh Collections` | Re-scan the workspace |
-| `Missio: Configure Secret Provider` | Set up Azure Key Vault or Keeper |
+| `Missio: Configure Secret Provider` | Set up secret providers in collection |
 | `Missio: Cancel Request` | Cancel all in-flight requests |
 
 ## Keyboard Shortcuts

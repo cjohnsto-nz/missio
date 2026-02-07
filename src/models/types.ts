@@ -299,6 +299,7 @@ export interface CollectionConfig {
   environments?: Environment[];
   proxy?: Proxy;
   clientCertificates?: ClientCertificate[];
+  secretProviders?: SecretProvider[];
 }
 
 // ── Folder ───────────────────────────────────────────────────────────
@@ -377,12 +378,9 @@ export interface HttpResponse {
   size: number;
 }
 
-export interface SecretProviderConfig {
-  azureKeyVault?: {
-    vaultUrl: string;
-    tenantId?: string;
-  };
-  keeper?: {
-    configFile: string;
-  };
+export interface SecretProvider {
+  name: string;
+  type: 'azure-keyvault';
+  url: string;  // supports {{var}} interpolation, e.g. "https://{{vault-name}}.vault.azure.net"
+  disabled?: boolean;
 }

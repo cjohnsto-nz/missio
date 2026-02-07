@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CollectionService } from '../services/collectionService';
-import type { MissioCollection, Item, HttpRequest, HttpRequestExample, Folder, FolderInfo, HttpRequestInfo } from '../models/types';
+import type { MissioCollection, Item, HttpRequest, HttpRequestExample, Folder } from '../models/types';
 
 type TreeNode = CollectionNode | FolderNode | RequestNode | ExampleNode;
 
@@ -18,11 +18,6 @@ class CollectionNode extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon('folder-library');
     this.tooltip = collection.data.info?.summary ?? collection.filePath;
     this.description = collection.data.opencollection ? `v${collection.data.opencollection}` : '';
-    this.command = {
-      command: 'missio.openCollection',
-      title: 'Configure Collection',
-      arguments: [collection.id],
-    };
   }
 }
 

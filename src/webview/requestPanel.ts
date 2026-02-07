@@ -4,15 +4,13 @@
 import {
   vscode, $, $input, esc,
   currentRequest, setCurrentRequest,
-  setResolvedVariables, getResolvedVariables,
-  setVariableSources, getVariableSources,
-  setShowResolvedVars, getShowResolvedVars,
   updateDocumentTimer, setUpdateDocumentTimer,
   ignoreNextLoad, setIgnoreNextLoad,
   currentBodyType, setCurrentBodyType,
   currentLang, setCurrentLang,
 } from './state';
-import { highlight, highlightVariables, escHtml } from './highlight';
+import { highlight, escHtml } from './highlight';
+import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
 import {
   handleAutocomplete,
@@ -20,8 +18,18 @@ import {
   handleAutocompleteKeydown,
   hideAutocomplete,
   isAutocompleteActive,
-  setAutocompleteSyncCallbacks,
 } from './autocomplete';
+import {
+  highlightVariables, enableVarOverlay, enableContentEditableValue,
+  restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  setBreakIllusionCallback, setPostMessage,
+  getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
+} from './varFields';
+import { showVarTooltipAt, handleSecretValueResolved } from './varTooltip';
+import {
+  handleODataAutocomplete, handleODataKeydown,
+  hideODataAutocomplete, isODataAutocompleteActive,
+} from './odataAutocomplete';
 import {
   showResponse, showLoading, hideLoading, clearResponse,
   getLastResponse, getLastResponseBody, setLoadingText,
@@ -107,22 +115,117 @@ methodSelect.addEventListener('change', () => {
 });
 
 // ── Params ──────────────────────────────────────
+let _syncingFromUrl = false; // guard to prevent infinite loops
+
 function addParam(name = '', value = '', type = 'query', disabled = false): void {
   const tbody = $('paramsBody');
   const tr = document.createElement('tr');
   tr.innerHTML =
     '<td><input type="checkbox" class="p-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="p-name" value="' + esc(name) + '" placeholder="name" /></td>' +
-    '<td><input type="text" class="p-value" value="' + esc(value) + '" placeholder="value" /></td>' +
-    '<td><select class="p-type auth-select" style="margin:0;"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
+    '<td class="val-cell"><div class="val-ce p-value" contenteditable="true" data-placeholder="value"></div></td>' +
+    '<td><select class="p-type select-borderless"><option value="query"' + (type === 'query' ? ' selected' : '') + '>query</option><option value="path"' + (type === 'path' ? ' selected' : '') + '>path</option></select></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
-  tr.addEventListener('change', scheduleDocumentUpdate);
-  enableVarOverlay(tr.querySelector('.p-name') as HTMLInputElement);
-  enableVarOverlay(tr.querySelector('.p-value') as HTMLInputElement);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); syncUrlFromParams(); scheduleDocumentUpdate(); });
+  const enabledCb = tr.querySelector('.p-enabled') as HTMLInputElement;
+  enabledCb.addEventListener('change', () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
+  const typeSelect = tr.querySelector('.p-type') as HTMLSelectElement;
+  typeSelect.addEventListener('change', () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
+  const nameInput = tr.querySelector('.p-name') as HTMLInputElement;
+  enableVarOverlay(nameInput);
+  nameInput.addEventListener('input', () => { handleODataAutocomplete(nameInput); syncUrlFromParams(); scheduleDocumentUpdate(); });
+  nameInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (isODataAutocompleteActive()) handleODataKeydown(e);
+  });
+  nameInput.addEventListener('blur', () => hideODataAutocomplete());
+  enableContentEditableValue(tr.querySelector('.p-value') as HTMLElement, value, () => { syncUrlFromParams(); scheduleDocumentUpdate(); });
   tbody.appendChild(tr);
   updateBadges();
+}
+
+/** Build the display URL: base URL + query string from enabled query params */
+function composeDisplayUrl(): string {
+  let url = _rawUrlTemplate;
+  const parts: string[] = [];
+  document.querySelectorAll('#paramsBody tr').forEach((tr) => {
+    const enabled = (tr.querySelector('.p-enabled') as HTMLInputElement).checked;
+    const type = (tr.querySelector('.p-type') as HTMLSelectElement).value;
+    if (!enabled || type !== 'query') return;
+    const name = (tr.querySelector('.p-name') as HTMLInputElement).value;
+    const valEl = tr.querySelector('.p-value') as any;
+    const value = valEl._getRawText ? valEl._getRawText() : (valEl.textContent || '');
+    if (name) parts.push(name + '=' + value);
+  });
+  if (parts.length > 0) url += '?' + parts.join('&');
+  return url;
+}
+
+/** Sync URL bar from params table (params → URL direction) */
+function syncUrlFromParams(): void {
+  if (_syncingFromUrl) return;
+  syncUrlHighlight();
+}
+
+/** Parse the URL bar text and sync params table from it (URL → params direction) */
+function syncParamsFromUrl(fullUrl: string): void {
+  _syncingFromUrl = true;
+  const qIdx = fullUrl.indexOf('?');
+  const base = qIdx >= 0 ? fullUrl.substring(0, qIdx) : fullUrl;
+  const queryString = qIdx >= 0 ? fullUrl.substring(qIdx + 1) : '';
+  _rawUrlTemplate = base;
+
+  // Parse query params from URL
+  const urlParams: { name: string; value: string }[] = [];
+  if (queryString) {
+    for (const part of queryString.split('&')) {
+      const eqIdx = part.indexOf('=');
+      if (eqIdx >= 0) {
+        urlParams.push({ name: part.substring(0, eqIdx), value: part.substring(eqIdx + 1) });
+      } else if (part) {
+        urlParams.push({ name: part, value: '' });
+      }
+    }
+  }
+
+  // Get existing param rows
+  const rows = Array.from(document.querySelectorAll('#paramsBody tr'));
+  const existingQuery: { tr: Element; name: string; value: string; enabled: boolean }[] = [];
+  const nonQuery: Element[] = [];
+  for (const tr of rows) {
+    const type = (tr.querySelector('.p-type') as HTMLSelectElement).value;
+    if (type === 'query') {
+      const name = (tr.querySelector('.p-name') as HTMLInputElement).value;
+      const valEl = tr.querySelector('.p-value') as any;
+      const value = valEl._getRawText ? valEl._getRawText() : (valEl.textContent || '');
+      const enabled = (tr.querySelector('.p-enabled') as HTMLInputElement).checked;
+      existingQuery.push({ tr, name, value, enabled });
+    } else {
+      nonQuery.push(tr);
+    }
+  }
+
+  // Match URL params to existing rows by position, update in place
+  const tbody = $('paramsBody');
+  // Remove all query param rows
+  for (const eq of existingQuery) eq.tr.remove();
+
+  // Keep track of disabled params that aren't in the URL
+  const disabledParams = existingQuery.filter(eq => !eq.enabled);
+
+  // Re-add: first the URL-derived enabled params, then any previously disabled ones not in URL
+  for (const up of urlParams) {
+    addParam(up.name, up.value, 'query', false);
+  }
+  for (const dp of disabledParams) {
+    addParam(dp.name, dp.value, 'query', true);
+  }
+  // Re-append non-query (path) params at the end
+  for (const nq of nonQuery) {
+    tbody.appendChild(nq);
+  }
+
+  updateBadges();
+  _syncingFromUrl = false;
 }
 
 // ── Headers ─────────────────────────────────────
@@ -132,74 +235,20 @@ function addHeader(name = '', value = '', disabled = false): void {
   tr.innerHTML =
     '<td><input type="checkbox" class="h-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
-    '<td><input type="text" class="h-value" value="' + esc(value) + '" placeholder="value" /></td>' +
+    '<td class="val-cell"><div class="val-ce h-value" contenteditable="true" data-placeholder="value"></div></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
   tr.addEventListener('change', scheduleDocumentUpdate);
-  enableVarOverlay(tr.querySelector('.h-name') as HTMLInputElement);
-  enableVarOverlay(tr.querySelector('.h-value') as HTMLInputElement);
+  const hNameInput = tr.querySelector('.h-name') as HTMLInputElement;
+  enableVarOverlay(hNameInput);
+  hNameInput.addEventListener('input', scheduleDocumentUpdate);
+  enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value, scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
 }
 
-// ── Generic Variable Overlay for Text Inputs ────
-function enableVarOverlay(input: HTMLInputElement): void {
-  const parent = input.parentElement!;
-  parent.classList.add('var-cell');
-  const overlay = document.createElement('div');
-  overlay.className = 'var-overlay';
-  parent.appendChild(overlay);
-
-  function sync() {
-    overlay.innerHTML = highlightVariables(escHtml(input.value));
-  }
-  function activate() {
-    parent.classList.add('var-overlay-active');
-    sync();
-  }
-  function deactivate() {
-    parent.classList.remove('var-overlay-active');
-  }
-
-  input.addEventListener('input', () => {
-    if (getShowResolvedVars()) {
-      breakIllusion();
-    }
-    sync();
-    handleAutocomplete(input as unknown as HTMLTextAreaElement, sync);
-  });
-  input.addEventListener('keydown', (e: KeyboardEvent) => {
-    handleAutocompleteKeydown(e);
-  });
-  input.addEventListener('focus', deactivate);
-  input.addEventListener('blur', activate);
-
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var);
-    } else {
-      deactivate();
-      input.focus();
-    }
-  });
-
-  // Activate immediately if input is not focused
-  if (document.activeElement !== input) {
-    activate();
-  }
-}
-
-function syncAllVarOverlays(): void {
-  document.querySelectorAll('.var-cell').forEach((cell) => {
-    const input = cell.querySelector('input[type="text"]') as HTMLInputElement | null;
-    const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
-    if (input && overlay && cell.classList.contains('var-overlay-active')) {
-      overlay.innerHTML = highlightVariables(escHtml(input.value));
-    }
-  });
-}
+// enableVarOverlay, enableContentEditableValue, syncAllVarOverlays, restoreCursor
+// are all imported from varFields.ts — single source of truth for all panels.
 
 function breakIllusion(): void {
   setShowResolvedVars(false);
@@ -306,79 +355,20 @@ function syncHighlight(): void {
 }
 
 // ── Variable Tooltip ────────────────────────────
-let activeTooltip: HTMLElement | null = null;
-
-function findVarAtCursor(text: string, cursorPos: number): string | null {
-  const re = /\{\{(\s*[\w.]+\s*)\}\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    if (cursorPos >= m.index && cursorPos <= m.index + m[0].length) {
-      return m[1].trim();
-    }
-  }
-  return null;
-}
-
-function showVarTooltipAt(anchorEl: HTMLElement, varName: string): void {
-  hideVarTooltip();
-  const rect = anchorEl.getBoundingClientRect();
-  const resolved = varName in getResolvedVariables();
-  const tooltip = document.createElement('div');
-  tooltip.className = 'var-tooltip';
-  const source = getVariableSources()[varName] || 'unknown';
-  const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
-  tooltip.innerHTML =
-    "<div class='var-name'>{{" + escHtml(varName) + "}}</div>" +
-    (resolved
-      ? "<div class='var-source tk-src-" + source + "'>" + sourceLabel + "</div>" +
-        "<div class='var-value'>" + escHtml(getResolvedVariables()[varName]) + "</div>"
-      : "<div class='var-unresolved'>Unresolved variable</div>") +
-    "<div class='var-actions'>" +
-    "<button class='var-action-btn' data-action='edit'>Edit Variable</button>" +
-    "<button class='var-action-btn' data-action='copy'>" + (resolved ? 'Copy Value' : 'Copy Name') + "</button>" +
-    "</div>";
-
-  tooltip.style.left = rect.left + 'px';
-  tooltip.style.top = (rect.bottom + 4) + 'px';
-  document.body.appendChild(tooltip);
-  activeTooltip = tooltip;
-
-  tooltip.querySelectorAll('.var-action-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const action = (btn as HTMLElement).dataset.action;
-      if (action === 'edit') {
-        vscode.postMessage({ type: 'editVariable', variableName: varName });
-      } else if (action === 'copy') {
-        const text = resolved ? getResolvedVariables()[varName] : '{{' + varName + '}}';
-        navigator.clipboard.writeText(text).catch(() => {});
-      }
-      hideVarTooltip();
-    });
-  });
-
-  setTimeout(() => {
-    document.addEventListener('click', onTooltipOutsideClick);
-  }, 0);
-}
-
-function hideVarTooltip(): void {
-  if (activeTooltip) {
-    activeTooltip.remove();
-    activeTooltip = null;
-  }
-  document.removeEventListener('click', onTooltipOutsideClick);
-}
-
-function onTooltipOutsideClick(e: MouseEvent): void {
-  if (activeTooltip && !activeTooltip.contains(e.target as Node)) {
-    hideVarTooltip();
-  }
+function tooltipCtx() {
+  return {
+    getResolvedVariables,
+    getVariableSources,
+    getSecretKeys,
+    postMessage: (msg: any) => vscode.postMessage(msg),
+    onEditVariable: (name: string) => vscode.postMessage({ type: 'editVariable', variableName: name }),
+  };
 }
 
 $('bodyHighlight').addEventListener('click', (e: Event) => {
   const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
   if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var);
+    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
   }
 });
 
@@ -396,7 +386,8 @@ function setUrlText(text: string): void {
 
 function syncUrlHighlight(): void {
   const el = $('url');
-  if (!_rawUrlTemplate) {
+  const displayUrl = composeDisplayUrl();
+  if (!displayUrl) {
     el.innerHTML = '';
     return;
   }
@@ -409,64 +400,41 @@ function syncUrlHighlight(): void {
     preRange.setEnd(range.startContainer, range.startOffset);
     cursorOffset = preRange.toString().length;
   }
-  el.innerHTML = highlightVariables(escHtml(_rawUrlTemplate));
+  el.innerHTML = highlightVariables(escHtml(displayUrl));
   if (sel && document.activeElement === el) {
     restoreCursor(el, cursorOffset);
   }
 }
 
-function restoreCursor(el: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = document.createRange();
-  let charCount = 0;
-  let found = false;
+// restoreCursor imported from varFields.ts
 
-  function walk(node: Node): boolean {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = (node.textContent || '').length;
-      if (charCount + len >= offset) {
-        range.setStart(node, offset - charCount);
-        range.collapse(true);
-        return true;
-      }
-      charCount += len;
-    } else {
-      for (let i = 0; i < node.childNodes.length; i++) {
-        if (walk(node.childNodes[i])) return true;
-      }
-    }
-    return false;
-  }
-
-  found = walk(el);
-  if (!found) {
-    range.selectNodeContents(el);
-    range.collapse(false);
-  }
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-// Wire autocomplete sync callbacks
-setAutocompleteSyncCallbacks(syncHighlight, syncUrlHighlight, restoreCursor, (text: string) => {
-  _rawUrlTemplate = text;
+// Wire autocomplete and variable fields
+initVarFields({
+  extraSyncHighlight: syncHighlight,
+  extraSyncUrlHighlight: syncUrlHighlight,
+  setRawUrl: (text: string) => { syncParamsFromUrl(text); },
+});
+setPostMessage((msg: any) => vscode.postMessage(msg));
+setBreakIllusionCallback(() => {
+  $('varToggleBtn').classList.remove('active');
+  syncHighlight();
+  syncUrlHighlight();
 });
 
 $('url').addEventListener('click', (e: Event) => {
   const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
   if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var);
+    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
   }
 });
 
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
     breakIllusion();
-    restoreCursor($('url'), _rawUrlTemplate.length);
+    restoreCursor($('url'), composeDisplayUrl().length);
     return;
   }
-  // Capture cursor offset BEFORE syncUrlHighlight destroys it
+  // Capture cursor offset BEFORE sync destroys it
   const el = $('url');
   const sel = window.getSelection();
   let cursorOffset = 0;
@@ -477,7 +445,8 @@ $('url').addEventListener('input', () => {
     preRange.setEnd(range.startContainer, range.startOffset);
     cursorOffset = preRange.toString().length;
   }
-  _rawUrlTemplate = el.textContent || '';
+  const fullText = el.textContent || '';
+  syncParamsFromUrl(fullText);
   syncUrlHighlight();
   // Restore cursor so autocomplete can read it
   restoreCursor(el, cursorOffset);
@@ -512,7 +481,7 @@ $('bodyData').addEventListener('click', (e: Event) => {
   if (el) {
     const varEl = (el as HTMLElement).closest('.tk-var') as HTMLElement | null;
     if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var);
+      showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
     }
   }
 });
@@ -670,7 +639,7 @@ function buildRequest(): any {
   document.querySelectorAll('#paramsBody tr').forEach((tr) => {
     params.push({
       name: (tr.querySelector('.p-name') as HTMLInputElement).value,
-      value: (tr.querySelector('.p-value') as HTMLInputElement).value,
+      value: ((tr.querySelector('.p-value') as any)._getRawText ? (tr.querySelector('.p-value') as any)._getRawText() : (tr.querySelector('.p-value') as HTMLElement).textContent || ''),
       type: (tr.querySelector('.p-type') as HTMLSelectElement).value,
       disabled: !(tr.querySelector('.p-enabled') as HTMLInputElement).checked,
     });
@@ -682,7 +651,7 @@ function buildRequest(): any {
   document.querySelectorAll('#headersBody tr').forEach((tr) => {
     headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
-      value: (tr.querySelector('.h-value') as HTMLInputElement).value,
+      value: ((tr.querySelector('.h-value') as any)._getRawText ? (tr.querySelector('.h-value') as any)._getRawText() : (tr.querySelector('.h-value') as HTMLElement).textContent || ''),
       disabled: !(tr.querySelector('.h-enabled') as HTMLInputElement).checked,
     });
   });
@@ -753,11 +722,18 @@ function loadRequest(req: any): void {
   const http = req.http || {};
   (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
   updateMethodColor();
-  setUrlText(http.url || '');
 
-  // Params
+  // Params — load first so composeDisplayUrl works when we set the URL
   $('paramsBody').innerHTML = '';
   (http.params || []).forEach((p: any) => addParam(p.name, p.value, p.type || 'query', p.disabled));
+
+  // Strip baked-in query string from URL when params array has query params
+  let loadUrl = http.url || '';
+  const hasQueryParams = (http.params || []).some((p: any) => (p.type || 'query') === 'query');
+  if (hasQueryParams && loadUrl.includes('?')) {
+    loadUrl = loadUrl.split('?')[0];
+  }
+  setUrlText(loadUrl);
 
   // Headers
   $('headersBody').innerHTML = '';
@@ -828,7 +804,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
-      showResponse(msg.response);
+      showResponse(msg.response, msg.preRequestMs, msg.timing);
       requestTokenStatus();
       break;
     case 'sending':
@@ -885,13 +861,15 @@ window.addEventListener('message', (event: MessageEvent) => {
       clearResponse();
       $('exampleIndicator').style.display = 'none';
       break;
-    case 'variablesResolved':
-      setResolvedVariables(msg.variables || {});
-      setVariableSources(msg.sources || {});
+    case 'variablesResolved': {
+      handleVariablesResolved(msg);
       syncHighlight();
       syncUrlHighlight();
-      syncAllVarOverlays();
       requestTokenStatus();
+      break;
+    }
+    case 'secretValueResolved':
+      handleSecretValueResolved(msg);
       break;
     case 'oauth2TokenStatus':
       updateOAuth2TokenStatus(msg.status);
@@ -932,7 +910,7 @@ $('saveExampleBtn').addEventListener('click', () => {
   const req = buildRequest();
   vscode.postMessage({ type: 'saveExample', request: req, response: getLastResponse() });
 });
-$('addParamBtn').addEventListener('click', () => addParam());
+$('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
 $('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });

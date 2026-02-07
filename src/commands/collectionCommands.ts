@@ -6,14 +6,15 @@ import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
-  const { collectionService, extensionContext } = ctx;
+  const { collectionService } = ctx;
 
   return [
     vscode.commands.registerCommand('missio.refreshCollections', () => {
       collectionService.refresh();
     }),
 
-    vscode.commands.registerCommand('missio.openCollection', async (collectionId?: string) => {
+    vscode.commands.registerCommand('missio.openCollection', async (nodeOrId?: any) => {
+      const collectionId = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.collection?.id;
       let collection;
       if (collectionId) {
         collection = collectionService.getCollection(collectionId);

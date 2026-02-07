@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import { parse as parseYaml } from 'yaml';
-import type { OpenCollection } from '../models/types';
-import { stringifyYaml } from '../services/yamlParser';
+import type { OpenCollection, MissioCollection } from '../models/types';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
-import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
+import type { SecretService } from '../services/secretService';
+import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
  * CustomTextEditorProvider for OpenCollection collection.yml files.
@@ -16,25 +16,18 @@ import { handleOAuth2TokenMessage } from '../services/oauth2TokenHelper';
  * - Undo/redo support
  * - Proper restore on window reload
  */
-export class CollectionEditorProvider implements vscode.CustomTextEditorProvider, vscode.Disposable {
+export class CollectionEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.collectionEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
-  private _disposables: vscode.Disposable[] = [];
-
-  constructor(
-    private readonly _context: vscode.ExtensionContext,
-    private readonly _collectionService: CollectionService,
-    private readonly _environmentService: EnvironmentService,
-    private readonly _oauth2Service: OAuth2Service,
-  ) {}
 
   static register(
     context: vscode.ExtensionContext,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
+    secretService: SecretService,
   ): vscode.Disposable {
-    const provider = new CollectionEditorProvider(context, collectionService, environmentService, oauth2Service);
+    const provider = new CollectionEditorProvider(context, collectionService, environmentService, oauth2Service, secretService);
     const registration = vscode.window.registerCustomEditorProvider(
       CollectionEditorProvider.viewType,
       provider,
@@ -59,7 +52,6 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
    */
   static async openTab(filePath: string, tab: string, envName?: string): Promise<void> {
     await CollectionEditorProvider.open(filePath);
-    // Give the webview a moment to initialize, then send the tab switch
     const key = vscode.Uri.file(filePath).toString();
     const sendSwitch = () => {
       const panel = CollectionEditorProvider._panels.get(key);
@@ -67,112 +59,73 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
         panel.webview.postMessage({ type: 'switchTab', tab, envName });
       }
     };
-    // Retry briefly in case the panel hasn't registered yet
     setTimeout(sendSwitch, 100);
     setTimeout(sendSwitch, 500);
   }
 
-  async resolveCustomTextEditor(
-    document: vscode.TextDocument,
-    webviewPanel: vscode.WebviewPanel,
-    _token: vscode.CancellationToken,
-  ): Promise<void> {
-    const disposables: vscode.Disposable[] = [];
+  // ── BaseEditorProvider implementation ──
 
-    webviewPanel.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
-    };
-
-    webviewPanel.webview.html = this._getHtml(webviewPanel.webview);
-
-    const docKey = document.uri.toString();
-    CollectionEditorProvider._panels.set(docKey, webviewPanel);
-
-    let isUpdatingDocument = false;
-
-    function sendDocumentToWebview() {
-      const text = document.getText();
-      let collection: OpenCollection;
-      try {
-        collection = parseYaml(text) || {};
-      } catch {
-        collection = {} as OpenCollection;
-      }
-      webviewPanel.webview.postMessage({
-        type: 'collectionLoaded',
-        collection,
-        filePath: document.uri.fsPath,
-      });
-    }
-
-    // Resolve collection ID from the file path
-    const collectionId = this._collectionService.getCollections()
-      .find(c => c.filePath === document.uri.fsPath)?.id;
-
-    const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
-
-    // Live-reload variables when collection or environment data changes
-    disposables.push(
-      this._collectionService.onDidChange(() => sendVariables()),
-      this._environmentService.onDidChange(() => sendVariables()),
-    );
-
-    // Listen for messages from the webview
-    disposables.push(
-      webviewPanel.webview.onDidReceiveMessage(async (msg) => {
-        if (msg.type === 'ready') {
-          sendDocumentToWebview();
-          await sendVariables();
-          return;
-        }
-        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
-          await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
-          return;
-        }
-        if (msg.type === 'updateDocument') {
-          if (isUpdatingDocument) return;
-          isUpdatingDocument = true;
-          try {
-            // Detect env rename: compare old env names with new
-            this._trackEnvRename(document, msg.collection);
-
-            const yaml = stringifyYaml(msg.collection, { lineWidth: 120 });
-            // Skip if content hasn't actually changed
-            if (yaml === document.getText()) return;
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(
-              document.uri,
-              new vscode.Range(0, 0, document.lineCount, 0),
-              yaml,
-            );
-            await vscode.workspace.applyEdit(edit);
-          } finally {
-            isUpdatingDocument = false;
-          }
-        }
-      }),
-    );
-
-    // Listen for external changes to the document
-    disposables.push(
-      vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.uri.toString() === document.uri.toString() && !isUpdatingDocument) {
-          sendDocumentToWebview();
-          sendVariables();
-        }
-      }),
-    );
-
-    // Clean up on dispose
-    webviewPanel.onDidDispose(() => {
-      CollectionEditorProvider._panels.delete(docKey);
-      disposables.forEach(d => d.dispose());
-    });
+  protected _findCollection(filePath: string): MissioCollection | undefined {
+    return this._collectionService.getCollections().find(c => c.filePath === filePath);
   }
 
+  protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
+    let collection: OpenCollection;
+    try {
+      collection = parseYaml(document.getText()) || {};
+    } catch {
+      collection = {} as OpenCollection;
+    }
+    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath });
+  }
+
+  protected _getDocumentDataKey(): string { return 'collection'; }
+  protected _getScriptFilename(): string { return 'collectionPanel.js'; }
+  protected _getCssFilenames(): string[] { return ['requestPanel.css', 'collectionPanel.css']; }
+
+  protected _onPanelCreated(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _disposables: vscode.Disposable[],
+  ): void {
+    CollectionEditorProvider._panels.set(document.uri.toString(), webviewPanel);
+  }
+
+  protected _onPanelDisposed(document: vscode.TextDocument): void {
+    CollectionEditorProvider._panels.delete(document.uri.toString());
+  }
+
+  protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
+    // Detect env rename before applying the edit
+    this._trackEnvRename(document, msg.collection);
+    await super._applyDocumentEdit(document, msg);
+  }
+
+  protected async _onMessage(
+    webview: vscode.Webview,
+    msg: any,
+    ctx: EditorContext,
+  ): Promise<boolean> {
+    if (msg.type === 'testSecretProvider') {
+      try {
+        const collection = this._findCollection(ctx.document.uri.fsPath);
+        const variables = collection
+          ? await this._environmentService.resolveVariables(collection)
+          : new Map<string, string>();
+        const result = await this._secretService.testConnection(msg.provider, variables);
+        const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
+        webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
+      } catch (e: any) {
+        webview.postMessage({ type: 'testSecretProviderResult', success: false, error: e.message, providerIdx: msg.providerIdx });
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // ── Collection-specific logic ──
+
   private _trackEnvRename(document: vscode.TextDocument, newCollection: any): void {
-    // Find which collection this file belongs to
     const filePath = document.uri.fsPath;
     const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
     if (!collection) return;
@@ -180,54 +133,23 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
     const activeName = this._environmentService.getActiveEnvironmentName(collection.id);
     if (!activeName) return;
 
-    // Parse old env names from current document
     let oldData: any;
     try { oldData = parseYaml(document.getText()); } catch { return; }
     const oldEnvs: any[] = oldData?.config?.environments || [];
     const newEnvs: any[] = newCollection?.config?.environments || [];
 
-    // Check if active env name still exists in new data
     if (newEnvs.some((e: any) => e.name === activeName)) return;
 
-    // Find the old index of the active env
     const oldIdx = oldEnvs.findIndex((e: any) => e.name === activeName);
     if (oldIdx < 0) return;
 
-    // If there's an env at the same index with a different name, it was renamed
     if (oldIdx < newEnvs.length && newEnvs[oldIdx].name) {
       this._environmentService.setActiveEnvironment(collection.id, newEnvs[oldIdx].name);
     }
   }
 
-  private async _handleTokenMessage(webview: vscode.Webview, msg: any, filePath: string): Promise<void> {
-    const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
-    if (!collection) return;
-    await handleOAuth2TokenMessage(webview, msg, collection, this._environmentService, this._oauth2Service);
-  }
-
-  private _getHtml(webview: vscode.Webview): string {
-    const nonce = this._getNonce();
-
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'collectionPanel.js'),
-    );
-    const sharedCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'requestPanel.css'),
-    );
-    const collCssUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'collectionPanel.css'),
-    );
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${sharedCssUri}">
-<link rel="stylesheet" href="${collCssUri}">
-</head>
-<body>
+  protected _getBodyHtml(_webview: vscode.Webview): string {
+    return `
   <!-- Collection Header -->
   <div class="collection-header">
     <span class="collection-icon">\u{1F4DA}</span>
@@ -245,6 +167,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <div class="tab" data-tab="headers">Headers <span class="badge" id="headersBadge">0</span></div>
       <div class="tab" data-tab="variables">Variables <span class="badge" id="variablesBadge">0</span></div>
       <div class="tab" data-tab="environments">Environments <span class="badge" id="envBadge">0</span></div>
+      <div class="tab" data-tab="secrets">Secrets <span class="badge" id="secretsBadge">0</span></div>
     </div>
     <div class="tab-content">
 
@@ -285,6 +208,7 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <!-- Headers -->
       <div class="tab-panel" id="panel-headers">
         <table class="kv-table" id="defaultHeadersTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultHeadersBody"></tbody>
         </table>
@@ -294,10 +218,22 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       <!-- Variables -->
       <div class="tab-panel" id="panel-variables">
         <table class="kv-table" id="defaultVarsTable">
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
           <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
           <tbody id="defaultVarsBody"></tbody>
         </table>
         <button class="add-row-btn" id="addDefaultVarBtn">+ Add Variable</button>
+      </div>
+
+      <!-- Secrets -->
+      <div class="tab-panel" id="panel-secrets">
+        <table class="kv-table" id="secretProvidersTable">
+          <colgroup><col style="width:22%"><col style="width:120px"><col><col style="width:70px"><col style="width:32px"></colgroup>
+          <thead><tr><th>Name</th><th>Type</th><th>URL</th><th></th><th></th></tr></thead>
+          <tbody id="secretProvidersBody"></tbody>
+        </table>
+        <button class="add-row-btn" id="addSecretProviderBtn">+ Add Secret Provider</button>
+        <div id="secretTestResult" style="margin-top:8px;font-size:12px;"></div>
       </div>
 
       <!-- Environments -->
@@ -311,40 +247,6 @@ export class CollectionEditorProvider implements vscode.CustomTextEditorProvider
       </div>
 
     </div>
-  </div>
-
-<script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-  }
-
-  private async _sendVariables(webview: vscode.Webview, filePath: string): Promise<void> {
-    try {
-      const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
-      if (!collection) return;
-      const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection);
-      const varsObj: Record<string, string> = {};
-      const sourcesObj: Record<string, string> = {};
-      for (const [k, v] of varsWithSource) {
-        varsObj[k] = v.value;
-        sourcesObj[k] = v.source;
-      }
-      webview.postMessage({ type: 'variablesResolved', variables: varsObj, sources: sourcesObj });
-    } catch {
-      // Variables unavailable
-    }
-  }
-
-  private _getNonce(): string {
-    let text = '';
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return text;
-  }
-
-  dispose(): void {
-    this._disposables.forEach(d => d.dispose());
+  </div>`;
   }
 }

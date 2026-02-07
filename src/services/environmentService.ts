@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { Environment, Variable, SecretVariable, MissioCollection, VariableValue, VariableTypedValue, VariableValueVariant, RequestDefaults } from '../models/types';
+import { randomUUID } from 'crypto';
+import type { Environment, Variable, SecretVariable, MissioCollection, VariableTypedValue, VariableValueVariant, RequestDefaults, SecretProvider } from '../models/types';
+import { varPatternGlobal } from '../models/varPattern';
 import type { SecretService } from './secretService';
 
 export class EnvironmentService implements vscode.Disposable {
@@ -91,13 +93,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                const sv = v as SecretVariable;
-                if (!sv.disabled && sv.name) {
-                  try {
-                    const secret = await this._secretService.resolveSecret(sv.name);
-                    if (secret !== undefined) vars.set(sv.name, secret);
-                  } catch { /* Secret unavailable */ }
-                }
+                // Secret variables are placeholders — skip
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -120,17 +116,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            const sv = v as SecretVariable;
-            if (!sv.disabled && sv.name) {
-              try {
-                const secret = await this._secretService.resolveSecret(sv.name);
-                if (secret !== undefined) {
-                  vars.set(sv.name, secret);
-                }
-              } catch {
-                // Secret unavailable — leave unresolved
-              }
-            }
+            // Secret variables are placeholders — skip
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -146,6 +132,12 @@ export class EnvironmentService implements vscode.Disposable {
 
     // Recursive interpolation: resolve {{var}} references within values
     this._interpolateVarValues(vars);
+
+    // Resolve $secret.{vault}.{key} references in all variable values
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0) {
+      await this._resolveSecretRefs(vars, providers);
+    }
 
     return vars;
   }
@@ -189,13 +181,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                const sv = v as SecretVariable;
-                if (!sv.disabled && sv.name) {
-                  try {
-                    const secret = await this._secretService.resolveSecret(sv.name);
-                    if (secret !== undefined) vars.set(sv.name, { value: secret, source: 'secret' });
-                  } catch { /* Secret unavailable */ }
-                }
+                // Secret variables are placeholders — skip
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -218,15 +204,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            const sv = v as SecretVariable;
-            if (!sv.disabled && sv.name) {
-              try {
-                const secret = await this._secretService.resolveSecret(sv.name);
-                if (secret !== undefined) {
-                  vars.set(sv.name, { value: secret, source: 'secret' });
-                }
-              } catch { /* Secret unavailable */ }
-            }
+            // Secret variables are placeholders — skip
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -243,6 +221,12 @@ export class EnvironmentService implements vscode.Disposable {
     // Recursive interpolation: resolve {{var}} references within values
     this._interpolateVarValuesWithSource(vars);
 
+    // Resolve $secret.{vault}.{key} references in all variable values
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0) {
+      await this._resolveSecretRefsWithSource(vars, providers);
+    }
+
     return vars;
   }
 
@@ -250,10 +234,28 @@ export class EnvironmentService implements vscode.Disposable {
    * Interpolate `{{variable}}` placeholders in a string.
    */
   interpolate(template: string, variables: Map<string, string>): string {
-    return template.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (match, name) => {
+    return template.replace(varPatternGlobal(), (match, name) => {
       const key = name.trim();
+      const builtin = this._resolveBuiltin(key);
+      if (builtin !== undefined) return builtin;
       return variables.has(key) ? variables.get(key)! : match;
     });
+  }
+
+  /**
+   * Interpolate {{var}} placeholders AND resolve $secret.{vault}.{key} references.
+   */
+  async interpolateWithSecrets(
+    template: string,
+    variables: Map<string, string>,
+    collection: MissioCollection,
+  ): Promise<string> {
+    let result = this.interpolate(template, variables);
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0) {
+      result = await this._secretService.resolveSecretReferences(result, providers, variables);
+    }
+    return result;
   }
 
   // ── Private ──────────────────────────────────────────────────────
@@ -263,13 +265,14 @@ export class EnvironmentService implements vscode.Disposable {
    * Runs multiple passes to handle chained references (up to 10 to prevent infinite loops).
    */
   private _interpolateVarValues(vars: Map<string, string>): void {
-    const varPattern = /\{\{(\s*[\w.]+\s*)\}\}/g;
     for (let pass = 0; pass < 10; pass++) {
       let changed = false;
       for (const [key, val] of vars) {
-        const resolved = val.replace(varPattern, (match, name) => {
+        const resolved = val.replace(varPatternGlobal(), (match, name) => {
           const ref = name.trim();
           if (ref === key) return match; // avoid self-reference
+          const builtin = this._resolveBuiltin(ref);
+          if (builtin !== undefined) return builtin;
           return vars.has(ref) ? vars.get(ref)! : match;
         });
         if (resolved !== val) {
@@ -282,13 +285,14 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   private _interpolateVarValuesWithSource(vars: Map<string, { value: string; source: string }>): void {
-    const varPattern = /\{\{(\s*[\w.]+\s*)\}\}/g;
     for (let pass = 0; pass < 10; pass++) {
       let changed = false;
       for (const [key, entry] of vars) {
-        const resolved = entry.value.replace(varPattern, (match, name) => {
+        const resolved = entry.value.replace(varPatternGlobal(), (match, name) => {
           const ref = name.trim();
           if (ref === key) return match; // avoid self-reference
+          const builtin = this._resolveBuiltin(ref);
+          if (builtin !== undefined) return builtin;
           return vars.has(ref) ? vars.get(ref)!.value : match;
         });
         if (resolved !== entry.value) {
@@ -297,6 +301,63 @@ export class EnvironmentService implements vscode.Disposable {
         }
       }
       if (!changed) break;
+    }
+  }
+
+  private _resolveBuiltin(name: string): string | undefined {
+    switch (name) {
+      case '$guid': return randomUUID();
+      case '$timestamp': return String(Math.floor(Date.now() / 1000));
+      case '$randomInt': return String(Math.floor(Math.random() * 1001));
+      default: return undefined;
+    }
+  }
+
+  /**
+   * Scan all variable values for $secret.{vault}.{key} references and resolve them.
+   */
+  private async _resolveSecretRefs(vars: Map<string, string>, providers: SecretProvider[]): Promise<void> {
+    const pattern = /\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/g;
+    for (const [key, val] of vars) {
+      const matches = [...val.matchAll(pattern)];
+      if (matches.length === 0) continue;
+      let resolved = val;
+      for (const match of matches) {
+        const [fullMatch, providerName, secretName] = match;
+        try {
+          const secret = await this._secretService.resolveSecret(providerName, secretName, providers, vars);
+          if (secret !== undefined) {
+            resolved = resolved.replace(fullMatch, secret);
+          }
+        } catch { /* leave unresolved */ }
+      }
+      if (resolved !== val) {
+        vars.set(key, resolved);
+      }
+    }
+  }
+
+  private async _resolveSecretRefsWithSource(vars: Map<string, { value: string; source: string }>, providers: SecretProvider[]): Promise<void> {
+    const pattern = /\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/g;
+    // Build a plain map for the secret service
+    const plainVars = new Map<string, string>();
+    for (const [k, v] of vars) { plainVars.set(k, v.value); }
+    for (const [key, entry] of vars) {
+      const matches = [...entry.value.matchAll(pattern)];
+      if (matches.length === 0) continue;
+      let resolved = entry.value;
+      for (const match of matches) {
+        const [fullMatch, providerName, secretName] = match;
+        try {
+          const secret = await this._secretService.resolveSecret(providerName, secretName, providers, plainVars);
+          if (secret !== undefined) {
+            resolved = resolved.replace(fullMatch, secret);
+          }
+        } catch { /* leave unresolved */ }
+      }
+      if (resolved !== entry.value) {
+        vars.set(key, { value: resolved, source: 'secret' });
+      }
     }
   }
 

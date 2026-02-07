@@ -30,6 +30,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const httpClient = new HttpClient(environmentService);
   const oauth2Service = new OAuth2Service(context.secrets);
   httpClient.setOAuth2Service(oauth2Service);
+  httpClient.setSecretService(secretService);
   const responseProvider = new ResponseDocumentProvider();
 
   context.subscriptions.push(
@@ -42,7 +43,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   await collectionService.initialize();
-  secretService.initialize().catch(() => { /* handled internally */ });
 
   // ── Tree Views ─────────────────────────────────────────────────
 
@@ -68,9 +68,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Custom Editor ──────────────────────────────────────────────
 
   context.subscriptions.push(
-    RequestEditorProvider.register(context, httpClient, collectionService, environmentService, oauth2Service),
-    CollectionEditorProvider.register(context, collectionService, environmentService, oauth2Service),
-    FolderEditorProvider.register(context, collectionService, environmentService, oauth2Service),
+    RequestEditorProvider.register(context, httpClient, collectionService, environmentService, oauth2Service, secretService),
+    CollectionEditorProvider.register(context, collectionService, environmentService, oauth2Service, secretService),
+    FolderEditorProvider.register(context, collectionService, environmentService, oauth2Service, secretService),
   );
 
   // ── CodeLens ───────────────────────────────────────────────────

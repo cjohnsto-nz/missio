@@ -1,6 +1,13 @@
 import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
-import { showVarTooltipAt, hideVarTooltip } from './varTooltip';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
+import { escHtml } from './varlib';
+import {
+  highlightVariables, enableVarOverlay, enableContentEditableValue,
+  restoreCursor, syncAllVarOverlays, handleVariablesResolved, initVarFields,
+  registerFlushOnSave, setPostMessage,
+  getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
+} from './varFields';
+import { handleSecretValueResolved } from './varTooltip';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -19,79 +26,7 @@ function esc(s: string): string {
   return d.innerHTML;
 }
 
-// ── Variable Resolution State ────────────────
-let resolvedVariables: Record<string, string> = {};
-let variableSources: Record<string, string> = {};
-let showResolvedVars = false;
-
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function highlightVariables(html: string): string {
-  return html.replace(/\{\{(\s*[\w.]+\s*)\}\}/g, (_match: string, name: string) => {
-    const key = name.trim();
-    const resolved = key in resolvedVariables;
-    const source = variableSources[key] || 'unknown';
-    if (showResolvedVars && resolved) {
-      const cls = 'tk-var-resolved tk-src-' + source;
-      return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>"
-        + escHtml(resolvedVariables[key]) + "</span>";
-    }
-    const cls = resolved ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';
-    return "<span class='" + cls + "' data-var='" + escHtml(key) + "'>{{" + escHtml(name) + "}}</span>";
-  });
-}
-
-function enableVarOverlay(input: HTMLInputElement): void {
-  const parent = input.parentElement!;
-  parent.classList.add('var-cell');
-  const overlay = document.createElement('div');
-  overlay.className = 'var-overlay';
-  parent.appendChild(overlay);
-
-  function sync() {
-    overlay.innerHTML = highlightVariables(escHtml(input.value));
-  }
-  function activate() {
-    parent.classList.add('var-overlay-active');
-    sync();
-  }
-  function deactivate() {
-    parent.classList.remove('var-overlay-active');
-  }
-
-  input.addEventListener('input', sync);
-  input.addEventListener('focus', deactivate);
-  input.addEventListener('blur', activate);
-
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, {
-        getResolvedVariables: () => resolvedVariables,
-        getVariableSources: () => variableSources,
-      });
-    } else {
-      deactivate();
-      input.focus();
-    }
-  });
-
-  if (document.activeElement !== input) {
-    activate();
-  }
-}
-
-function syncAllVarOverlays(): void {
-  document.querySelectorAll('.var-cell').forEach((cell) => {
-    const input = cell.querySelector('input[type="text"]') as HTMLInputElement | null;
-    const overlay = cell.querySelector('.var-overlay') as HTMLElement | null;
-    if (input && overlay && cell.classList.contains('var-overlay-active')) {
-      overlay.innerHTML = highlightVariables(escHtml(input.value));
-    }
-  });
-}
+// Variable state and field infrastructure imported from varFields.ts
 
 // ── Debounced auto-save ──────────────────────
 function scheduleUpdate() {
@@ -117,10 +52,11 @@ function buildAndSend() {
   // Default headers
   const headers: any[] = [];
   document.querySelectorAll('#defaultHeadersBody tr').forEach(tr => {
-    const inputs = tr.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
+    const valEl = tr.querySelector('.val-ce') as any;
     const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (inputs[0]?.value) {
-      const h: any = { name: inputs[0].value, value: inputs[1]?.value || '' };
+    if (nameInput?.value) {
+      const h: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
       if (chk && !chk.checked) h.disabled = true;
       headers.push(h);
     }
@@ -140,10 +76,11 @@ function buildAndSend() {
   // Default variables
   const vars: any[] = [];
   document.querySelectorAll('#defaultVarsBody tr').forEach(tr => {
-    const inputs = tr.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
+    const valEl = tr.querySelector('.val-ce') as any;
     const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (inputs[0]?.value) {
-      const v: any = { name: inputs[0].value, value: inputs[1]?.value || '' };
+    if (nameInput?.value) {
+      const v: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
       if (chk && !chk.checked) v.disabled = true;
       vars.push(v);
     }
@@ -190,15 +127,12 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
   tr.innerHTML =
     `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
     `<td><input type="text" value="${esc(name || '')}" placeholder="Header name" /></td>` +
-    `<td><input type="text" value="${esc(value || '')}" placeholder="Header value" /></td>` +
+    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Header value"></div></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', scheduleUpdate);
-    inp.addEventListener('change', scheduleUpdate);
-  });
-  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
-  if (valueInput) enableVarOverlay(valueInput);
+  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
+  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, value || '', scheduleUpdate);
   tbody.appendChild(tr);
 }
 
@@ -216,15 +150,12 @@ function addDefaultVarRow(name?: string, value?: string, disabled?: boolean) {
   tr.innerHTML =
     `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
     `<td><input type="text" value="${esc(name || '')}" placeholder="Variable name" /></td>` +
-    `<td><input type="text" value="${esc(val)}" placeholder="Variable value" /></td>` +
+    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value"></div></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', scheduleUpdate);
-    inp.addEventListener('change', scheduleUpdate);
-  });
-  const valueInput = tr.querySelectorAll<HTMLInputElement>('input[type="text"]')[1];
-  if (valueInput) enableVarOverlay(valueInput);
+  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
+  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, val, scheduleUpdate);
   tbody.appendChild(tr);
 }
 
@@ -263,7 +194,7 @@ function updateBadges() {
 // ── Load Folder Data ─────────────────────────
 function loadFolder(data: any) {
   isLoading = true;
-  folderData = data;
+  folderData = JSON.parse(JSON.stringify(data));
 
   // Overview
   ($('infoName') as HTMLInputElement).value = data.info?.name || '';
@@ -297,14 +228,20 @@ function loadFolder(data: any) {
 }
 
 // ── Wire up events ───────────────────────────
+initVarFields();
+setPostMessage((msg: any) => vscode.postMessage(msg));
+registerFlushOnSave(() => {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  if (!isLoading && folderData) buildAndSend();
+});
 initTabs('mainTabs');
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); updateBadges(); scheduleUpdate(); });
 $('addDefaultVarBtn').addEventListener('click', () => { addDefaultVarRow(); updateBadges(); scheduleUpdate(); });
 $('varToggleBtn').addEventListener('click', () => {
-  showResolvedVars = !showResolvedVars;
-  $('varToggleBtn').classList.toggle('active', showResolvedVars);
+  setShowResolvedVars(!getShowResolvedVars());
+  $('varToggleBtn').classList.toggle('active', getShowResolvedVars());
   syncAllVarOverlays();
 });
 
@@ -325,11 +262,11 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     loadFolder(msg.folder);
   }
-  if (msg.type === 'variablesResolved') {
-    resolvedVariables = msg.variables || {};
-    variableSources = msg.sources || {};
-    syncAllVarOverlays();
+  if (handleVariablesResolved(msg)) {
     tokenStatusCtrl.requestStatus();
+  }
+  if (msg.type === 'secretValueResolved') {
+    handleSecretValueResolved(msg);
   }
   if (msg.type === 'oauth2TokenStatus') {
     tokenStatusCtrl.handleStatus(msg.status);
