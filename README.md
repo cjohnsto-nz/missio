@@ -9,6 +9,26 @@ Missio uses the OpenCollection standard, which is file based (and AI friendly). 
 <img width="1813" height="1472" alt="image" src="https://github.com/user-attachments/assets/bd0c39bd-1a1a-49f4-8519-7cfcf65f1902" />
 
 
+## Missio is a REST Client without an identity crisis
+
+### What Missio Is:
+- **A VSCode Extension**
+- **A REST Client**
+- **Local, Git Native**
+
+### What Missio Is Not:
+- **A Standalone IDE**
+- **A SAAS Platform**
+- **Cloud Synced**
+- **A Monthly Subscription**
+- **Feature Complete vs Postman**
+
+Missio aims to use VSCode functionality whereever possible.
+
+Git integration, Workspaces, Commands, are all provided by VSCode. 
+
+BYO Agentic Coding tools. 
+
 ## Features
 
 ### Collections & Requests
