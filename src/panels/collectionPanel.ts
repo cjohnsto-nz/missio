@@ -217,9 +217,12 @@ export class CollectionEditorProvider extends BaseEditorProvider {
 
       <!-- Variables -->
       <div class="tab-panel" id="panel-variables">
+        <div id="defaultVarsHiddenWarning" class="hidden-var-warning" style="display:none;">
+          <strong>\u26a0 Warning:</strong> Variables set to <em>hidden</em> are stored as plain text in your collection file. They are only hidden from the UI. Use a <strong>secret provider</strong> with <em>secure</em> type for portable, encrypted secrets.
+        </div>
         <table class="kv-table" id="defaultVarsTable">
-          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:32px"></colgroup>
-          <thead><tr><th></th><th>Name</th><th>Value</th><th></th></tr></thead>
+          <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup>
+          <thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>
           <tbody id="defaultVarsBody"></tbody>
         </table>
         <button class="add-row-btn" id="addDefaultVarBtn">+ Add Variable</button>

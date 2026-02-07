@@ -20,6 +20,7 @@ import {
   registerImportCommands,
   type CommandContext,
 } from './commands';
+import { GlobalsPanel } from './panels/globalsPanel';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // ── Services ───────────────────────────────────────────────────
@@ -95,7 +96,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     collectionTreeProvider,
   };
 
+  const globalsPanel = GlobalsPanel.register(context, environmentService);
+
   context.subscriptions.push(
+    globalsPanel,
+    vscode.commands.registerCommand('missio.editGlobalVariables', () => globalsPanel.open()),
     ...registerRequestCommands(cmdCtx),
     ...registerCollectionCommands(cmdCtx),
     ...registerEnvironmentCommands(cmdCtx),

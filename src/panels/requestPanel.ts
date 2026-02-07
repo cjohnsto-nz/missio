@@ -142,11 +142,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._sendRequest(webview, msg.request, collection, folderDefaults);
         return true;
       }
-      case 'editVariable': {
-        const collection = this._findCollection(filePath);
-        await this._editVariable(msg.variableName, collection);
+      case 'editVariable':
+        // Handled by addVariable in basePanel — kept for backwards compat
         return true;
-      }
       case 'resolveVariables': {
         await this._sendVariables(webview, filePath);
         return true;
@@ -163,21 +161,6 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   // ── Request-specific logic ──
 
-  private async _editVariable(variableName: string, collection: MissioCollection | undefined): Promise<void> {
-    if (!collection) return;
-    const vars = await this._environmentService.resolveVariables(collection);
-    const currentValue = vars.get(variableName) || '';
-    const newValue = await vscode.window.showInputBox({
-      title: `Edit variable: ${variableName}`,
-      value: currentValue,
-      prompt: `Current value of {{${variableName}}}`,
-    });
-    if (newValue !== undefined) {
-      vscode.window.showInformationMessage(
-        `To persist changes to {{${variableName}}}, edit the environment in your collection.yml`,
-      );
-    }
-  }
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
     const _t0 = Date.now();

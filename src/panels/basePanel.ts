@@ -151,6 +151,82 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
           } catch { /* silently fail */ }
           return;
         }
+        if (msg.type === 'storeSecureValue') {
+          try {
+            if (!msg.secureId) return;
+            await this._environmentService.storeSecureValue(msg.secureId, msg.value ?? '');
+            webviewPanel.webview.postMessage({ type: 'secureValueStored', secureId: msg.secureId });
+            await sendVariables();
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'getSecureStatus') {
+          try {
+            if (!msg.secureId) return;
+            const value = await this._environmentService.getSecureValue(msg.secureId);
+            webviewPanel.webview.postMessage({
+              type: 'secureStatus',
+              secureId: msg.secureId,
+              hasValue: value !== undefined,
+            });
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'deleteSecureValue') {
+          try {
+            if (!msg.secureId) return;
+            await this._environmentService.deleteSecureValue(msg.secureId);
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'updateVariable' || msg.type === 'addVariable') {
+          try {
+            const { varName, value, scope } = msg;
+            if (!varName) return;
+            if (scope === 'global') {
+              const globals = this._environmentService.getGlobalVariables();
+              const existing = globals.find(g => g.name === varName);
+              if (existing) { existing.value = value ?? ''; } else { globals.push({ name: varName, value: value ?? '' }); }
+              await this._environmentService.setGlobalVariables(globals);
+            } else {
+              // collection or environment — edit the collection.yml file (not the current document)
+              const collection = this._findCollection(document.uri.fsPath);
+              if (!collection) return;
+              const collUri = vscode.Uri.file(collection.filePath);
+              const fs = await import('fs');
+              const collText = await fs.promises.readFile(collection.filePath, 'utf-8');
+              const { parseYaml, stringifyYaml } = await import('../services/yamlParser');
+              const data = parseYaml(collText);
+              if (scope === 'collection') {
+                if (!data.request) data.request = {};
+                if (!data.request.variables) data.request.variables = [];
+                const existing = data.request.variables.find((v: any) => v.name === varName);
+                if (existing) { existing.value = value ?? ''; } else { data.request.variables.push({ name: varName, value: value ?? '' }); }
+              } else if (scope === 'environment') {
+                const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+                if (envName && data.config?.environments) {
+                  const env = data.config.environments.find((e: any) => e.name === envName);
+                  if (env) {
+                    if (!env.variables) env.variables = [];
+                    const existing = env.variables.find((v: any) => v.name === varName);
+                    if (existing) { existing.value = value ?? ''; } else { env.variables.push({ name: varName, value: value ?? '' }); }
+                  }
+                }
+              }
+              const yaml = stringifyYaml(data, { lineWidth: 120 });
+              if (yaml !== collText) {
+                // Use workspace edit on the collection.yml URI
+                const collDoc = await vscode.workspace.openTextDocument(collUri);
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(collUri, new vscode.Range(0, 0, collDoc.lineCount, 0), yaml);
+                await vscode.workspace.applyEdit(edit);
+                await collDoc.save();
+              }
+            }
+            await sendVariables();
+          } catch { /* silently fail */ }
+          return;
+        }
         if (msg.type === 'resolveSecret') {
           try {
             const secretRef: string = msg.secretRef; // e.g. "$secret.kv-name.my-key"
@@ -250,6 +326,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 
   protected _getHtml(webview: vscode.Webview): string {
     const nonce = this._getNonce();
+    const themeUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'theme.css'));
     const cssLinks = this._getCssFilenames()
       .map(f => {
         const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', f));
@@ -266,6 +343,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<link rel="stylesheet" href="${themeUri}">
 ${cssLinks}
 </head>
 <body>

@@ -51,4 +51,4 @@ export function isRequestFile(fileName: string): boolean {
     && !isFolderFile(lower);
 }
 
-export { stringifyYaml };
+export { parseYaml, stringifyYaml };

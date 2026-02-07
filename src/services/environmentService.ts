@@ -61,6 +61,9 @@ export class EnvironmentService implements vscode.Disposable {
   async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, string>> {
     const vars = new Map<string, string>();
 
+    // 0. Global variables (lowest priority — overridden by everything)
+    await this._resolveGlobalVars(vars);
+
     // 1. Collection request-level default variables
     const defaults = collection.data.request?.variables ?? [];
     for (const v of defaults) {
@@ -93,7 +96,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                // Secret variables are placeholders — skip
+                // resolved below via _resolveSecretVars
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -102,6 +105,7 @@ export class EnvironmentService implements vscode.Disposable {
                 }
               }
             }
+            await this._resolveSecretVars(vars, collection, parent.name, parent.variables ?? []);
           }
         }
 
@@ -116,7 +120,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            // Secret variables are placeholders — skip
+            // resolved below via _resolveSecretVars
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -127,6 +131,7 @@ export class EnvironmentService implements vscode.Disposable {
             }
           }
         }
+        await this._resolveSecretVars(vars, collection, envName, env.variables ?? []);
       }
     }
 
@@ -148,6 +153,9 @@ export class EnvironmentService implements vscode.Disposable {
    */
   async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, { value: string; source: string }>> {
     const vars = new Map<string, { value: string; source: string }>();
+
+    // 0. Global variables (lowest priority — overridden by everything)
+    await this._resolveGlobalVarsWithSource(vars);
 
     // 1. Collection request-level default variables
     const defaults = collection.data.request?.variables ?? [];
@@ -181,7 +189,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                // Secret variables are placeholders — skip
+                // resolved below via _resolveSecretVarsWithSource
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -190,6 +198,7 @@ export class EnvironmentService implements vscode.Disposable {
                 }
               }
             }
+            await this._resolveSecretVarsWithSource(vars, collection, parent.name, parent.variables ?? []);
           }
         }
 
@@ -204,7 +213,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            // Secret variables are placeholders — skip
+            // resolved below via _resolveSecretVarsWithSource
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -215,6 +224,7 @@ export class EnvironmentService implements vscode.Disposable {
             }
           }
         }
+        await this._resolveSecretVarsWithSource(vars, collection, envName, env.variables ?? []);
       }
     }
 
@@ -416,7 +426,147 @@ export class EnvironmentService implements vscode.Disposable {
     await this._context.workspaceState.update('missio.globalEnvironment', this._globalEnvironment);
   }
 
+  // ── Secure variable storage (UUID-based, VS Code SecretStorage) ──
+  //
+  // Secure variables store a reference `secure:{uuid}` in the YAML value field.
+  // The actual secret is stored in SecretStorage under key `missio:secure:{uuid}`.
+  // This makes secrets rename-safe and delete-clean.
+
+  private static readonly _SECURE_PREFIX = 'secure:';
+
+  /** Extract the UUID from a secure reference value like "secure:a1b2c3d4-..." */
+  static extractSecureId(value: string | undefined): string | undefined {
+    if (value && value.startsWith(EnvironmentService._SECURE_PREFIX)) {
+      return value.slice(EnvironmentService._SECURE_PREFIX.length);
+    }
+    return undefined;
+  }
+
+  /** Generate a new secure reference value: "secure:{uuid}" */
+  static generateSecureRef(): string {
+    return EnvironmentService._SECURE_PREFIX + randomUUID();
+  }
+
+  private _secureKey(uuid: string): string {
+    return `missio:secure:${uuid}`;
+  }
+
+  async storeSecureValue(uuid: string, value: string): Promise<void> {
+    await this._context.secrets.store(this._secureKey(uuid), value);
+  }
+
+  async getSecureValue(uuid: string): Promise<string | undefined> {
+    return this._context.secrets.get(this._secureKey(uuid));
+  }
+
+  async deleteSecureValue(uuid: string): Promise<void> {
+    await this._context.secrets.delete(this._secureKey(uuid));
+  }
+
+  /** Resolve a single secure variable by reading its UUID ref and looking up SecretStorage. */
+  private async _resolveSecureVar(sv: SecretVariable): Promise<string | undefined> {
+    const uuid = EnvironmentService.extractSecureId(sv.value);
+    if (uuid) {
+      return this.getSecureValue(uuid);
+    }
+    return undefined;
+  }
+
+  /** Resolve secret-type environment variables. Uses YAML value for hidden; SecretStorage UUID lookup for secure. */
+  private async _resolveSecretVars(
+    vars: Map<string, string>,
+    collection: MissioCollection,
+    envName: string,
+    envVariables: (Variable | SecretVariable)[],
+  ): Promise<void> {
+    for (const v of envVariables) {
+      if ('secret' in v && (v as SecretVariable).secret && v.name && !v.disabled) {
+        const sv = v as SecretVariable;
+        if (sv.secure) {
+          const val = await this._resolveSecureVar(sv);
+          if (val !== undefined) vars.set(sv.name!, val);
+        } else if (sv.value !== undefined) {
+          vars.set(sv.name!, sv.value);
+        }
+      }
+    }
+  }
+
+  /** Resolve secret-type environment variables with source info. */
+  private async _resolveSecretVarsWithSource(
+    vars: Map<string, { value: string; source: string }>,
+    collection: MissioCollection,
+    envName: string,
+    envVariables: (Variable | SecretVariable)[],
+  ): Promise<void> {
+    for (const v of envVariables) {
+      if ('secret' in v && (v as SecretVariable).secret && v.name && !v.disabled) {
+        const sv = v as SecretVariable;
+        if (sv.secure) {
+          const val = await this._resolveSecureVar(sv);
+          if (val !== undefined) vars.set(sv.name!, { value: val, source: 'secret' });
+        } else if (sv.value !== undefined) {
+          vars.set(sv.name!, { value: sv.value, source: 'secret' });
+        }
+      }
+    }
+  }
+
+  // ── Global variables (stored in globalState, not tied to any collection) ──
+
+  private static readonly _GLOBAL_VARS_KEY = 'missio.globalVariables';
+
+  getGlobalVariables(): GlobalVariable[] {
+    return this._context.globalState.get<GlobalVariable[]>(EnvironmentService._GLOBAL_VARS_KEY, []);
+  }
+
+  async setGlobalVariables(vars: GlobalVariable[]): Promise<void> {
+    await this._context.globalState.update(EnvironmentService._GLOBAL_VARS_KEY, vars);
+    this._onDidChange.fire();
+  }
+
+  /** Resolve global variables into a vars map (lowest priority). */
+  private async _resolveGlobalVars(vars: Map<string, string>): Promise<void> {
+    for (const v of this.getGlobalVariables()) {
+      if (!v.name || v.disabled) continue;
+      if (v.secret && v.secure) {
+        const uuid = EnvironmentService.extractSecureId(v.value);
+        if (uuid) {
+          const val = await this.getSecureValue(uuid);
+          if (val !== undefined) vars.set(v.name, val);
+        }
+      } else if (v.value !== undefined) {
+        vars.set(v.name, v.value);
+      }
+    }
+  }
+
+  /** Resolve global variables with source info. */
+  private async _resolveGlobalVarsWithSource(vars: Map<string, { value: string; source: string }>): Promise<void> {
+    for (const v of this.getGlobalVariables()) {
+      if (!v.name || v.disabled) continue;
+      if (v.secret && v.secure) {
+        const uuid = EnvironmentService.extractSecureId(v.value);
+        if (uuid) {
+          const val = await this.getSecureValue(uuid);
+          if (val !== undefined) vars.set(v.name, { value: val, source: 'global' });
+        }
+      } else if (v.value !== undefined) {
+        vars.set(v.name, { value: v.value, source: 'global' });
+      }
+    }
+  }
+
   dispose(): void {
     this._onDidChange.dispose();
   }
+}
+
+/** Shape of a global variable stored in globalState. */
+export interface GlobalVariable {
+  name: string;
+  value?: string;
+  secret?: boolean;
+  secure?: boolean;
+  disabled?: boolean;
 }

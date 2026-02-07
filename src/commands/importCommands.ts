@@ -41,19 +41,15 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
         return;
       }
 
-      let targetDir: string;
-      if (folders.length === 1) {
-        targetDir = folders[0].uri.fsPath;
-      } else {
-        const picked = await vscode.window.showOpenDialog({
-          canSelectFolders: true,
-          canSelectFiles: false,
-          canSelectMany: false,
-          openLabel: 'Select destination folder',
-        });
-        if (!picked || picked.length === 0) return;
-        targetDir = picked[0].fsPath;
-      }
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        defaultUri: folders[0].uri,
+        openLabel: 'Select destination folder',
+      });
+      if (!picked || picked.length === 0) return;
+      const targetDir = picked[0].fsPath;
 
       // Run import
       try {

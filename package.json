@@ -116,6 +116,12 @@
         "icon": "$(new-folder)"
       },
       {
+        "command": "missio.editGlobalVariables",
+        "title": "Edit Global Variables",
+        "category": "Missio",
+        "icon": "$(globe)"
+      },
+      {
         "command": "missio.importCollection",
         "title": "Import Collection",
         "category": "Missio",

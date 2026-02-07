@@ -22,9 +22,11 @@ async function main() {
   // Webview bundles (browser)
   const webviewCtx = await esbuild.context({
     entryPoints: [
+      'src/webview/theme.css',
       'src/webview/requestPanel.ts', 'src/webview/requestPanel.css',
       'src/webview/collectionPanel.ts', 'src/webview/collectionPanel.css',
       'src/webview/folderPanel.ts',
+      'src/webview/globalsPanel.ts',
     ],
     bundle: true,
     format: 'iife',

@@ -32,6 +32,18 @@ function esc(s: string): string {
 
 // Variable state and field infrastructure imported from varFields.ts
 
+const SECURE_PREFIX = 'secure:';
+function generateSecureRef(): string {
+  const hex = () => Math.floor(Math.random() * 16).toString(16);
+  const s = (n: number) => Array.from({ length: n }, hex).join('');
+  return SECURE_PREFIX + s(8) + '-' + s(4) + '-4' + s(3) + '-' + s(4) + '-' + s(12);
+}
+function extractSecureId(value: string | undefined): string | undefined {
+  if (value && value.startsWith(SECURE_PREFIX)) return value.slice(SECURE_PREFIX.length);
+  return undefined;
+}
+const _secureValueCache: Record<string, string> = {};
+
 // ── Debounced auto-save ──────────────────────
 function scheduleUpdate() {
   if (isLoading) return;
@@ -78,18 +90,17 @@ function buildAndSend() {
     delete data.request.auth;
   }
 
-  // Default variables
-  const vars: any[] = [];
-  document.querySelectorAll('#defaultVarsBody tr').forEach(tr => {
-    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
-    const valEl = tr.querySelector('.val-ce') as any;
-    const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (nameInput?.value) {
-      const v: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
-      if (chk && !chk.checked) v.disabled = true;
-      vars.push(v);
-    }
-  });
+  // Default variables — read from defaultVars array (includes secret/secure/value)
+  const vars: any[] = defaultVars
+    .filter((v: any) => v.name)
+    .map((v: any) => {
+      const out: any = { name: v.name };
+      if (v.value !== undefined && v.value !== '') out.value = v.value;
+      if (v.secret) out.secret = true;
+      if (v.secure) out.secure = true;
+      if (v.disabled) out.disabled = true;
+      return out;
+    });
   data.request = data.request || {};
   data.request.variables = vars.length > 0 ? vars : undefined;
 
@@ -149,25 +160,141 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
 }
 
 // ── Default Variables ────────────────────────
+let defaultVars: any[] = [];
+
 function renderDefaultVars(variables: any[]) {
+  defaultVars = variables || [];
   const tbody = $('defaultVarsBody');
   tbody.innerHTML = '';
-  (variables || []).forEach(v => addDefaultVarRow(v.name, v.value, v.disabled));
+  defaultVars.forEach((_v: any, i: number) => addDefaultVarRow(i));
+  updateDefaultVarsHiddenWarning();
 }
 
-function addDefaultVarRow(name?: string, value?: string, disabled?: boolean) {
+function updateDefaultVarsHiddenWarning(): void {
+  const warn = document.getElementById('defaultVarsHiddenWarning');
+  if (!warn) return;
+  const hasHidden = defaultVars.some((v: any) => v.secret === true && !v.secure);
+  warn.style.display = hasHidden ? 'block' : 'none';
+}
+
+function addDefaultVarRow(idx: number) {
   const tbody = $('defaultVarsBody');
+  const v = defaultVars[idx];
   const tr = document.createElement('tr');
-  const val = typeof value === 'string' ? value : (value && (value as any).data ? (value as any).data : '');
+  const isSecret = v.secret === true;
+  const isSecure = isSecret && v.secure === true;
+  const chk = v.disabled ? '' : 'checked';
+  const val = isSecret ? (isSecure ? '' : (v.value || '')) : (typeof v.value === 'string' ? v.value : (v.value && v.value.data ? v.value.data : ''));
+
   tr.innerHTML =
-    `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
-    `<td><input type="text" value="${esc(name || '')}" placeholder="Variable name" /></td>` +
-    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value"></div></td>` +
+    `<td><input type="checkbox" ${chk} data-field="disabled" /></td>` +
+    `<td><input type="text" value="${esc(v.name || '')}" placeholder="Variable name" data-field="name" /></td>` +
+    `${isSecret
+      ? '<td><div class="secret-value-wrap"><input type="password" value="' + (isSecure ? '' : esc(val)) + '"' + (isSecure ? ' placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"' : '') + ' data-field="value" /><button class="secret-toggle" title="Show/hide">&#9673;</button></div></td>'
+      : '<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value" data-field="value"></div></td>'
+    }` +
+    `<td><select class="type-select select-borderless" data-field="type"><option value="var"${!isSecret ? ' selected' : ''}>var</option><option value="hidden"${isSecret && !isSecure ? ' selected' : ''}>hidden</option><option value="secure"${isSecure ? ' selected' : ''}>secure</option></select></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
-  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
-  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, val, scheduleUpdate);
+
+  // Wire inputs
+  tr.querySelectorAll<HTMLInputElement>('input[data-field]').forEach(inp => {
+    const field = inp.dataset.field!;
+    if (inp.type === 'checkbox') {
+      inp.addEventListener('change', () => { defaultVars[idx].disabled = !inp.checked; scheduleUpdate(); });
+    } else if (isSecure && field === 'value') {
+      let debounce: ReturnType<typeof setTimeout> | null = null;
+      inp.addEventListener('input', () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          const secureId = extractSecureId(defaultVars[idx].value);
+          if (secureId) {
+            vscode.postMessage({ type: 'storeSecureValue', secureId, value: inp.value });
+          }
+        }, 500);
+      });
+    } else {
+      inp.addEventListener('input', () => { defaultVars[idx][field] = inp.value; scheduleUpdate(); });
+    }
+  });
+
+  // Wire contenteditable value for non-secret vars
+  if (!isSecret) {
+    const valCE = tr.querySelector('.val-ce[data-field="value"]') as HTMLElement;
+    if (valCE) {
+      enableContentEditableValue(valCE, val, () => {
+        defaultVars[idx].value = (valCE as any)._getRawText ? (valCE as any)._getRawText() : (valCE.textContent || '');
+        scheduleUpdate();
+      });
+    }
+  }
+
+  // Type dropdown
+  const typeSelect = tr.querySelector<HTMLSelectElement>('.type-select');
+  typeSelect?.addEventListener('change', () => {
+    const newType = typeSelect.value;
+    const wasSecure = defaultVars[idx].secure === true;
+    let currentPlainValue = '';
+    if (!wasSecure) {
+      const valCE = tr.querySelector('.val-ce[data-field="value"]') as any;
+      const valInp = tr.querySelector<HTMLInputElement>('input[data-field="value"]');
+      currentPlainValue = valCE?._getRawText ? valCE._getRawText() : (valInp?.value ?? defaultVars[idx].value ?? '');
+    }
+
+    if (newType === 'hidden') {
+      if (wasSecure) {
+        const oldId = extractSecureId(defaultVars[idx].value);
+        defaultVars[idx].value = (oldId && _secureValueCache[oldId]) || '';
+      }
+      defaultVars[idx].secret = true;
+      delete defaultVars[idx].secure;
+    } else if (newType === 'secure') {
+      defaultVars[idx].secret = true;
+      defaultVars[idx].secure = true;
+      if (!extractSecureId(defaultVars[idx].value)) {
+        const ref = generateSecureRef();
+        const secureId = extractSecureId(ref)!;
+        defaultVars[idx].value = ref;
+        if (currentPlainValue) {
+          _secureValueCache[secureId] = currentPlainValue;
+          vscode.postMessage({ type: 'storeSecureValue', secureId, value: currentPlainValue });
+        }
+      }
+    } else {
+      if (wasSecure) {
+        const oldId = extractSecureId(defaultVars[idx].value);
+        defaultVars[idx].value = (oldId && _secureValueCache[oldId]) || '';
+      } else {
+        defaultVars[idx].value = currentPlainValue;
+      }
+      delete defaultVars[idx].secret;
+      delete defaultVars[idx].secure;
+    }
+    renderDefaultVars(defaultVars);
+    scheduleUpdate();
+  });
+
+  // Secret toggle
+  const toggleBtn = tr.querySelector('.secret-toggle');
+  toggleBtn?.addEventListener('click', () => {
+    const inp = tr.querySelector<HTMLInputElement>('input[data-field="value"]');
+    if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
+
+  // Delete
+  tr.querySelector('.row-delete')!.addEventListener('click', () => {
+    const oldId = extractSecureId(defaultVars[idx].value);
+    if (oldId) vscode.postMessage({ type: 'deleteSecureValue', secureId: oldId });
+    defaultVars.splice(idx, 1);
+    renderDefaultVars(defaultVars);
+    scheduleUpdate();
+  });
+
+  // Check secure status
+  const secureId = extractSecureId(v.value);
+  if (isSecure && secureId) {
+    vscode.postMessage({ type: 'getSecureStatus', secureId });
+  }
+
   tbody.appendChild(tr);
 }
 
@@ -301,6 +428,14 @@ function openSwatchPopover(anchor: HTMLElement, env: any) {
   }, 0);
 }
 
+function updateHiddenWarning(env: any): void {
+  const warn = document.getElementById('hiddenWarning');
+  if (!warn) return;
+  const vars = env?.variables || [];
+  const hasHidden = vars.some((v: any) => v.secret === true && !v.secure);
+  warn.style.display = hasHidden ? 'block' : 'none';
+}
+
 function renderEnvDetail() {
   const detail = $('envDetail');
   const envs = collectionData?.config?.environments || [];
@@ -328,6 +463,9 @@ function renderEnvDetail() {
     '</div>' +
     '<div class="tab-content">' +
       '<div class="tab-panel active" id="panel-env-vars">' +
+        '<div id="hiddenWarning" class="hidden-var-warning" style="display:none;">' +
+          '<strong>\u26a0 Warning:</strong> Variables set to <em>hidden</em> are stored as plain text in your collection file. They are only hidden from the UI. Use a <strong>secret provider</strong> with <em>secure</em> type for portable, encrypted secrets.' +
+        '</div>' +
         '<table class="kv-table"><colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup><thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>' +
         '<tbody id="envVarsBody"></tbody></table>' +
         '<button class="add-row-btn" id="addEnvVarBtn">+ Add Variable</button>' +
@@ -365,6 +503,7 @@ function renderEnvDetail() {
   (env.variables || []).forEach((v: any, vi: number) => {
     addEnvVarRow(tbody, env, vi);
   });
+  updateHiddenWarning(env);
 
   // Wire add button
   $('addEnvVarBtn').addEventListener('click', () => {
@@ -382,6 +521,7 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
   const v = env.variables[varIdx];
   const tr = document.createElement('tr');
   const isSecret = v.secret === true;
+  const isSecure = isSecret && v.secure === true;
   const chk = v.disabled ? '' : 'checked';
   const val = isSecret ? (v.value || '') : (typeof v.value === 'string' ? v.value : (v.value && v.value.data ? v.value.data : ''));
 
@@ -389,10 +529,10 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
     `<td><input type="checkbox" ${chk} data-field="disabled" /></td>` +
     `<td><input type="text" value="${esc(v.name || '')}" data-field="name" /></td>` +
     `${isSecret
-      ? '<td><div class="secret-value-wrap"><input type="password" value="' + esc(val) + '" data-field="value" /><button class="secret-toggle" title="Show/hide">&#9673;</button></div></td>'
+      ? '<td><div class="secret-value-wrap"><input type="password" value="' + (isSecure ? '' : esc(val)) + '"' + (isSecure ? ' placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"' : '') + ' data-field="value" /><button class="secret-toggle" title="Show/hide">&#9673;</button></div></td>'
       : '<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="value" data-field="value"></div></td>'
     }` +
-    `<td><select class="type-select select-borderless" data-field="type"><option value="var"${!isSecret ? ' selected' : ''}>var</option><option value="secret"${isSecret ? ' selected' : ''}>secret</option></select></td>` +
+    `<td><select class="type-select select-borderless" data-field="type"><option value="var"${!isSecret ? ' selected' : ''}>var</option><option value="hidden"${isSecret && !isSecure ? ' selected' : ''}>hidden</option><option value="secure"${isSecure ? ' selected' : ''}>secure</option></select></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
 
   // Wire inputs
@@ -400,6 +540,18 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
     const field = inp.dataset.field!;
     if (inp.type === 'checkbox') {
       inp.addEventListener('change', () => { env.variables[varIdx].disabled = !inp.checked; scheduleUpdate(); });
+    } else if (isSecure && field === 'value') {
+      // Secure mode: send to extension host for SecretStorage via UUID
+      let debounce: ReturnType<typeof setTimeout> | null = null;
+      inp.addEventListener('input', () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          const secureId = extractSecureId(env.variables[varIdx].value);
+          if (secureId) {
+            vscode.postMessage({ type: 'storeSecureValue', secureId, value: inp.value });
+          }
+        }, 500);
+      });
     } else {
       inp.addEventListener('input', () => { env.variables[varIdx][field] = inp.value; scheduleUpdate(); });
     }
@@ -409,10 +561,42 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
   const typeSelect = tr.querySelector<HTMLSelectElement>('.type-select');
   typeSelect?.addEventListener('change', () => {
     const newType = typeSelect.value;
-    if (newType === 'secret') {
+    const wasSecure = env.variables[varIdx].secure === true;
+    let currentPlainValue = '';
+    if (!wasSecure) {
+      const valCE = tr.querySelector('.val-ce[data-field="value"]') as any;
+      const valInp = tr.querySelector<HTMLInputElement>('input[data-field="value"]');
+      currentPlainValue = valCE?._getRawText ? valCE._getRawText() : (valInp?.value ?? env.variables[varIdx].value ?? '');
+    }
+
+    if (newType === 'hidden') {
+      if (wasSecure) {
+        const oldId = extractSecureId(env.variables[varIdx].value);
+        env.variables[varIdx].value = (oldId && _secureValueCache[oldId]) || '';
+      }
       env.variables[varIdx].secret = true;
+      delete env.variables[varIdx].secure;
+    } else if (newType === 'secure') {
+      env.variables[varIdx].secret = true;
+      env.variables[varIdx].secure = true;
+      if (!extractSecureId(env.variables[varIdx].value)) {
+        const ref = generateSecureRef();
+        const secureId = extractSecureId(ref)!;
+        env.variables[varIdx].value = ref;
+        if (currentPlainValue) {
+          _secureValueCache[secureId] = currentPlainValue;
+          vscode.postMessage({ type: 'storeSecureValue', secureId, value: currentPlainValue });
+        }
+      }
     } else {
+      if (wasSecure) {
+        const oldId = extractSecureId(env.variables[varIdx].value);
+        env.variables[varIdx].value = (oldId && _secureValueCache[oldId]) || '';
+      } else {
+        env.variables[varIdx].value = currentPlainValue;
+      }
       delete env.variables[varIdx].secret;
+      delete env.variables[varIdx].secure;
     }
     renderEnvDetail();
     scheduleUpdate();
@@ -429,6 +613,11 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
 
   // Delete
   tr.querySelector('.row-delete')?.addEventListener('click', () => {
+    // Clean up SecretStorage if deleting a secure var
+    const oldId = extractSecureId(env.variables[varIdx].value);
+    if (oldId) {
+      vscode.postMessage({ type: 'deleteSecureValue', secureId: oldId });
+    }
     env.variables.splice(varIdx, 1);
     renderEnvDetail();
     scheduleUpdate();
@@ -443,6 +632,11 @@ function addEnvVarRow(tbody: HTMLElement, env: any, varIdx: number) {
         scheduleUpdate();
       });
     }
+  }
+
+  // For secure vars, check if a value is already stored in SecretStorage
+  if (isSecure && v.name && env.name) {
+    vscode.postMessage({ type: 'getSecretVariable', envName: env.name, varName: v.name });
   }
 
   tbody.appendChild(tr);
@@ -542,6 +736,37 @@ window.addEventListener('message', (event) => {
       setSecretNamesForProvider(msg.providerName, msg.secretNames);
     }
   }
+  if (msg.type === 'secureValueStored' || msg.type === 'secureStatus') {
+    const hasValue = msg.type === 'secureValueStored' || msg.hasValue;
+    // Check env vars
+    const envs = collectionData?.config?.environments || [];
+    const env = envs[activeEnvIdx];
+    if (env?.variables) {
+      const rows = $('envVarsBody')?.children;
+      if (rows) {
+        for (let i = 0; i < rows.length; i++) {
+          if (i < env.variables.length && extractSecureId(env.variables[i].value) === msg.secureId) {
+            const valInp = rows[i].querySelector<HTMLInputElement>('input[data-field="value"]');
+            if (valInp && valInp.type === 'password') {
+              valInp.placeholder = hasValue ? '\u2022\u2022\u2022\u2022\u2022\u2022 (stored)' : 'Enter secret value';
+            }
+          }
+        }
+      }
+    }
+    // Check default vars
+    const dvRows = $('defaultVarsBody')?.children;
+    if (dvRows) {
+      for (let i = 0; i < dvRows.length; i++) {
+        if (i < defaultVars.length && extractSecureId(defaultVars[i].value) === msg.secureId) {
+          const valInp = dvRows[i].querySelector<HTMLInputElement>('input[data-field="value"]');
+          if (valInp && valInp.type === 'password') {
+            valInp.placeholder = hasValue ? '\u2022\u2022\u2022\u2022\u2022\u2022 (stored)' : 'Enter secret value';
+          }
+        }
+      }
+    }
+  }
   if (msg.type === 'secretValueResolved') {
     handleSecretValueResolved(msg);
   }
@@ -627,7 +852,7 @@ registerFlushOnSave(() => {
 initTabs('mainTabs');
 
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); scheduleUpdate(); });
-$('addDefaultVarBtn').addEventListener('click', () => { addDefaultVarRow(); scheduleUpdate(); });
+$('addDefaultVarBtn').addEventListener('click', () => { defaultVars.push({ name: '', value: '' }); renderDefaultVars(defaultVars); scheduleUpdate(); });
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('varToggleBtn').addEventListener('click', () => {
   setShowResolvedVars(!getShowResolvedVars());
