@@ -231,10 +231,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
         _rlog(`  oauth2 getToken: ${Date.now() - _t0}ms`);
         webview.postMessage({ type: 'sending', message: 'Sending request…' });
       }
-      _rlog(`  pre-send: ${Date.now() - _t0}ms`);
+      const preSendMs = Date.now() - _t0;
+      _rlog(`  pre-send: ${preSendMs}ms`);
       const response = await this._httpClient.send(requestData, collection, folderDefaults);
-      _rlog(`  httpClient.send done: ${Date.now() - _t0}ms`);
-      webview.postMessage({ type: 'response', response });
+      const totalMs = Date.now() - _t0;
+      _rlog(`  httpClient.send done: ${totalMs}ms`);
+      webview.postMessage({ type: 'response', response, preRequestMs: preSendMs, sendDoneAt: Date.now() });
     } catch (e: any) {
       webview.postMessage({
         type: 'response',

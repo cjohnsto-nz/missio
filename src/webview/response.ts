@@ -1,7 +1,7 @@
 // Response display logic for the webview.
 
 import { $ } from './state';
-import { highlight } from './highlight';
+import { highlightResponse } from './highlight';
 
 let lastResponse: any = null;
 let lastResponseBody = '';
@@ -54,7 +54,8 @@ function esc(s: string): string {
   return d.innerHTML;
 }
 
-export function showResponse(resp: any): void {
+export function showResponse(resp: any, preRequestMs?: number, sendDoneAt?: number): void {
+  const renderStart = Date.now();
   hideLoading();
   lastResponse = resp;
   $('sendBtn').classList.remove('sending');
@@ -69,8 +70,6 @@ export function showResponse(resp: any): void {
   badge.textContent = resp.status + ' ' + resp.statusText;
   const cat = Math.floor(resp.status / 100);
   badge.className = 'status-badge s' + cat + 'xx';
-
-  $('responseMeta').textContent = resp.duration + 'ms \u2022 ' + formatSize(resp.size);
 
   // Body — detect language from content-type and apply highlighting
   let bodyText = resp.body || '';
@@ -94,7 +93,7 @@ export function showResponse(resp: any): void {
   console.time('resp:highlight');
   const lines = bodyText.split('\n');
   const html = lines.map((line: string) =>
-    '<div class="code-line">' + highlight(line, lang) + '\n</div>'
+    '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
   ).join('');
   console.timeEnd('resp:highlight');
   console.time('resp:innerHTML');
@@ -114,4 +113,12 @@ export function showResponse(resp: any): void {
       tbody.appendChild(tr);
     });
   }
+
+  // Timing: pre-request • response • render • size
+  const renderMs = Date.now() - renderStart;
+  let meta = resp.duration + 'ms';
+  if (preRequestMs !== undefined) {
+    meta = preRequestMs + 'ms pre \u2022 ' + resp.duration + 'ms response \u2022 ' + renderMs + 'ms render';
+  }
+  $('responseMeta').textContent = meta + ' \u2022 ' + formatSize(resp.size);
 }
