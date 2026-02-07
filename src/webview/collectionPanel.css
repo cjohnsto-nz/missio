@@ -181,18 +181,6 @@
   box-shadow: 0 0 0 1px var(--bg);
 }
 
-/* ── Type Select (in env var rows) ─────── */
-.type-select {
-  background: var(--input-bg);
-  color: var(--input-fg);
-  border: 1px solid transparent;
-  border-radius: 3px;
-  padding: 2px 4px;
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-}
-.type-select:focus { border-color: var(--btn-bg); outline: none; }
 
 /* ── Secret Value Wrap ─────────────────── */
 .secret-value-wrap {

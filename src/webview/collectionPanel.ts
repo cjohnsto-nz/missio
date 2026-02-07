@@ -430,7 +430,7 @@ function renderEnvDetail() {
     '</div>' +
     '<div class="tab-content">' +
       '<div class="tab-panel active" id="panel-env-vars">' +
-        '<table class="kv-table"><colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup><thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>' +
+        '<table class="kv-table"><colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:100px"><col style="width:32px"></colgroup><thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>' +
         '<tbody id="envVarsBody"></tbody></table>' +
         '<button class="add-row-btn" id="addEnvVarBtn">+ Add Variable</button>' +
       '</div>' +
