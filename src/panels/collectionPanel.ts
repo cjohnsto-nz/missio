@@ -153,9 +153,9 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     return `
   <!-- Collection Header -->
   <div class="collection-header">
-    <span class="collection-icon">\u{1F4DA}</span>
+    <span class="codicon codicon-folder-library icon-collection"></span>
     <div class="collection-info">
-      <span class="collection-name" id="collectionName">Collection</span>
+      <span class="collection-type-label">Collection:</span> <span class="collection-name" id="collectionName">Collection</span>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>

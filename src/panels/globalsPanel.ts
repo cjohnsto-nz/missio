@@ -121,6 +121,9 @@ export class GlobalsPanel implements vscode.Disposable {
     const themeUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._context.extensionUri, 'media', 'theme.css'),
     );
+    const codiconFontUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._context.extensionUri, 'media', 'codicon.ttf'),
+    );
     const collCssUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._context.extensionUri, 'media', 'collectionPanel.css'),
     );
@@ -136,15 +139,25 @@ export class GlobalsPanel implements vscode.Disposable {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:; font-src ${webview.cspSource};">
+<style>@font-face { font-family: 'codicon'; src: url('${codiconFontUri}') format('truetype'); }
+.codicon { font-family: 'codicon'; font-size: 20px; line-height: 1; display: inline-block; -webkit-font-smoothing: antialiased; }
+.codicon-globe::before { content: '\\eb01'; }
+.codicon.icon-global { color: var(--m-src-global); }
+</style>
 <link rel="stylesheet" href="${themeUri}">
 <link rel="stylesheet" href="${collCssUri}">
 <link rel="stylesheet" href="${reqCssUri}">
 </head>
 <body>
 <div class="panel-wrap">
+  <div class="collection-header">
+    <span class="codicon codicon-globe icon-global"></span>
+    <div class="collection-info">
+      <span class="collection-type-label">Global:</span> <span class="collection-name">Variables</span>
+    </div>
+  </div>
   <div class="panel-header">
-    <h2>Global Variables</h2>
     <p class="hint" style="opacity:0.6;margin:4px 0 12px;font-size:12px;">Global variables apply across all collections. For better organization, consider using collection or environment variables instead.</p>
   </div>
   <div class="panel-body">

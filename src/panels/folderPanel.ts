@@ -83,9 +83,9 @@ export class FolderEditorProvider extends BaseEditorProvider {
     return `
   <!-- Folder Header -->
   <div class="collection-header">
-    <span class="collection-icon">\u{1F4C1}</span>
+    <span class="codicon codicon-folder icon-folder"></span>
     <div class="collection-info">
-      <span class="collection-name" id="folderName">Folder</span>
+      <span class="collection-type-label">Folder:</span> <span class="collection-name" id="folderName">Folder</span>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>

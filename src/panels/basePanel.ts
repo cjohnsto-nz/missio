@@ -344,6 +344,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
   protected _getHtml(webview: vscode.Webview): string {
     const nonce = this._getNonce();
     const themeUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'theme.css'));
+    const codiconFontUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'codicon.ttf'));
     const cssLinks = this._getCssFilenames()
       .map(f => {
         const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', f));
@@ -359,7 +360,16 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:; font-src ${webview.cspSource};">
+<style>@font-face { font-family: 'codicon'; src: url('${codiconFontUri}') format('truetype'); }
+.codicon { font-family: 'codicon'; font-size: 20px; line-height: 1; display: inline-block; -webkit-font-smoothing: antialiased; }
+.codicon-folder-library::before { content: '\\ebdf'; }
+.codicon-folder::before { content: '\\ea83'; }
+.codicon-globe::before { content: '\\eb01'; }
+.codicon.icon-collection { color: var(--m-src-collection); }
+.codicon.icon-folder { color: var(--m-src-folder); }
+.codicon.icon-global { color: var(--m-src-global); }
+</style>
 <link rel="stylesheet" href="${themeUri}">
 ${cssLinks}
 </head>
