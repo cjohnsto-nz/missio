@@ -125,7 +125,7 @@
         "command": "missio.editGlobalVariables",
         "title": "Edit Global Variables",
         "category": "Missio",
-        "icon": "$(globe)"
+        "icon": "$(gear)"
       },
       {
         "command": "missio.addGlobalVariable",
@@ -316,6 +316,11 @@
           "command": "missio.newEnvironment",
           "when": "view == missio.environments",
           "group": "navigation"
+        },
+        {
+          "command": "missio.editGlobalVariables",
+          "when": "view == missio.globals",
+          "group": "navigation@1"
         },
         {
           "command": "missio.addGlobalVariable",
