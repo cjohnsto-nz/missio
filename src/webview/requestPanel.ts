@@ -804,7 +804,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
-      showResponse(msg.response, msg.preRequestMs, msg.sendDoneAt);
+      showResponse(msg.response, msg.preRequestMs, msg.timing);
       requestTokenStatus();
       break;
     case 'sending':

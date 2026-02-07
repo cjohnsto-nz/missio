@@ -198,9 +198,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
       webview.postMessage({ type: 'sending' });
     }
 
+    const preTiming: { label: string; start: number; end: number }[] = [];
     try {
       if (isOAuth2) {
         const auth = effectiveAuth as AuthOAuth2;
+        let tPhase = Date.now();
         const vars = await this._environmentService.resolveVariables(collection);
         const providers = collection.data.config?.secretProviders ?? [];
         const resolve = async (val: string | undefined): Promise<string | undefined> => {
@@ -225,9 +227,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
           autoFetchToken: true,
           autoRefreshToken: auth.autoRefreshToken,
         };
-        const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+        preTiming.push({ label: 'OAuth2 Resolve', start: 0, end: Date.now() - _t0 });
         _rlog(`  oauth2 resolve fields: ${Date.now() - _t0}ms`);
+        tPhase = Date.now();
+        const envName = this._environmentService.getActiveEnvironmentName(collection.id);
         await this._oauth2Service.getToken(interpolated, collection.id, envName);
+        preTiming.push({ label: 'OAuth2 Token', start: tPhase - _t0, end: Date.now() - _t0 });
         _rlog(`  oauth2 getToken: ${Date.now() - _t0}ms`);
         webview.postMessage({ type: 'sending', message: 'Sending request…' });
       }
@@ -236,7 +241,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const response = await this._httpClient.send(requestData, collection, folderDefaults);
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
-      webview.postMessage({ type: 'response', response, preRequestMs: preSendMs, sendDoneAt: Date.now() });
+      // Merge timing: offset httpClient timing by preSendMs so it's relative to _t0
+      const httpTiming = (response as any).timing ?? [];
+      const allTiming = [
+        ...preTiming,
+        ...httpTiming.map((t: any) => ({ label: t.label, start: t.start + preSendMs, end: t.end + preSendMs })),
+      ];
+      webview.postMessage({ type: 'response', response, preRequestMs: preSendMs, timing: allTiming });
     } catch (e: any) {
       webview.postMessage({
         type: 'response',

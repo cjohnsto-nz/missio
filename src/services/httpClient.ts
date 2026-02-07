@@ -39,8 +39,12 @@ export class HttpClient implements vscode.Disposable {
     folderDefaults?: import('../models/types').RequestDefaults,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
+    const _timing: { label: string; start: number; end: number }[] = [];
+    const _mark = (label: string, start: number) => { _timing.push({ label, start: start - t0, end: Date.now() - t0 }); };
     _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
+    let tPhase = Date.now();
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    _mark('Resolve Variables', tPhase);
     _log(`  resolveVariables: ${Date.now() - t0}ms`);
     const details = request.http;
     if (!details?.url || !details?.method) {
@@ -107,7 +111,9 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _mark('Interpolate + Params', tPhase);
     _log(`  interpolate+params: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
     // Auth: request -> folder -> collection (first non-inherit wins)
     let auth: Auth | undefined = details.auth;
     if (!auth || auth === 'inherit') {
@@ -124,7 +130,9 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _mark('Auth', tPhase);
     _log(`  auth: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
     // Body
     let body: string | Buffer | undefined;
     const resolvedBody = this._resolveBody(details.body);
@@ -133,7 +141,9 @@ export class HttpClient implements vscode.Disposable {
       body = result;
     }
 
+    _mark('Body', tPhase);
     _log(`  body: ${Date.now() - t0}ms`);
+    tPhase = Date.now();
     // Resolve $secret references in URL, headers, and body
     const providers = collection.data.config?.secretProviders ?? [];
     if (providers.length > 0 && this._secretService) {
@@ -147,9 +157,11 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
+    _mark('Secrets', tPhase);
     _log(`  secrets: ${Date.now() - t0}ms`);
     // Execute
     _log(`  executing: ${details.method} ${url}`);
+    tPhase = Date.now();
     const parsedUrl = new URL(url);
     const isHttps = parsedUrl.protocol === 'https:';
     const requestModule = isHttps ? https : http;
@@ -187,6 +199,7 @@ export class HttpClient implements vscode.Disposable {
             }
           }
 
+          _mark('HTTP', tPhase);
           resolve({
             status: res.statusCode ?? 0,
             statusText: res.statusMessage ?? '',
@@ -194,7 +207,8 @@ export class HttpClient implements vscode.Disposable {
             body: buffer.toString('utf-8'),
             duration,
             size: buffer.length,
-          });
+            timing: _timing,
+          } as any);
         });
       });
 

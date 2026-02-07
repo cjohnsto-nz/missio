@@ -759,6 +759,64 @@ td.var-cell .var-overlay {
 .resp-body-wrap:hover .copy-btn { opacity: 1; }
 .copy-btn:hover { color: var(--fg); border-color: var(--btn-bg); }
 
+/* ── Timing Waterfall Tooltip ─────────────── */
+.has-timing { cursor: pointer; }
+.timing-tooltip {
+  display: none;
+  z-index: 1000;
+  background: var(--input-bg, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-width: 320px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.timing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+}
+.timing-label {
+  width: 110px;
+  flex-shrink: 0;
+  text-align: right;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.timing-track {
+  flex: 1;
+  height: 10px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+.timing-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+}
+.timing-dur {
+  width: 50px;
+  flex-shrink: 0;
+  text-align: right;
+  color: #ccc;
+}
+.timing-total {
+  border-top: 1px solid var(--border, #333);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.timing-total .timing-label { color: #ddd; font-weight: 600; }
+.timing-total .timing-dur { color: #fff; font-weight: 600; }
+
 /* ── Response Headers ────────────────────── */
 .resp-headers-table { width: 100%; border-collapse: collapse; }
 .resp-headers-table td {
