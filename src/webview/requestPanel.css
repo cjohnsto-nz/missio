@@ -38,10 +38,10 @@ body {
   flex-shrink: 0;
 }
 .method-select {
-  background: var(--input-bg);
+  background-color: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
-  padding: 6px 10px;
+  padding: 6px 28px 6px 10px;
   border-radius: 4px;
   font-size: 14px;
   font-weight: 500;
@@ -50,6 +50,11 @@ body {
   cursor: pointer;
   line-height: 1.4;
   box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
 }
 .method-select.get { color: var(--m-method-get); }
 .method-select.post { color: var(--m-method-post); }
@@ -481,15 +486,20 @@ td.var-cell .var-overlay {
 
 /* ── Language Select ───────────────────── */
 .lang-select {
-  background: var(--input-bg);
+  background-color: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 4px 24px 4px 8px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   display: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
 }
 .lang-select option { background: var(--input-bg); color: var(--input-fg); }
 .code-wrap {
@@ -600,14 +610,19 @@ td.var-cell .var-overlay {
 
 /* ── Borderless select ────────────────── */
 .select-borderless {
-  background: transparent;
+  background-color: transparent;
   color: var(--m-fg-muted);
   border: none;
-  padding: 4px 2px;
+  padding: 4px 18px 4px 2px;
   font-size: 11px;
   font-family: inherit;
   cursor: pointer;
   outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
 }
 .select-borderless:hover { color: var(--fg); }
 .select-borderless:focus { color: var(--fg); }
@@ -616,14 +631,19 @@ td.var-cell .var-overlay {
 /* ── Auth select (consistent) ──────────── */
 .auth-select {
   width: 200px;
-  background: var(--input-bg);
+  background-color: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
-  padding: 6px 10px;
+  padding: 6px 28px 6px 10px;
   border-radius: 4px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
 }
 .auth-select:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
 
