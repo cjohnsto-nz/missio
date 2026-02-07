@@ -142,11 +142,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._sendRequest(webview, msg.request, collection, folderDefaults);
         return true;
       }
-      case 'editVariable': {
-        const collection = this._findCollection(filePath);
-        await this._editVariable(msg.variableName, collection);
+      case 'editVariable':
+        // Handled by addVariable in basePanel — kept for backwards compat
         return true;
-      }
       case 'resolveVariables': {
         await this._sendVariables(webview, filePath);
         return true;
@@ -163,21 +161,6 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   // ── Request-specific logic ──
 
-  private async _editVariable(variableName: string, collection: MissioCollection | undefined): Promise<void> {
-    if (!collection) return;
-    const vars = await this._environmentService.resolveVariables(collection);
-    const currentValue = vars.get(variableName) || '';
-    const newValue = await vscode.window.showInputBox({
-      title: `Edit variable: ${variableName}`,
-      value: currentValue,
-      prompt: `Current value of {{${variableName}}}`,
-    });
-    if (newValue !== undefined) {
-      vscode.window.showInformationMessage(
-        `To persist changes to {{${variableName}}}, edit the environment in your collection.yml`,
-      );
-    }
-  }
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
     const _t0 = Date.now();
@@ -303,15 +286,17 @@ export class RequestEditorProvider extends BaseEditorProvider {
     return `
   <!-- URL Bar -->
   <div class="url-bar">
-    <select class="method-select" id="method">
-      <option value="GET">GET</option>
-      <option value="POST">POST</option>
-      <option value="PUT">PUT</option>
-      <option value="PATCH">PATCH</option>
-      <option value="DELETE">DELETE</option>
-      <option value="HEAD">HEAD</option>
-      <option value="OPTIONS">OPTIONS</option>
-    </select>
+    <div class="method-picker" id="methodPicker">
+      <select class="method-select" id="method">
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+        <option value="PUT">PUT</option>
+        <option value="PATCH">PATCH</option>
+        <option value="DELETE">DELETE</option>
+        <option value="HEAD">HEAD</option>
+        <option value="OPTIONS">OPTIONS</option>
+      </select>
+    </div>
     <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
@@ -331,7 +316,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <!-- Params -->
         <div class="tab-panel" id="panel-params">
           <table class="kv-table" id="paramsTable">
-            <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:70px"><col style="width:32px"></colgroup>
+            <colgroup><col style="width:32px"><col style="width:25%"><col><col style="width:100px"><col style="width:32px"></colgroup>
             <thead><tr><th></th><th>Name</th><th>Value</th><th>Type</th><th></th></tr></thead>
             <tbody id="paramsBody"></tbody>
           </table>
@@ -381,14 +366,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <!-- Auth -->
         <div class="tab-panel" id="panel-auth">
           <div class="auth-section">
-            <select class="auth-select" id="authType">
+            <div class="form-field"><label>Type</label><select class="auth-select" id="authType">
               <option value="none">No Auth</option>
               <option value="inherit">Inherit</option>
               <option value="bearer">Bearer Token</option>
               <option value="basic">Basic Auth</option>
               <option value="apikey">API Key</option>
               <option value="oauth2">OAuth 2.0</option>
-            </select>
+            </select></div>
             <div id="authFields"></div>
           </div>
         </div>

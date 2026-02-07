@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import type { MissioCollection } from '../models/types';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
@@ -151,6 +152,98 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
           } catch { /* silently fail */ }
           return;
         }
+        if (msg.type === 'storeSecretValue') {
+          try {
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            await this._environmentService.storeSecretValue(msg.collectionRoot, msg.envName, msg.varName, msg.value ?? '');
+            webviewPanel.webview.postMessage({ type: 'secretValueStored', envName: msg.envName, varName: msg.varName });
+            await sendVariables();
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'peekSecretValue') {
+          try {
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            const val = await this._environmentService.getSecretValue(msg.collectionRoot, msg.envName, msg.varName);
+            webviewPanel.webview.postMessage({
+              type: 'secretValuePeek',
+              envName: msg.envName,
+              varName: msg.varName,
+              value: val ?? '',
+            });
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'deleteSecretValue') {
+          try {
+            if (!msg.collectionRoot || !msg.envName || !msg.varName) return;
+            await this._environmentService.deleteSecretValue(msg.collectionRoot, msg.envName, msg.varName);
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'renameSecretValue') {
+          try {
+            if (!msg.collectionRoot || !msg.envName || !msg.oldName || !msg.newName) return;
+            await this._environmentService.renameSecretValue(msg.collectionRoot, msg.envName, msg.oldName, msg.newName);
+          } catch { /* silently fail */ }
+          return;
+        }
+        if (msg.type === 'updateVariable' || msg.type === 'addVariable') {
+          try {
+            const { varName, value, scope } = msg;
+            if (!varName) return;
+            if (scope === 'global') {
+              const globals = this._environmentService.getGlobalVariables();
+              const existing = globals.find(g => g.name === varName);
+              if (existing) { existing.value = value ?? ''; } else { globals.push({ name: varName, value: value ?? '' }); }
+              await this._environmentService.setGlobalVariables(globals);
+            } else {
+              // collection or environment — edit the collection.yml file (not the current document)
+              const collection = this._findCollection(document.uri.fsPath);
+              if (!collection) return;
+              const collUri = vscode.Uri.file(collection.filePath);
+              const fs = await import('fs');
+              const collText = await fs.promises.readFile(collection.filePath, 'utf-8');
+              const { parseYaml, stringifyYaml } = await import('../services/yamlParser');
+              const data = parseYaml(collText);
+              if (scope === 'collection') {
+                if (!data.request) data.request = {};
+                if (!data.request.variables) data.request.variables = [];
+                const existing = data.request.variables.find((v: any) => v.name === varName);
+                if (existing) { existing.value = value ?? ''; } else { data.request.variables.push({ name: varName, value: value ?? '' }); }
+              } else if (scope === 'environment') {
+                const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+                if (envName && data.config?.environments) {
+                  const env = data.config.environments.find((e: any) => e.name === envName);
+                  if (env) {
+                    if (!env.variables) env.variables = [];
+                    const existing = env.variables.find((v: any) => v.name === varName);
+                    if (existing && existing.secret) {
+                      // Secret env var — store value in SecretStorage, don't write to YAML
+                      const collRoot = path.dirname(collection.filePath);
+                      await this._environmentService.storeSecretValue(collRoot, envName, varName, value ?? '');
+                    } else if (existing) {
+                      existing.value = value ?? '';
+                    } else {
+                      env.variables.push({ name: varName, value: value ?? '' });
+                    }
+                  }
+                }
+              }
+              const yaml = stringifyYaml(data, { lineWidth: 120 });
+              if (yaml !== collText) {
+                // Use workspace edit on the collection.yml URI
+                const collDoc = await vscode.workspace.openTextDocument(collUri);
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(collUri, new vscode.Range(0, 0, collDoc.lineCount, 0), yaml);
+                await vscode.workspace.applyEdit(edit);
+                await collDoc.save();
+              }
+            }
+            await sendVariables();
+          } catch { /* silently fail */ }
+          return;
+        }
         if (msg.type === 'resolveSecret') {
           try {
             const secretRef: string = msg.secretRef; // e.g. "$secret.kv-name.my-key"
@@ -250,6 +343,8 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 
   protected _getHtml(webview: vscode.Webview): string {
     const nonce = this._getNonce();
+    const themeUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'theme.css'));
+    const codiconFontUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'codicon.ttf'));
     const cssLinks = this._getCssFilenames()
       .map(f => {
         const uri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', f));
@@ -265,7 +360,17 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:; font-src ${webview.cspSource};">
+<style>@font-face { font-family: 'codicon'; src: url('${codiconFontUri}') format('truetype'); }
+.codicon { font-family: 'codicon'; font-size: 20px; line-height: 1; display: inline-block; -webkit-font-smoothing: antialiased; }
+.codicon-folder-library::before { content: '\\ebdf'; }
+.codicon-folder::before { content: '\\ea83'; }
+.codicon-globe::before { content: '\\eb01'; }
+.codicon.icon-collection { color: var(--m-src-collection); }
+.codicon.icon-folder { color: var(--m-src-folder); }
+.codicon.icon-global { color: var(--m-src-global); }
+</style>
+<link rel="stylesheet" href="${themeUri}">
 ${cssLinks}
 </head>
 <body>

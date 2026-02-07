@@ -83,9 +83,9 @@ export class FolderEditorProvider extends BaseEditorProvider {
     return `
   <!-- Folder Header -->
   <div class="collection-header">
-    <span class="collection-icon">\u{1F4C1}</span>
+    <span class="codicon codicon-folder icon-folder"></span>
     <div class="collection-info">
-      <span class="collection-name" id="folderName">Folder</span>
+      <span class="collection-type-label">Folder:</span> <span class="collection-name" id="folderName">Folder</span>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>
@@ -117,14 +117,14 @@ export class FolderEditorProvider extends BaseEditorProvider {
       <!-- Auth -->
       <div class="tab-panel" id="panel-auth">
         <div class="auth-section">
-          <select class="auth-select" id="defaultAuthType">
+          <div class="form-field"><label>Type</label><select class="auth-select" id="defaultAuthType">
             <option value="none">No Auth</option>
             <option value="inherit">Inherit</option>
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
             <option value="apikey">API Key</option>
             <option value="oauth2">OAuth 2.0</option>
-          </select>
+          </select></div>
           <div id="defaultAuthFields"></div>
         </div>
       </div>

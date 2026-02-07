@@ -61,16 +61,21 @@ export class EnvironmentService implements vscode.Disposable {
   async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, string>> {
     const vars = new Map<string, string>();
 
-    // 1. Collection request-level default variables
+    // 0. Global variables (lowest priority — overridden by everything)
+    this._resolveGlobalVars(vars);
+
+    // 1. Collection request-level default variables (plain vars only per schema)
     const defaults = collection.data.request?.variables ?? [];
     for (const v of defaults) {
-      const val = this._resolveVariableValue(v.value);
-      if (val !== undefined && !v.disabled) {
-        vars.set(v.name, val);
+      if (!v.disabled) {
+        const val = this._resolveVariableValue(v.value);
+        if (val !== undefined) {
+          vars.set(v.name, val);
+        }
       }
     }
 
-    // 2. Folder-level variables (override collection)
+    // 2. Folder-level variables (override collection, plain vars only per schema)
     if (folderDefaults?.variables) {
       for (const v of folderDefaults.variables) {
         if (!v.disabled) {
@@ -93,7 +98,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                // Secret variables are placeholders — skip
+                // resolved below via _resolveSecretVars
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -102,6 +107,7 @@ export class EnvironmentService implements vscode.Disposable {
                 }
               }
             }
+            await this._resolveSecretVars(vars, collection, parent.name);
           }
         }
 
@@ -116,7 +122,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            // Secret variables are placeholders — skip
+            // resolved below via _resolveSecretVars
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -127,6 +133,7 @@ export class EnvironmentService implements vscode.Disposable {
             }
           }
         }
+        await this._resolveSecretVars(vars, collection, envName);
       }
     }
 
@@ -149,16 +156,21 @@ export class EnvironmentService implements vscode.Disposable {
   async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, { value: string; source: string }>> {
     const vars = new Map<string, { value: string; source: string }>();
 
-    // 1. Collection request-level default variables
+    // 0. Global variables (lowest priority — overridden by everything)
+    this._resolveGlobalVarsWithSource(vars);
+
+    // 1. Collection request-level default variables (plain vars only per schema)
     const defaults = collection.data.request?.variables ?? [];
     for (const v of defaults) {
-      const val = this._resolveVariableValue(v.value);
-      if (val !== undefined && !v.disabled) {
-        vars.set(v.name, { value: val, source: 'collection' });
+      if (!v.disabled) {
+        const val = this._resolveVariableValue(v.value);
+        if (val !== undefined) {
+          vars.set(v.name, { value: val, source: 'collection' });
+        }
       }
     }
 
-    // 2. Folder-level variables (override collection)
+    // 2. Folder-level variables (override collection, plain vars only per schema)
     if (folderDefaults?.variables) {
       for (const v of folderDefaults.variables) {
         if (!v.disabled) {
@@ -181,7 +193,7 @@ export class EnvironmentService implements vscode.Disposable {
           if (parent) {
             for (const v of parent.variables ?? []) {
               if ('secret' in v && (v as SecretVariable).secret) {
-                // Secret variables are placeholders — skip
+                // resolved below via _resolveSecretVarsWithSource
               } else {
                 const variable = v as Variable;
                 if (!variable.disabled) {
@@ -190,6 +202,7 @@ export class EnvironmentService implements vscode.Disposable {
                 }
               }
             }
+            await this._resolveSecretVarsWithSource(vars, collection, parent.name);
           }
         }
 
@@ -204,7 +217,7 @@ export class EnvironmentService implements vscode.Disposable {
         // Child environment variables (override everything above)
         for (const v of env.variables ?? []) {
           if ('secret' in v && (v as SecretVariable).secret) {
-            // Secret variables are placeholders — skip
+            // resolved below via _resolveSecretVarsWithSource
           } else {
             const variable = v as Variable;
             if (!variable.disabled) {
@@ -215,6 +228,7 @@ export class EnvironmentService implements vscode.Disposable {
             }
           }
         }
+        await this._resolveSecretVarsWithSource(vars, collection, envName);
       }
     }
 
@@ -362,7 +376,7 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   private _resolveVariableValue(value: Variable['value']): string | undefined {
-    if (value === undefined || value === null) { return undefined; }
+    if (value === undefined || value === null) { return ''; }
     if (typeof value === 'string') { return value; }
 
     // VariableTypedValue
@@ -416,7 +430,111 @@ export class EnvironmentService implements vscode.Disposable {
     await this._context.workspaceState.update('missio.globalEnvironment', this._globalEnvironment);
   }
 
+  // ── Secret variable storage (identity-based, VS Code SecretStorage) ──
+  //
+  // Schema-compliant SecretVariable has `secret: true` and no `value` field.
+  // The actual secret is stored in SecretStorage under an identity-based key:
+  //   missio:secret:{collectionRootDir}:{envName}:{varName}
+
+  /** Build a SecretStorage key from collection root, environment name, and variable name. */
+  secretKey(collectionRoot: string, envName: string, varName: string): string {
+    return `missio:secret:${collectionRoot}:${envName}:${varName}`;
+  }
+
+  async storeSecretValue(collectionRoot: string, envName: string, varName: string, value: string): Promise<void> {
+    await this._context.secrets.store(this.secretKey(collectionRoot, envName, varName), value);
+  }
+
+  async getSecretValue(collectionRoot: string, envName: string, varName: string): Promise<string | undefined> {
+    return this._context.secrets.get(this.secretKey(collectionRoot, envName, varName));
+  }
+
+  async deleteSecretValue(collectionRoot: string, envName: string, varName: string): Promise<void> {
+    await this._context.secrets.delete(this.secretKey(collectionRoot, envName, varName));
+  }
+
+  /** Rename a secret variable: migrate the stored value from oldName to newName. */
+  async renameSecretValue(collectionRoot: string, envName: string, oldName: string, newName: string): Promise<void> {
+    const val = await this.getSecretValue(collectionRoot, envName, oldName);
+    if (val !== undefined) {
+      await this.storeSecretValue(collectionRoot, envName, newName, val);
+    }
+    await this.deleteSecretValue(collectionRoot, envName, oldName);
+  }
+
+  /** Resolve secret-type environment variables by looking up SecretStorage. */
+  private async _resolveSecretVars(
+    vars: Map<string, string>,
+    collection: MissioCollection,
+    envName: string,
+  ): Promise<void> {
+    const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
+    if (!env) return;
+    for (const v of env.variables ?? []) {
+      if ('secret' in v && (v as SecretVariable).secret && v.name && !v.disabled) {
+        const val = await this.getSecretValue(collection.rootDir, envName, v.name!);
+        vars.set(v.name!, val ?? '');
+      }
+    }
+  }
+
+  /** Resolve secret-type environment variables with source info. */
+  private async _resolveSecretVarsWithSource(
+    vars: Map<string, { value: string; source: string }>,
+    collection: MissioCollection,
+    envName: string,
+  ): Promise<void> {
+    const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
+    if (!env) return;
+    for (const v of env.variables ?? []) {
+      if ('secret' in v && (v as SecretVariable).secret && v.name && !v.disabled) {
+        const val = await this.getSecretValue(collection.rootDir, envName, v.name!);
+        vars.set(v.name!, { value: val ?? '', source: 'environment' });
+      }
+    }
+  }
+
+  // ── Global variables (stored in globalState, not tied to any collection) ──
+
+  private static readonly _GLOBAL_VARS_KEY = 'missio.globalVariables';
+
+  getGlobalVariables(): GlobalVariable[] {
+    return this._context.globalState.get<GlobalVariable[]>(EnvironmentService._GLOBAL_VARS_KEY, []);
+  }
+
+  async setGlobalVariables(vars: GlobalVariable[]): Promise<void> {
+    await this._context.globalState.update(EnvironmentService._GLOBAL_VARS_KEY, vars);
+    this._onDidChange.fire();
+  }
+
+  /** Resolve global variables into a vars map (lowest priority). */
+  private _resolveGlobalVars(vars: Map<string, string>): void {
+    for (const v of this.getGlobalVariables()) {
+      if (!v.name || v.disabled) continue;
+      if (v.value !== undefined) {
+        vars.set(v.name, v.value);
+      }
+    }
+  }
+
+  /** Resolve global variables with source info. */
+  private _resolveGlobalVarsWithSource(vars: Map<string, { value: string; source: string }>): void {
+    for (const v of this.getGlobalVariables()) {
+      if (!v.name || v.disabled) continue;
+      if (v.value !== undefined) {
+        vars.set(v.name, { value: v.value, source: 'global' });
+      }
+    }
+  }
+
   dispose(): void {
     this._onDidChange.dispose();
   }
+}
+
+/** Shape of a global variable stored in globalState. */
+export interface GlobalVariable {
+  name: string;
+  value?: string;
+  disabled?: boolean;
 }

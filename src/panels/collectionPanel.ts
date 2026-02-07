@@ -76,7 +76,8 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     } catch {
       collection = {} as OpenCollection;
     }
-    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath });
+    const collectionRoot = require('path').dirname(document.uri.fsPath);
+    webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath, collectionRoot });
   }
 
   protected _getDocumentDataKey(): string { return 'collection'; }
@@ -152,9 +153,9 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     return `
   <!-- Collection Header -->
   <div class="collection-header">
-    <span class="collection-icon">\u{1F4DA}</span>
+    <span class="codicon codicon-folder-library icon-collection"></span>
     <div class="collection-info">
-      <span class="collection-name" id="collectionName">Collection</span>
+      <span class="collection-type-label">Collection:</span> <span class="collection-name" id="collectionName">Collection</span>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
   </div>
@@ -194,13 +195,13 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Auth -->
       <div class="tab-panel" id="panel-auth">
         <div class="auth-section">
-          <select class="auth-select" id="defaultAuthType">
+          <div class="form-field"><label>Type</label><select class="auth-select" id="defaultAuthType">
             <option value="none">No Auth</option>
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
             <option value="apikey">API Key</option>
             <option value="oauth2">OAuth 2.0</option>
-          </select>
+          </select></div>
           <div id="defaultAuthFields"></div>
         </div>
       </div>
@@ -239,7 +240,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Environments -->
       <div class="tab-panel" id="panel-environments">
         <div class="env-toolbar">
-          <select class="auth-select" id="envSelector"></select>
+          <div class="form-field"><label>Environment</label><select class="auth-select" id="envSelector"></select></div>
           <button class="env-toolbar-btn" id="addEnvBtn" title="Add Environment">+</button>
           <button class="env-toolbar-btn env-toolbar-delete" id="removeEnvBtn" title="Remove Environment">\u00d7</button>
         </div>

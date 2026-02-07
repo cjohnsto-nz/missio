@@ -60,7 +60,6 @@ export interface SecretVariable {
   name?: string;
   description?: Description;
   disabled?: boolean;
-  type?: VariableValueType;
 }
 
 // ── Scripts & Assertions & Actions ──────────────────────────────────

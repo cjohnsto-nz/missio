@@ -73,18 +73,17 @@ function buildAndSend() {
     delete data.request.auth;
   }
 
-  // Default variables
-  const vars: any[] = [];
-  document.querySelectorAll('#defaultVarsBody tr').forEach(tr => {
-    const nameInput = tr.querySelector<HTMLInputElement>('input[type="text"]');
-    const valEl = tr.querySelector('.val-ce') as any;
-    const chk = tr.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (nameInput?.value) {
-      const v: any = { name: nameInput.value, value: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || '') };
-      if (chk && !chk.checked) v.disabled = true;
-      vars.push(v);
-    }
-  });
+  // Default variables — read from defaultVars array (includes secret/secure/value)
+  const vars: any[] = defaultVars
+    .filter((v: any) => v.name)
+    .map((v: any) => {
+      const out: any = { name: v.name };
+      if (v.value !== undefined && v.value !== '') out.value = v.value;
+      if (v.secret) out.secret = true;
+      if (v.secure) out.secure = true;
+      if (v.disabled) out.disabled = true;
+      return out;
+    });
   data.request = data.request || {};
   data.request.variables = vars.length > 0 ? vars : undefined;
 
@@ -137,25 +136,54 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
 }
 
 // ── Default Variables ────────────────────────
+let defaultVars: any[] = [];
+
 function renderDefaultVars(variables: any[]) {
+  defaultVars = variables || [];
   const tbody = $('defaultVarsBody');
   tbody.innerHTML = '';
-  (variables || []).forEach(v => addDefaultVarRow(v.name, v.value, v.disabled));
+  defaultVars.forEach((_v: any, i: number) => addDefaultVarRow(i));
 }
 
-function addDefaultVarRow(name?: string, value?: string, disabled?: boolean) {
+function addDefaultVarRow(idx: number) {
   const tbody = $('defaultVarsBody');
+  const v = defaultVars[idx];
   const tr = document.createElement('tr');
-  const val = typeof value === 'string' ? value : (value && (value as any).data ? (value as any).data : '');
+  const chk = v.disabled ? '' : 'checked';
+  const val = typeof v.value === 'string' ? v.value : (v.value && v.value.data ? v.value.data : '');
+
   tr.innerHTML =
-    `<td><input type="checkbox" ${disabled ? '' : 'checked'} /></td>` +
-    `<td><input type="text" value="${esc(name || '')}" placeholder="Variable name" /></td>` +
-    `<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value"></div></td>` +
+    `<td><input type="checkbox" ${chk} data-field="disabled" /></td>` +
+    `<td><input type="text" value="${esc(v.name || '')}" placeholder="Variable name" data-field="name" /></td>` +
+    '<td class="val-cell"><div class="val-ce" contenteditable="true" data-placeholder="Variable value" data-field="value"></div></td>' +
     `<td><button class="row-delete">\u00d7</button></td>`;
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleUpdate(); });
-  tr.querySelector<HTMLInputElement>('input[type="text"]')!.addEventListener('input', scheduleUpdate);
-  tr.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
-  enableContentEditableValue(tr.querySelector('.val-ce') as HTMLElement, val, scheduleUpdate);
+
+  // Wire inputs
+  tr.querySelectorAll<HTMLInputElement>('input[data-field]').forEach(inp => {
+    const field = inp.dataset.field!;
+    if (inp.type === 'checkbox') {
+      inp.addEventListener('change', () => { defaultVars[idx].disabled = !inp.checked; scheduleUpdate(); });
+    } else {
+      inp.addEventListener('input', () => { defaultVars[idx][field] = inp.value; scheduleUpdate(); });
+    }
+  });
+
+  // Wire contenteditable value
+  const valCE = tr.querySelector('.val-ce[data-field="value"]') as HTMLElement;
+  if (valCE) {
+    enableContentEditableValue(valCE, val, () => {
+      defaultVars[idx].value = (valCE as any)._getRawText ? (valCE as any)._getRawText() : (valCE.textContent || '');
+      scheduleUpdate();
+    });
+  }
+
+  // Delete
+  tr.querySelector('.row-delete')!.addEventListener('click', () => {
+    defaultVars.splice(idx, 1);
+    renderDefaultVars(defaultVars);
+    scheduleUpdate();
+  });
+
   tbody.appendChild(tr);
 }
 
@@ -238,7 +266,7 @@ initTabs('mainTabs');
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); updateBadges(); scheduleUpdate(); });
-$('addDefaultVarBtn').addEventListener('click', () => { addDefaultVarRow(); updateBadges(); scheduleUpdate(); });
+$('addDefaultVarBtn').addEventListener('click', () => { defaultVars.push({ name: '', value: '' }); renderDefaultVars(defaultVars); updateBadges(); scheduleUpdate(); });
 $('varToggleBtn').addEventListener('click', () => {
   setShowResolvedVars(!getShowResolvedVars());
   $('varToggleBtn').classList.toggle('active', getShowResolvedVars());

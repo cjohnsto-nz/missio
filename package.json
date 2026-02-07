@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -11,7 +11,8 @@
   },
   "icon": "media/icon.png",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "npm": ">=10"
   },
   "categories": [
     "Testing",
@@ -52,6 +53,12 @@
           "id": "missio.environments",
           "name": "Environments",
           "icon": "$(server-environment)"
+        },
+        {
+          "id": "missio.globals",
+          "name": "Globals",
+          "icon": "$(globe)",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -114,6 +121,36 @@
         "title": "New Collection",
         "category": "Missio",
         "icon": "$(new-folder)"
+      },
+      {
+        "command": "missio.editGlobalVariables",
+        "title": "Edit Global Variables",
+        "category": "Missio",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "missio.addGlobalVariable",
+        "title": "Add Global Variable",
+        "category": "Missio",
+        "icon": "$(add)"
+      },
+      {
+        "command": "missio.editGlobalVariable",
+        "title": "Edit Global Variable",
+        "category": "Missio",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "missio.toggleGlobalVariable",
+        "title": "Enable/Disable Global Variable",
+        "category": "Missio",
+        "icon": "$(circle-large-outline)"
+      },
+      {
+        "command": "missio.deleteGlobalVariable",
+        "title": "Delete Global Variable",
+        "category": "Missio",
+        "icon": "$(trash)"
       },
       {
         "command": "missio.importCollection",
@@ -282,6 +319,16 @@
           "group": "navigation"
         },
         {
+          "command": "missio.editGlobalVariables",
+          "when": "view == missio.globals",
+          "group": "navigation@1"
+        },
+        {
+          "command": "missio.addGlobalVariable",
+          "when": "view == missio.globals",
+          "group": "navigation@2"
+        },
+        {
           "command": "missio.importCollection",
           "when": "view == missio.collections",
           "group": "2_import"
@@ -381,6 +428,31 @@
         {
           "command": "missio.editEnvironment",
           "when": "view == missio.environments && viewItem == environment"
+        },
+        {
+          "command": "missio.addGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariablesEmpty",
+          "group": "inline@1"
+        },
+        {
+          "command": "missio.editGlobalVariables",
+          "when": "view == missio.globals && viewItem == globalVariablesEmpty",
+          "group": "1_open@1"
+        },
+        {
+          "command": "missio.editGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "inline"
+        },
+        {
+          "command": "missio.toggleGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "1_modify@1"
+        },
+        {
+          "command": "missio.deleteGlobalVariable",
+          "when": "view == missio.globals && viewItem == globalVariable",
+          "group": "2_delete@1"
         }
       ],
       "editor/title": [
@@ -550,6 +622,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/codicons": "^0.0.44",
     "esbuild": "^0.20.0",
     "esbuild-plugin-copy": "^2.1.0",
     "typescript": "^5.3.0",

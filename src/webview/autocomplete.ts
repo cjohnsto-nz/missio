@@ -4,9 +4,14 @@ import { escHtml, VAR_PREFIX_RE } from './varlib';
 
 // Injectable getter — each panel sets this to its own resolved variables
 let _getResolvedVariables: () => Record<string, string> = () => ({});
+let _getSecretVarNames: () => Set<string> = () => new Set();
 
 export function setResolvedVariablesGetter(fn: () => Record<string, string>): void {
   _getResolvedVariables = fn;
+}
+
+export function setSecretVarNamesGetter(fn: () => Set<string>): void {
+  _getSecretVarNames = fn;
 }
 
 let acDropdown: HTMLElement | null = null;
@@ -90,8 +95,9 @@ function showAutocompleteDropdown(prefix: string, anchor: HTMLElement, syncFn: (
 
   // Environment variables
   const vars = _getResolvedVariables();
+  const secretVarNames = _getSecretVarNames();
   for (const k of Object.keys(vars)) {
-    candidates.push({ name: k, detail: vars[k] });
+    candidates.push({ name: k, detail: secretVarNames.has(k) ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : vars[k] });
   }
 
   // Built-in dynamic variables

@@ -9,6 +9,8 @@ export interface VariablesMessagePayload {
   sources: Record<string, string>;
   secretProviderNames: string[];
   secretNames: Record<string, string[]>;
+  /** Names of environment variables with secret: true — their resolved values should be masked in the UI */
+  secretVarNames: string[];
 }
 
 /**
@@ -39,7 +41,17 @@ export function buildVariablesPayload(
     }
   }
 
-  return { type: 'variablesResolved', variables, sources, secretProviderNames, secretNames };
+  // Collect names of environment secret variables that should be masked
+  const secretVarNames: string[] = [];
+  for (const env of (collection.data.config?.environments ?? [])) {
+    for (const v of (env as any).variables ?? []) {
+      if (v.secret && v.name && !secretVarNames.includes(v.name)) {
+        secretVarNames.push(v.name);
+      }
+    }
+  }
+
+  return { type: 'variablesResolved', variables, sources, secretProviderNames, secretNames, secretVarNames };
 }
 
 /**

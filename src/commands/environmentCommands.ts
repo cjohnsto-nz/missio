@@ -6,6 +6,14 @@ import { stringifyYaml } from '../services/yamlParser';
 
 export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService, environmentService } = ctx;
+  const resolveGlobalIndex = (globals: Array<{ name?: string }>, arg?: any): number => {
+    const fromIndex = typeof arg?.index === 'number' ? arg.index : -1;
+    if (fromIndex >= 0 && fromIndex < globals.length) {
+      return fromIndex;
+    }
+    const fromName = typeof arg === 'string' ? arg : arg?.variable?.name;
+    return fromName ? globals.findIndex(v => v.name === fromName) : -1;
+  };
 
   return [
     vscode.commands.registerCommand('missio.selectEnvironment', async (collectionId?: string, envName?: string) => {
@@ -130,6 +138,130 @@ export function registerEnvironmentCommands(ctx: CommandContext): vscode.Disposa
       if (collection) {
         await CollectionEditorProvider.openTab(collection.filePath, 'environments', envName);
       }
+    }),
+
+    vscode.commands.registerCommand('missio.addGlobalVariable', async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: 'Global variable name',
+        placeHolder: 'apiBase',
+      });
+      if (!name) { return; }
+
+      const globals = environmentService.getGlobalVariables();
+      if (globals.some(v => v.name === name)) {
+        vscode.window.showWarningMessage(`Global variable "${name}" already exists.`);
+        return;
+      }
+
+      const value = await vscode.window.showInputBox({
+        prompt: `Value for "${name}"`,
+        placeHolder: 'https://api.example.com',
+      });
+      if (value === undefined) { return; }
+
+      globals.push({ name, value });
+      await environmentService.setGlobalVariables(globals);
+    }),
+
+    vscode.commands.registerCommand('missio.editGlobalVariable', async (arg?: any) => {
+      const globals = environmentService.getGlobalVariables();
+      if (globals.length === 0) {
+        vscode.window.showInformationMessage('No global variables found.');
+        return;
+      }
+
+      let idx = resolveGlobalIndex(globals, arg);
+      if (idx < 0) {
+        const pick = await vscode.window.showQuickPick(
+          globals.map((v, i) => ({
+            label: v.name || '(unnamed)',
+            description: v.disabled ? 'Disabled' : '',
+            value: String(i),
+          })),
+          { placeHolder: 'Select a global variable to edit' },
+        );
+        if (!pick) { return; }
+        idx = Number(pick.value);
+      }
+      if (idx < 0) { return; }
+
+      const existing = globals[idx];
+      const newName = await vscode.window.showInputBox({
+        prompt: 'Global variable name',
+        value: existing.name,
+      });
+      if (!newName) { return; }
+
+      const duplicate = globals.find((v, i) => i !== idx && v.name === newName);
+      if (duplicate) {
+        vscode.window.showWarningMessage(`Global variable "${newName}" already exists.`);
+        return;
+      }
+
+      const newValue = await vscode.window.showInputBox({
+        prompt: `Value for "${newName}"`,
+        value: existing.value ?? '',
+      });
+      if (newValue === undefined) { return; }
+
+      globals[idx] = { ...existing, name: newName, value: newValue };
+      await environmentService.setGlobalVariables(globals);
+    }),
+
+    vscode.commands.registerCommand('missio.deleteGlobalVariable', async (arg?: any) => {
+      const globals = environmentService.getGlobalVariables();
+      if (globals.length === 0) {
+        vscode.window.showInformationMessage('No global variables found.');
+        return;
+      }
+
+      let idx = resolveGlobalIndex(globals, arg);
+      if (idx < 0) {
+        const pick = await vscode.window.showQuickPick(
+          globals.map((v, i) => ({ label: v.name || '(unnamed)', value: String(i) })),
+          { placeHolder: 'Select a global variable to delete' },
+        );
+        if (!pick) { return; }
+        idx = Number(pick.value);
+      }
+      if (idx < 0) { return; }
+
+      const target = globals[idx];
+      const confirmed = await vscode.window.showWarningMessage(
+        `Delete global variable "${target.name}"?`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirmed !== 'Delete') { return; }
+
+      globals.splice(idx, 1);
+      await environmentService.setGlobalVariables(globals);
+    }),
+
+    vscode.commands.registerCommand('missio.toggleGlobalVariable', async (arg?: any) => {
+      const globals = environmentService.getGlobalVariables();
+      if (globals.length === 0) {
+        vscode.window.showInformationMessage('No global variables found.');
+        return;
+      }
+
+      let idx = resolveGlobalIndex(globals, arg);
+      if (idx < 0) {
+        const pick = await vscode.window.showQuickPick(
+          globals.map((v, i) => ({
+            label: v.name || '(unnamed)',
+            description: v.disabled ? 'Disabled' : 'Enabled',
+            value: String(i),
+          })),
+          { placeHolder: 'Select a global variable to toggle' },
+        );
+        if (!pick) { return; }
+        idx = Number(pick.value);
+      }
+      if (idx < 0) { return; }
+
+      globals[idx] = { ...globals[idx], disabled: !globals[idx].disabled };
+      await environmentService.setGlobalVariables(globals);
     }),
 
     vscode.commands.registerCommand('missio.configureSecrets', async () => {

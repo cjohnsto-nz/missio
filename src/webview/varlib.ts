@@ -17,6 +17,8 @@ export interface VarState {
   showResolved: boolean;
   /** Known $secret.provider.key names — treated as resolved for highlighting but not shown in autocomplete level 1 */
   secretKeys?: Set<string>;
+  /** Names of environment variables with secret: true — their resolved values should be masked */
+  secretVarNames?: Set<string>;
 }
 
 const BUILTIN_NAMES = new Set(['$guid', '$timestamp', '$randomInt']);
@@ -31,9 +33,11 @@ export function highlightVariables(html: string, state: VarState): string {
     const source = state.sources[key] || (isSecret ? 'secret' : isBuiltin ? 'dynamic' : 'unknown');
 
     if (state.showResolved && isResolved) {
+      const isMaskedSecret = state.secretVarNames?.has(key) ?? false;
+      const displayValue = isMaskedSecret ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : escHtml(state.resolved[key]);
       const cls = 'tk-var-resolved tk-src-' + source;
       return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>"
-        + escHtml(state.resolved[key]) + "</span>";
+        + displayValue + "</span>";
     }
 
     const cls = isKnown ? 'tk-var tk-src-' + source : 'tk-var tk-var-unresolved';

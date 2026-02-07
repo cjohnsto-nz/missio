@@ -4,7 +4,7 @@
 // Each panel imports from here instead of duplicating.
 
 import { escHtml, highlightVariables as _hlVars } from './varlib';
-import { showVarTooltipAt } from './varTooltip';
+import { setupVarHover } from './varTooltip';
 import {
   handleAutocomplete,
   handleAutocompleteContentEditable,
@@ -13,6 +13,7 @@ import {
   isAutocompleteActive,
   setAutocompleteSyncCallbacks,
   setResolvedVariablesGetter,
+  setSecretVarNamesGetter,
   setSecretProviderNames,
   setSecretNamesForProvider,
 } from './autocomplete';
@@ -22,6 +23,7 @@ let _resolved: Record<string, string> = {};
 let _sources: Record<string, string> = {};
 let _showResolved = false;
 let _secretKeys: Set<string> = new Set();
+let _secretVarNames: Set<string> = new Set();
 let _onBreakIllusion: (() => void) | null = null;
 let _postMessage: ((msg: any) => void) | null = null;
 
@@ -36,6 +38,7 @@ export function getVariableSources(): Record<string, string> { return _sources; 
 export function getShowResolvedVars(): boolean { return _showResolved; }
 export function setShowResolvedVars(val: boolean): void { _showResolved = val; }
 export function getSecretKeys(): Set<string> { return _secretKeys; }
+export function getSecretVarNames(): Set<string> { return _secretVarNames; }
 
 // ── Highlighting wrapper ────────────────────────
 export function highlightVariables(html: string): string {
@@ -44,6 +47,7 @@ export function highlightVariables(html: string): string {
     sources: _sources,
     showResolved: _showResolved,
     secretKeys: _secretKeys,
+    secretVarNames: _secretVarNames,
   });
 }
 
@@ -125,19 +129,17 @@ export function enableVarOverlay(input: HTMLInputElement): void {
     if (isAutocompleteActive() && handleAutocompleteKeydown(e)) return;
   });
 
-  overlay.addEventListener('click', (e: Event) => {
-    const varEl = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, {
-        getResolvedVariables: () => _resolved,
-        getVariableSources: () => _sources,
-        getSecretKeys: () => _secretKeys,
-        postMessage: _postMessage ?? undefined,
-      });
-    } else {
-      deactivate();
-      input.focus();
-    }
+  setupVarHover(overlay, {
+    getResolvedVariables: () => _resolved,
+    getVariableSources: () => _sources,
+    getSecretKeys: () => _secretKeys,
+    getSecretVarNames: () => _secretVarNames,
+    postMessage: _postMessage ?? undefined,
+  });
+
+  overlay.addEventListener('click', () => {
+    deactivate();
+    input.focus();
   });
 
   if (document.activeElement !== input) {
@@ -202,16 +204,12 @@ export function enableContentEditableValue(el: HTMLElement, initialValue: string
 
   el.addEventListener('blur', () => { hideAutocomplete(); });
 
-  el.addEventListener('click', (e: Event) => {
-    const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-    if (target && target.dataset.var) {
-      showVarTooltipAt(target, target.dataset.var, {
-        getResolvedVariables: () => _resolved,
-        getVariableSources: () => _sources,
-        getSecretKeys: () => _secretKeys,
-        postMessage: _postMessage ?? undefined,
-      });
-    }
+  setupVarHover(el, {
+    getResolvedVariables: () => _resolved,
+    getVariableSources: () => _sources,
+    getSecretKeys: () => _secretKeys,
+    getSecretVarNames: () => _secretVarNames,
+    postMessage: _postMessage ?? undefined,
   });
 }
 
@@ -230,9 +228,11 @@ export function handleVariablesResolved(msg: any): boolean {
     for (const n of names as string[]) { sk.add(`$secret.${prov}.${n}`); }
   }
   _secretKeys = sk;
+  _secretVarNames = new Set((msg.secretVarNames || []) as string[]);
   syncAllVarOverlays();
   return true;
 }
+
 
 // ── Ctrl+S flush: ensure pending debounced updates are committed before native save ──
 let _flushFn: (() => void) | null = null;
@@ -259,6 +259,7 @@ export function initVarFields(opts?: {
   setRawUrl?: (text: string) => void;
 }): void {
   setResolvedVariablesGetter(() => _resolved);
+  setSecretVarNamesGetter(() => _secretVarNames);
   const syncHL = () => { syncAllVarOverlays(); opts?.extraSyncHighlight?.(); };
   const syncUrl = () => { syncAllVarOverlays(); opts?.extraSyncUrlHighlight?.(); };
   setAutocompleteSyncCallbacks(syncHL, syncUrl, restoreCursor, opts?.setRawUrl);

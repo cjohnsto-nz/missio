@@ -25,7 +25,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { showVarTooltipAt, handleSecretValueResolved } from './varTooltip';
+import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, cancelHoverTimer } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -105,14 +105,126 @@ document.addEventListener('mouseup', () => {
 
 // ── Method color ────────────────────────────────
 const methodSelect = $('method') as HTMLSelectElement;
+const methodPicker = $('methodPicker') as HTMLDivElement;
+let methodMenu: HTMLDivElement | null = null;
+let methodTrigger: HTMLButtonElement | null = null;
+
+function closeMethodMenu(): void {
+  if (!methodMenu || !methodTrigger) return;
+  methodPicker.classList.remove('open');
+  methodTrigger.setAttribute('aria-expanded', 'false');
+}
+
+function openMethodMenu(): void {
+  if (!methodMenu || !methodTrigger) return;
+  methodPicker.classList.add('open');
+  methodTrigger.setAttribute('aria-expanded', 'true');
+  const selected = methodMenu.querySelector<HTMLButtonElement>('[data-method="' + methodSelect.value + '"]');
+  selected?.focus();
+}
+
+function setMethodValue(method: string): void {
+  if (methodSelect.value === method) return;
+  methodSelect.value = method;
+  methodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function setupMethodPicker(): void {
+  methodPicker.classList.add('custom');
+
+  methodTrigger = document.createElement('button');
+  methodTrigger.type = 'button';
+  methodTrigger.className = 'method-picker-trigger';
+  methodTrigger.setAttribute('aria-haspopup', 'listbox');
+  methodTrigger.setAttribute('aria-expanded', 'false');
+  methodTrigger.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (methodPicker.classList.contains('open')) closeMethodMenu();
+    else openMethodMenu();
+  });
+  methodTrigger.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openMethodMenu();
+    }
+  });
+
+  methodMenu = document.createElement('div');
+  methodMenu.className = 'method-picker-menu';
+  methodMenu.setAttribute('role', 'listbox');
+  methodMenu.addEventListener('keydown', (e) => {
+    if (!methodMenu) return;
+    const items = Array.from(methodMenu.querySelectorAll<HTMLButtonElement>('.method-picker-option'));
+    if (!items.length) return;
+    const idx = items.findIndex((item) => item === document.activeElement);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1 + items.length) % items.length].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length].focus();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const active = idx >= 0 ? items[idx] : null;
+      if (active?.dataset.method) setMethodValue(active.dataset.method);
+      closeMethodMenu();
+      methodTrigger?.focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMethodMenu();
+      methodTrigger?.focus();
+    }
+  });
+
+  Array.from(methodSelect.options).forEach((opt) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'method-picker-option ' + opt.value.toLowerCase();
+    item.dataset.method = opt.value;
+    item.setAttribute('role', 'option');
+    item.textContent = opt.value;
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      setMethodValue(opt.value);
+      closeMethodMenu();
+      methodTrigger?.focus();
+    });
+    methodMenu!.appendChild(item);
+  });
+
+  methodPicker.appendChild(methodTrigger);
+  methodPicker.appendChild(methodMenu);
+
+  document.addEventListener('click', (e) => {
+    if (!methodPicker.contains(e.target as Node)) closeMethodMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMethodMenu();
+  });
+}
+
 function updateMethodColor(): void {
   methodSelect.className = 'method-select ' + methodSelect.value.toLowerCase();
+  if (methodTrigger) {
+    methodTrigger.className = 'method-picker-trigger ' + methodSelect.value.toLowerCase();
+    methodTrigger.textContent = methodSelect.value;
+  }
+  if (methodMenu) {
+    methodMenu.querySelectorAll<HTMLButtonElement>('.method-picker-option').forEach((item) => {
+      const selected = item.dataset.method === methodSelect.value;
+      item.classList.toggle('active', selected);
+      item.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+  }
 }
+setupMethodPicker();
 methodSelect.addEventListener('change', () => {
   updateMethodColor();
   scheduleDocumentUpdate();
   vscode.postMessage({ type: 'methodChanged', method: methodSelect.value });
 });
+updateMethodColor();
 
 // ── Params ──────────────────────────────────────
 let _syncingFromUrl = false; // guard to prevent infinite loops
@@ -365,12 +477,7 @@ function tooltipCtx() {
   };
 }
 
-$('bodyHighlight').addEventListener('click', (e: Event) => {
-  const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-  if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
-  }
-});
+setupVarHover($('bodyHighlight'), tooltipCtx());
 
 // ── URL contenteditable highlighting ────────────
 let _rawUrlTemplate = '';
@@ -421,12 +528,7 @@ setBreakIllusionCallback(() => {
   syncUrlHighlight();
 });
 
-$('url').addEventListener('click', (e: Event) => {
-  const target = (e.target as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
-  if (target && target.dataset.var) {
-    showVarTooltipAt(target, target.dataset.var, tooltipCtx());
-  }
-});
+setupVarHover($('url'), tooltipCtx());
 
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
@@ -472,19 +574,39 @@ $('bodyData').addEventListener('input', () => {
 });
 $('bodyData').addEventListener('scroll', syncScroll);
 
-$('bodyData').addEventListener('click', (e: Event) => {
-  const me = e as MouseEvent;
-  const textarea = $('bodyData');
-  textarea.style.pointerEvents = 'none';
-  const el = document.elementFromPoint(me.clientX, me.clientY);
-  textarea.style.pointerEvents = '';
-  if (el) {
-    const varEl = (el as HTMLElement).closest('.tk-var') as HTMLElement | null;
-    if (varEl && varEl.dataset.var) {
-      showVarTooltipAt(varEl, varEl.dataset.var, tooltipCtx());
+// Hover-based tooltip for body textarea (peeks through to highlight layer)
+{
+  let _lastBodyVar = '';
+  let _bodyHoverTimer: ReturnType<typeof setTimeout> | null = null;
+  $('bodyData').addEventListener('mousemove', (e: Event) => {
+    const me = e as MouseEvent;
+    const textarea = $('bodyData');
+    textarea.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(me.clientX, me.clientY);
+    textarea.style.pointerEvents = '';
+    if (el) {
+      const varEl = (el as HTMLElement).closest('.tk-var, .tk-var-resolved') as HTMLElement | null;
+      if (varEl && varEl.dataset.var && varEl.dataset.var !== _lastBodyVar) {
+        _lastBodyVar = varEl.dataset.var;
+        if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); }
+        cancelHoverTimer();
+        const varName = varEl.dataset.var;
+        _bodyHoverTimer = setTimeout(() => {
+          _bodyHoverTimer = null;
+          showVarTooltipAt(varEl, varName, tooltipCtx());
+        }, 250);
+      }
+    } else {
+      _lastBodyVar = '';
+      if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
     }
-  }
-});
+  });
+  $('bodyData').addEventListener('mouseleave', () => {
+    _lastBodyVar = '';
+    if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
+    scheduleDismiss();
+  });
+}
 
 // ── Autocomplete keyboard ────────────────────────
 $('bodyData').addEventListener('keydown', (e: Event) => {
