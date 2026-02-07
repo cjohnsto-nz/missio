@@ -23,19 +23,24 @@ class CollectionNode extends vscode.TreeItem {
 
 class FolderNode extends vscode.TreeItem {
   public readonly dirPath: string;
+  public readonly stateId: string;
   constructor(
     public readonly folder: Folder,
     public readonly collectionId: string,
     dirPath: string,
+    stateId: string,
+    hasSubfolders: boolean,
     expanded: boolean,
+    version: number,
   ) {
     super(
       folder.info?.name ?? 'Folder',
       expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
     );
     this.dirPath = dirPath;
-    this.id = `folder:${dirPath}`;
-    this.contextValue = 'folder';
+    this.stateId = stateId;
+    this.id = `${stateId}#${version}`;
+    this.contextValue = hasSubfolders ? 'folderWithSubdirs' : 'folder';
     this.iconPath = new vscode.ThemeIcon('folder');
     this.tooltip = typeof folder.info?.description === 'string'
       ? folder.info.description
@@ -133,6 +138,7 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
   private _itemsCache: Map<string, Item[]> = new Map();
   private _expandedIds = new Set<string>();
   private _collapsedIds = new Set<string>();
+  private _folderRenderVersions = new Map<string, number>();
 
   readonly dropMimeTypes = [DRAG_MIME];
   readonly dragMimeTypes = [DRAG_MIME];
@@ -201,25 +207,29 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
       if (this._isFolder(item)) {
         const folder = item as Folder;
         const dirPath = (folder as any)._dirPath ?? '';
-        const id = `folder:${dirPath}`;
-        const expanded = this._expandedIds.has(id);
-        return new FolderNode(folder, collectionId, dirPath, expanded);
+        const stateId = `folder:${dirPath}`;
+        const hasSubfolders = (folder.items ?? []).some(child => this._isFolder(child));
+        const expanded = this._expandedIds.has(stateId);
+        const version = this._folderRenderVersions.get(stateId) ?? 0;
+        return new FolderNode(folder, collectionId, dirPath, stateId, hasSubfolders, expanded, version);
       }
       return new RequestNode(item as HttpRequest, collectionId);
     });
   }
 
   trackExpand(element: TreeNode): void {
-    if (element.id) {
-      this._expandedIds.add(element.id);
-      this._collapsedIds.delete(element.id);
+    const id = this._getStateId(element);
+    if (id) {
+      this._expandedIds.add(id);
+      this._collapsedIds.delete(id);
     }
   }
 
   trackCollapse(element: TreeNode): void {
-    if (element.id) {
-      this._expandedIds.delete(element.id);
-      this._collapsedIds.add(element.id);
+    const id = this._getStateId(element);
+    if (id) {
+      this._expandedIds.delete(id);
+      this._collapsedIds.add(id);
     }
   }
 
@@ -235,9 +245,123 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
     toAdd.forEach(id => this._expandedIds.add(id));
   }
 
+  async setFirstLevelFoldersExpanded(collectionId: string, expanded: boolean): Promise<number> {
+    const collection = this._collectionService.getCollection(collectionId);
+    if (!collection) return 0;
+
+    let items = this._itemsCache.get(collection.id);
+    if (!items) {
+      items = await this._collectionService.resolveItems(collection);
+      this._itemsCache.set(collection.id, items);
+    }
+
+    let changed = 0;
+    for (const item of items) {
+      if (!this._isFolder(item)) continue;
+      const dirPath = (item as any)._dirPath as string | undefined;
+      if (!dirPath) continue;
+      const id = `folder:${dirPath}`;
+      let toggled = false;
+
+      if (expanded) {
+        if (!this._expandedIds.has(id)) {
+          changed++;
+          toggled = true;
+        }
+        this._expandedIds.add(id);
+        this._collapsedIds.delete(id);
+      } else {
+        if (this._expandedIds.delete(id)) {
+          changed++;
+          toggled = true;
+        }
+        this._collapsedIds.add(id);
+      }
+
+      if (toggled) {
+        this._folderRenderVersions.set(id, (this._folderRenderVersions.get(id) ?? 0) + 1);
+      }
+    }
+
+    if (changed > 0) {
+      this._onDidChangeTreeData.fire(undefined);
+    }
+    return changed;
+  }
+
+  async setFolderChildFoldersExpanded(collectionId: string, folderDirPath: string, expanded: boolean): Promise<number> {
+    const collection = this._collectionService.getCollection(collectionId);
+    if (!collection) return 0;
+
+    let items = this._itemsCache.get(collection.id);
+    if (!items) {
+      items = await this._collectionService.resolveItems(collection);
+      this._itemsCache.set(collection.id, items);
+    }
+
+    const folder = this._findFolderByDirPath(items, folderDirPath);
+    if (!folder) return 0;
+
+    let changed = 0;
+    for (const child of folder.items ?? []) {
+      if (!this._isFolder(child)) continue;
+      const dirPath = (child as any)._dirPath as string | undefined;
+      if (!dirPath) continue;
+      const id = `folder:${dirPath}`;
+      let toggled = false;
+
+      if (expanded) {
+        if (!this._expandedIds.has(id)) {
+          changed++;
+          toggled = true;
+        }
+        this._expandedIds.add(id);
+        this._collapsedIds.delete(id);
+      } else {
+        if (this._expandedIds.delete(id)) {
+          changed++;
+          toggled = true;
+        }
+        this._collapsedIds.add(id);
+      }
+
+      if (toggled) {
+        this._folderRenderVersions.set(id, (this._folderRenderVersions.get(id) ?? 0) + 1);
+      }
+    }
+
+    if (changed > 0) {
+      this._onDidChangeTreeData.fire(undefined);
+    }
+    return changed;
+  }
+
   private _isFolder(item: Item): item is Folder {
     return (item as Folder).info?.type === 'folder' ||
            (!!(item as Folder).items && !(item as HttpRequest).http);
+  }
+
+  private _findFolderByDirPath(items: Item[], folderDirPath: string): Folder | undefined {
+    for (const item of items) {
+      if (!this._isFolder(item)) continue;
+      const folder = item as Folder;
+      const dirPath = (folder as any)._dirPath as string | undefined;
+      if (dirPath === folderDirPath) {
+        return folder;
+      }
+      const found = this._findFolderByDirPath(folder.items ?? [], folderDirPath);
+      if (found) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+
+  private _getStateId(element: TreeNode): string | undefined {
+    if (element instanceof FolderNode) {
+      return element.stateId;
+    }
+    return element.id;
   }
 
   // ── Drag and Drop ──────────────────────────────
