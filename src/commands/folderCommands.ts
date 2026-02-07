@@ -125,5 +125,19 @@ export function registerFolderCommands(ctx: CommandContext): vscode.Disposable[]
         vscode.window.showErrorMessage(`Failed to delete folder: ${e.message}`);
       }
     }),
+
+    vscode.commands.registerCommand('missio.expandFolderSubdirs', async (node: any) => {
+      const collectionId = node?.collectionId;
+      const dirPath = node?.dirPath;
+      if (!collectionId || !dirPath) return;
+      await collectionTreeProvider.setFolderChildFoldersExpanded(collectionId, dirPath, true);
+    }),
+
+    vscode.commands.registerCommand('missio.collapseFolderSubdirs', async (node: any) => {
+      const collectionId = node?.collectionId;
+      const dirPath = node?.dirPath;
+      if (!collectionId || !dirPath) return;
+      await collectionTreeProvider.setFolderChildFoldersExpanded(collectionId, dirPath, false);
+    }),
   ];
 }

@@ -222,6 +222,18 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "missio.expandFolderSubdirs",
+        "title": "Expand Subfolders",
+        "category": "Missio",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "missio.collapseFolderSubdirs",
+        "title": "Collapse Subfolders",
+        "category": "Missio",
+        "icon": "$(collapse-all)"
+      },
+      {
         "command": "missio.showCollectionInExplorer",
         "title": "Show in Explorer",
         "category": "Missio",
@@ -232,6 +244,18 @@
         "title": "Show in Finder",
         "category": "Missio",
         "icon": "$(folder-opened)"
+      },
+      {
+        "command": "missio.expandFirstLevelFolders",
+        "title": "Expand First-Level Folders",
+        "category": "Missio",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "missio.collapseFirstLevelFolders",
+        "title": "Collapse First-Level Folders",
+        "category": "Missio",
+        "icon": "$(collapse-all)"
       },
       {
         "command": "missio.deleteCollection",
@@ -280,18 +304,28 @@
           "group": "1_open@1"
         },
         {
+          "command": "missio.expandFirstLevelFolders",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "1_open@2"
+        },
+        {
+          "command": "missio.collapseFirstLevelFolders",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "1_open@3"
+        },
+        {
           "command": "missio.deleteCollection",
           "when": "view == missio.collections && viewItem == collection",
           "group": "2_delete@1"
         },
         {
           "command": "missio.newRequest",
-          "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder|folderWithSubdirs)$/",
           "group": "inline"
         },
         {
           "command": "missio.newFolder",
-          "when": "view == missio.collections && viewItem =~ /^(collection|folder)$/",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder|folderWithSubdirs)$/",
           "group": "inline"
         },
         {
@@ -311,17 +345,27 @@
         },
         {
           "command": "missio.openFolder",
-          "when": "view == missio.collections && viewItem == folder",
+          "when": "view == missio.collections && viewItem =~ /^folder/",
           "group": "inline"
         },
         {
+          "command": "missio.expandFolderSubdirs",
+          "when": "view == missio.collections && viewItem == folderWithSubdirs",
+          "group": "1_open@1"
+        },
+        {
+          "command": "missio.collapseFolderSubdirs",
+          "when": "view == missio.collections && viewItem == folderWithSubdirs",
+          "group": "1_open@2"
+        },
+        {
           "command": "missio.renameFolder",
-          "when": "view == missio.collections && viewItem == folder",
+          "when": "view == missio.collections && viewItem =~ /^folder/",
           "group": "1_modify@1"
         },
         {
           "command": "missio.deleteFolder",
-          "when": "view == missio.collections && viewItem == folder",
+          "when": "view == missio.collections && viewItem =~ /^folder/",
           "group": "2_delete@1"
         },
         {
