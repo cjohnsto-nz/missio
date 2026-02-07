@@ -5,6 +5,10 @@
   "version": "0.2.0",
   "publisher": "missio",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cjohnsto-nz/missio"
+  },
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
