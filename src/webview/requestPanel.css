@@ -169,11 +169,12 @@ body {
 }
 .tab .badge {
   display: inline-block;
-  background: var(--m-badge-bg);
-  color: var(--m-badge-fg);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   border-radius: 8px;
   padding: 0 5px;
   font-size: 10px;
+  font-weight: 700;
   margin-left: 4px;
   min-width: 14px;
   text-align: center;
@@ -291,7 +292,36 @@ body {
   outline: none;
   background: var(--input-bg);
 }
-.kv-table input[type="checkbox"] { cursor: pointer; }
+.kv-table input[type="checkbox"] {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  position: relative;
+  flex-shrink: 0;
+}
+.kv-table input[type="checkbox"]:checked {
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+}
+.kv-table input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--btn-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.kv-table input[type="checkbox"]:focus {
+  outline: 1px solid var(--btn-bg);
+}
 .kv-table .row-delete {
   background: none;
   border: none;
@@ -660,7 +690,33 @@ td.var-cell .var-overlay {
   border-radius: 4px;
   font-size: 13px;
 }
-.auth-section input[type="checkbox"] { width: auto; flex: none; }
+.auth-section input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  cursor: pointer;
+  position: relative;
+}
+.auth-section input[type="checkbox"]:checked {
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+}
+.auth-section input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--btn-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .auth-section input:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
 .auth-row { display: flex; gap: 10px; align-items: center; }
 .auth-row label { min-width: 130px; flex-shrink: 0; }
