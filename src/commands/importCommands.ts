@@ -64,9 +64,31 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
         // Refresh collections tree
         collectionService.refresh();
 
-        vscode.window.showInformationMessage(
-          `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.`,
+        // Check if the imported collection is inside an existing workspace folder
+        const collUri = vscode.Uri.file(result.collectionDir);
+        const inWorkspace = vscode.workspace.workspaceFolders?.some(wf =>
+          result.collectionDir.replace(/\\/g, '/').startsWith(wf.uri.fsPath.replace(/\\/g, '/') + '/'),
         );
+
+        if (!inWorkspace) {
+          const action = await vscode.window.showInformationMessage(
+            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.`,
+            'Add to Workspace',
+            'Open Folder',
+          );
+          if (action === 'Add to Workspace') {
+            vscode.workspace.updateWorkspaceFolders(
+              vscode.workspace.workspaceFolders?.length ?? 0, 0,
+              { uri: collUri, name: path.basename(result.collectionDir) },
+            );
+          } else if (action === 'Open Folder') {
+            await vscode.commands.executeCommand('revealFileInOS', collUri);
+          }
+        } else {
+          vscode.window.showInformationMessage(
+            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.`,
+          );
+        }
 
         // Open the collection.yml
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(result.collectionFile));
