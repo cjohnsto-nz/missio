@@ -66,9 +66,7 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
 
         // Check if the imported collection is inside an existing workspace folder
         const collUri = vscode.Uri.file(result.collectionDir);
-        const inWorkspace = vscode.workspace.workspaceFolders?.some(wf =>
-          result.collectionDir.replace(/\\/g, '/').startsWith(wf.uri.fsPath.replace(/\\/g, '/') + '/'),
-        );
+        const inWorkspace = !!vscode.workspace.getWorkspaceFolder(collUri);
 
         if (!inWorkspace) {
           const action = await vscode.window.showInformationMessage(
