@@ -152,16 +152,16 @@ export class PostmanImporter implements CollectionImporter {
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const displayName = item.name || (this.isFolder(item) ? 'Untitled Folder' : 'Untitled Request');
 
       if (this.isFolder(item)) {
         folders++;
-        const folderName = this.uniqueName(item.name || 'Untitled Folder', nameCounters);
-        const folderSafe = this.sanitizePath(folderName);
+        const folderSafe = this.uniqueName(this.sanitizePath(displayName), nameCounters);
         const folderDir = path.join(parentDir, folderSafe);
         fs.mkdirSync(folderDir, { recursive: true });
 
         // Write folder.yml if there's folder-level config (auth, headers, variables)
-        const folderMeta = this.buildFolderMeta(item, folderName);
+        const folderMeta = this.buildFolderMeta(item, displayName);
         if (folderMeta) {
           const folderFile = path.join(folderDir, 'folder.yml');
           const yaml = stringifyYaml(folderMeta, { lineWidth: 120 });
@@ -173,11 +173,10 @@ export class PostmanImporter implements CollectionImporter {
         folders += sub.folders;
       } else if (item.request) {
         requests++;
-        const reqName = this.uniqueName(item.name || 'Untitled Request', nameCounters);
-        const reqSafe = this.sanitizePath(reqName);
+        const reqSafe = this.uniqueName(this.sanitizePath(displayName), nameCounters);
         const reqFile = path.join(parentDir, reqSafe + '.yml');
 
-        const request = this.convertRequest(item, reqName, i + 1);
+        const request = this.convertRequest(item, displayName, i + 1);
         const yaml = stringifyYaml(request, { lineWidth: 120 });
         fs.writeFileSync(reqFile, yaml, 'utf-8');
       }
@@ -438,7 +437,11 @@ export class PostmanImporter implements CollectionImporter {
 
   /** Preserve case and spaces, only strip characters unsafe for file/directory names. */
   private sanitizePath(name: string): string {
-    return name.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim() || 'Untitled';
+    const sanitized = name.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim() || 'Untitled';
+    if (sanitized === '.' || sanitized === '..' || sanitized.replace(/\./g, '') === '') {
+      return 'Untitled';
+    }
+    return sanitized;
   }
 
   private uniqueName(name: string, counters: Map<string, number>): string {
