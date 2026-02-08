@@ -319,6 +319,11 @@
           "group": "navigation"
         },
         {
+          "command": "missio.importEnvironment",
+          "when": "view == missio.environments",
+          "group": "2_import"
+        },
+        {
           "command": "missio.editGlobalVariables",
           "when": "view == missio.globals",
           "group": "navigation@1"
@@ -330,6 +335,11 @@
         },
         {
           "command": "missio.importCollection",
+          "when": "view == missio.collections",
+          "group": "2_import"
+        },
+        {
+          "command": "missio.importEnvironment",
           "when": "view == missio.collections",
           "group": "2_import"
         }

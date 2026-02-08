@@ -97,6 +97,8 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
     }),
 
     vscode.commands.registerCommand('missio.importEnvironment', async () => {
+      const { environmentService } = ctx;
+
       // Find which collection to add the environment to
       const collections = collectionService.getCollections();
       if (collections.length === 0) {
@@ -131,7 +133,7 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
 
       if (!collection) return;
 
-      // Pick environment file (currently only Postman environments)
+      // Pick environment file(s)
       const files = await vscode.window.showOpenDialog({
         canSelectFiles: true,
         canSelectFolders: false,
@@ -142,15 +144,71 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
 
       if (!files || files.length === 0) return;
 
+      // Ask how to handle Postman secrets
+      const secretPick = await vscode.window.showQuickPick(
+        [
+          { label: 'Store as plain variables', description: 'Secret values will be stored in the collection YAML (visible in source control)', mode: 'plain' as const },
+          { label: 'Store in secure storage', description: 'Secret values will be stored in VS Code SecretStorage (not in YAML)', mode: 'secret' as const },
+        ],
+        { placeHolder: 'How should Postman secret variables be imported?' },
+      );
+      if (!secretPick) return;
+      const secretMode = secretPick.mode;
+
       const importer = new PostmanImporter();
       let imported = 0;
 
       for (const file of files) {
         try {
-          const result = await importer.importEnvironment(file.fsPath, collection.filePath);
+          // Parse the environment file
+          const parsed = importer.parseEnvironment(file.fsPath);
+          const secretCount = parsed.variables.filter(v => v.isSecret).length;
+
+          // Determine target environment name
+          const existingEnvs = environmentService.getCollectionEnvironments(collection);
+          const matchingEnv = existingEnvs.find(e => e.name === parsed.name);
+
+          let targetName = parsed.name;
+          if (matchingEnv) {
+            // Existing environment with same name — ask user
+            const action = await vscode.window.showQuickPick(
+              [
+                { label: `Update "${parsed.name}"`, description: 'Replace the existing environment with imported variables', action: 'update' as const },
+                { label: 'Import as new environment', description: 'Create a new environment with a different name', action: 'new' as const },
+              ],
+              { placeHolder: `Environment "${parsed.name}" already exists` },
+            );
+            if (!action) continue;
+            if (action.action === 'new') {
+              const newName = await vscode.window.showInputBox({
+                prompt: 'Enter name for the new environment',
+                value: `${parsed.name} (imported)`,
+                validateInput: (v) => v.trim() ? null : 'Name cannot be empty',
+              });
+              if (!newName) continue;
+              targetName = newName.trim();
+            }
+          }
+
+          // Write to collection YAML
+          const result = importer.importEnvironment(
+            collection.filePath, targetName, parsed.variables, secretMode,
+          );
+
+          // Store secrets in SecretStorage if needed
+          for (const secret of result.secrets) {
+            await environmentService.storeSecretValue(
+              collection.rootDir, targetName, secret.name, secret.value,
+            );
+          }
+
           imported++;
+          const parts = [`${result.variableCount} variables`];
+          if (secretCount > 0) {
+            parts.push(`${secretCount} secrets → ${secretMode === 'secret' ? 'secure storage' : 'plain text'}`);
+          }
           vscode.window.showInformationMessage(
-            `Imported environment "${result.name}" (${result.variableCount} variables).`,
+            `Imported environment "${targetName}" (${parts.join(', ')}).`,
           );
         } catch (e: any) {
           vscode.window.showErrorMessage(`Failed to import ${path.basename(file.fsPath)}: ${e.message}`);

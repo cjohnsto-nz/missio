@@ -91,9 +91,10 @@ export class PostmanImporter implements CollectionImporter {
   }
 
   /**
-   * Import a Postman environment JSON file and merge it into an existing collection.
+   * Parse a Postman environment JSON file without writing anything.
+   * Returns the environment name and parsed variables (with secret flag).
    */
-  async importEnvironment(envFile: string, collectionFile: string): Promise<{ name: string; variableCount: number }> {
+  parseEnvironment(envFile: string): { name: string; variables: { name: string; value: string; isSecret: boolean }[] } {
     const raw = fs.readFileSync(envFile, 'utf-8');
     const postmanEnv = JSON.parse(raw);
 
@@ -101,27 +102,49 @@ export class PostmanImporter implements CollectionImporter {
       throw new Error('Invalid Postman environment file. Expected "name" and "values" fields.');
     }
 
-    const envName = postmanEnv.name;
     const variables = postmanEnv.values
       .filter((v: any) => v.key)
-      .map((v: any) => {
-        if (v.type === 'secret') {
-          return { secret: true, name: v.key, type: 'string' as const };
-        }
-        return { name: v.key, value: v.value ?? '' };
-      });
+      .map((v: any) => ({
+        name: v.key as string,
+        value: (v.value ?? '') as string,
+        isSecret: v.type === 'secret',
+      }));
 
-    // Read existing collection, add environment
+    return { name: postmanEnv.name, variables };
+  }
+
+  /**
+   * Write parsed environment variables into a collection file.
+   * secretMode controls how Postman secrets are stored:
+   *   - 'plain': store as normal variables (value in YAML)
+   *   - 'secret': store as SecretVariable (secret: true, no value in YAML)
+   * Returns secrets that need to be stored in SecretStorage.
+   */
+  importEnvironment(
+    collectionFile: string,
+    envName: string,
+    variables: { name: string; value: string; isSecret: boolean }[],
+    secretMode: 'plain' | 'secret',
+  ): { name: string; variableCount: number; secrets: { name: string; value: string }[] } {
+    const secrets: { name: string; value: string }[] = [];
+    const yamlVars = variables.map(v => {
+      if (v.isSecret && secretMode === 'secret') {
+        secrets.push({ name: v.name, value: v.value });
+        return { name: v.name, secret: true };
+      }
+      return { name: v.name, value: v.value };
+    });
+
+    // Read existing collection, add/replace environment
     const collYaml = fs.readFileSync(collectionFile, 'utf-8');
-    const yamlLib = await import('yaml');
+    const yamlLib = require('yaml');
     const coll = yamlLib.parse(collYaml);
 
     if (!coll.config) coll.config = {};
     if (!coll.config.environments) coll.config.environments = [];
 
-    // Replace if same name exists, otherwise append
     const idx = coll.config.environments.findIndex((e: any) => e.name === envName);
-    const env: any = { name: envName, variables };
+    const env: any = { name: envName, variables: yamlVars };
     if (idx >= 0) {
       coll.config.environments[idx] = env;
     } else {
@@ -131,7 +154,7 @@ export class PostmanImporter implements CollectionImporter {
     const updatedYaml = stringifyYaml(coll, { lineWidth: 120 });
     fs.writeFileSync(collectionFile, updatedYaml, 'utf-8');
 
-    return { name: envName, variableCount: variables.length };
+    return { name: envName, variableCount: variables.length, secrets };
   }
 
   // ── Private helpers ────────────────────────────────────────────
