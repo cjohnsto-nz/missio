@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import type { HttpRequest, MissioCollection } from '../models/types';
+import type { HttpRequest, MissioCollection, RequestDefaults } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
-import { readRequestFile, stringifyYaml } from '../services/yamlParser';
+import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
 
 export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService, httpClient, responseProvider } = ctx;
@@ -15,6 +15,19 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       const root = c.rootDir.replace(/\\/g, '/');
       return normalized.startsWith(root + '/') || normalized === root;
     });
+  }
+
+  async function getFolderDefaults(filePath: string, collection: MissioCollection): Promise<RequestDefaults | undefined> {
+    const dir = path.dirname(filePath);
+    if (dir.toLowerCase() === collection.rootDir.toLowerCase()) return undefined;
+    for (const name of ['folder.yml', 'folder.yaml']) {
+      try {
+        const folderData = await readFolderFile(path.join(dir, name));
+        if (folderData?.request) return folderData.request;
+        break;
+      } catch { /* No folder.yml */ }
+    }
+    return undefined;
   }
 
   return [
@@ -54,6 +67,9 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
           return;
         }
 
+        // Resolve folder defaults (auth, headers, variables) from folder.yml
+        const folderDefaults = await getFolderDefaults(filePath, collection);
+
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
@@ -62,7 +78,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
           },
           async (_progress, token) => {
             token.onCancellationRequested(() => httpClient.cancelAll());
-            const response = await httpClient.send(request, collection);
+            const response = await httpClient.send(request, collection, folderDefaults);
             await responseProvider.showResponse(response, request.info?.name);
           },
         );
