@@ -206,13 +206,19 @@ export class CollectionService implements vscode.Disposable {
   }
 
   private _startPolling(): void {
-    this._pollTimer = setInterval(async () => {
-      const fingerprint = await this._computeFingerprint();
-      if (fingerprint !== this._lastFingerprint) {
-        this._lastFingerprint = fingerprint;
-        await this.refresh();
+    const tick = async () => {
+      try {
+        const fingerprint = await this._computeFingerprint();
+        if (fingerprint !== this._lastFingerprint) {
+          this._lastFingerprint = fingerprint;
+          await this.refresh();
+        }
+      } catch {
+        // Swallow — transient FS errors shouldn't crash the poll loop
       }
-    }, CollectionService.POLL_INTERVAL);
+      this._pollTimer = setTimeout(tick, CollectionService.POLL_INTERVAL);
+    };
+    this._pollTimer = setTimeout(tick, CollectionService.POLL_INTERVAL);
   }
 
   /** Build a lightweight fingerprint from yml file paths + mtimes to detect external changes. */
@@ -241,7 +247,7 @@ export class CollectionService implements vscode.Disposable {
   }
 
   dispose(): void {
-    if (this._pollTimer) { clearInterval(this._pollTimer); }
+    if (this._pollTimer) { clearTimeout(this._pollTimer); }
     this._watchers.forEach(w => w.dispose());
     this._disposables.forEach(d => d.dispose());
     this._onDidChange.dispose();
