@@ -33,6 +33,7 @@ import {
 import {
   showResponse, showLoading, hideLoading, clearResponse,
   getLastResponse, getLastResponseBody, setLoadingText,
+  renderPreview,
 } from './response';
 
 // ── Document update scheduling ───────────────────
@@ -47,7 +48,7 @@ function scheduleDocumentUpdate(): void {
 
 // ── Tab switching ──────────────────────────────
 const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings'];
-const respPanelIds = ['resp-body', 'resp-headers'];
+const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
 
 function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void {
   tabBar.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -66,7 +67,9 @@ $('reqTabs').querySelectorAll('.tab').forEach((tab) => {
 });
 $('respTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
-    switchTab($('respTabs'), (tab as HTMLElement).dataset.tab!, respPanelIds);
+    const tabId = (tab as HTMLElement).dataset.tab!;
+    switchTab($('respTabs'), tabId, respPanelIds);
+    if (tabId === 'resp-preview') renderPreview();
   });
 });
 
@@ -530,6 +533,21 @@ setBreakIllusionCallback(() => {
 
 setupVarHover($('url'), tooltipCtx());
 
+$('url').addEventListener('paste', (e: Event) => {
+  e.preventDefault();
+  const text = (e as ClipboardEvent).clipboardData?.getData('text/plain') ?? '';
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(document.createTextNode(text));
+    range.collapse(false);
+  } else {
+    $('url').textContent = ($('url').textContent ?? '') + text;
+  }
+  $('url').dispatchEvent(new Event('input', { bubbles: true }));
+});
+
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
     breakIllusion();
@@ -937,6 +955,13 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'saved':
       break;
+    case 'saveBinaryResponse': {
+      const r = getLastResponse();
+      if (r && r.bodyBase64) {
+        vscode.postMessage({ type: 'saveBinaryResponse', bodyBase64: r.bodyBase64, contentType: r.headers?.['content-type'] ?? '' });
+      }
+      break;
+    }
     case 'error':
       hideLoading();
       $('sendBtn').classList.remove('sending');
@@ -1016,6 +1041,20 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     sendRequest();
+  }
+});
+$('showRawBtn').addEventListener('click', () => {
+  const overlay = document.getElementById('respBinaryOverlay');
+  const wrap = document.getElementById('respBodyWrap');
+  if (overlay) overlay.style.display = 'none';
+  if (wrap) wrap.style.display = 'block';
+  // Render the raw body now
+  const body = getLastResponseBody();
+  if (body) {
+    const lines = body.split('\n');
+    $('respBodyPre').innerHTML = lines.map((line: string) =>
+      '<div class="code-line">' + line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '\n</div>'
+    ).join('');
   }
 });
 $('copyRespBtn').addEventListener('click', () => {

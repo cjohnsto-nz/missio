@@ -5,9 +5,21 @@ import { highlightResponse } from './highlight';
 
 let lastResponse: any = null;
 let lastResponseBody = '';
+let lastContentType = '';
+let lastBlobUrl: string | undefined;
 
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
+export function getLastContentType(): string { return lastContentType; }
+
+/** Content types that support rich preview in a separate tab */
+function isPreviewable(ct: string): boolean {
+  const lower = ct.toLowerCase();
+  return lower.includes('text/html')
+    || lower.includes('application/xhtml')
+    || lower.includes('application/pdf')
+    || lower.startsWith('image/');
+}
 
 export function showLoading(text?: string): void {
   $('respLoading').style.display = 'flex';
@@ -16,6 +28,12 @@ export function showLoading(text?: string): void {
   $('responseBar').style.display = 'none';
   $('respTabs').style.display = 'none';
   if (text) setLoadingText(text);
+  // Invalidate preview content
+  const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
+  if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
+  const pdfContainer = document.getElementById('respPdfContainer');
+  if (pdfContainer) { pdfContainer.innerHTML = ''; pdfContainer.style.display = 'none'; }
+  if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = undefined; }
 }
 
 export function setLoadingText(text: string): void {
@@ -92,16 +110,55 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   }
 
   lastResponseBody = bodyText;
+  lastContentType = ct;
+
+  // Show/hide Preview tab for previewable content types
+  const previewTab = document.getElementById('respPreviewTab');
+  if (previewTab) {
+    previewTab.style.display = isPreviewable(ct) ? '' : 'none';
+  }
+
+  // Auto-switch to Preview tab for images and PDFs (not HTML)
+  const autoPreview = ct.toLowerCase().startsWith('image/') || ct.toLowerCase().includes('application/pdf');
+  // Also render preview if user is already on the Preview tab
+  const previewActive = previewTab?.classList.contains('active');
+  if (autoPreview && previewTab) {
+    setTimeout(() => { (previewTab as HTMLElement).click(); }, 0);
+  } else if (previewActive && isPreviewable(ct)) {
+    setTimeout(() => renderPreview(), 0);
+  }
+
+  // Binary content: show overlay instead of raw body
+  const isBinary = !!resp.bodyBase64;
+  const binaryOverlay = document.getElementById('respBinaryOverlay');
+  const bodyWrap = document.getElementById('respBodyWrap');
+  if (binaryOverlay && bodyWrap) {
+    if (isBinary) {
+      const sizeKB = resp.size < 1024 ? resp.size + ' B' : (resp.size / 1024).toFixed(1) + ' KB';
+      const infoEl = document.getElementById('respBinaryInfo');
+      if (infoEl) infoEl.textContent = ct + ' \u2022 ' + sizeKB;
+      binaryOverlay.style.display = 'block';
+      bodyWrap.style.display = 'none';
+    } else {
+      binaryOverlay.style.display = 'none';
+      bodyWrap.style.display = 'block';
+    }
+  }
+
   const renderTiming: TimingEntry[] = [];
   const rBase = timing && timing.length > 0 ? timing[timing.length - 1].end : 0;
 
   let rPhase = Date.now();
-  console.time('resp:highlight');
-  const lines = bodyText.split('\n');
+  if (!isBinary) {
+    console.time('resp:highlight');
+  }
+  const lines = isBinary ? [] : bodyText.split('\n');
   const html = lines.map((line: string) =>
     '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
   ).join('');
-  console.timeEnd('resp:highlight');
+  if (!isBinary) {
+    console.timeEnd('resp:highlight');
+  }
   renderTiming.push({ label: 'Highlight', start: rBase, end: rBase + (Date.now() - rPhase) });
 
   rPhase = Date.now();
@@ -222,5 +279,97 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     metaEl.onmouseleave = () => {
       tooltip.style.display = 'none';
     };
+  }
+}
+
+/** Track the last blob URL so we can revoke it to avoid memory leaks */
+
+function setIframeBlobSrc(iframe: HTMLIFrameElement, blob: Blob): void {
+  if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+  lastBlobUrl = URL.createObjectURL(blob);
+  iframe.removeAttribute('srcdoc');
+  iframe.src = lastBlobUrl;
+}
+
+/** Populate the preview with the last response content. Called when Preview tab is activated. */
+export function renderPreview(): void {
+  const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
+  const pdfContainer = document.getElementById('respPdfContainer');
+  if (!iframe || !pdfContainer) return;
+
+  const resp = lastResponse;
+  if (!resp) return;
+
+  const ct = lastContentType.toLowerCase();
+  const isPdf = ct.includes('application/pdf') && resp.bodyBase64;
+
+  // Toggle visibility: PDF uses canvas container, everything else uses iframe
+  iframe.style.display = isPdf ? 'none' : 'block';
+  pdfContainer.style.display = isPdf ? 'block' : 'none';
+
+  if (isPdf) {
+    renderPdfPreview(pdfContainer, resp.bodyBase64!);
+  } else if (ct.includes('text/html') || ct.includes('application/xhtml')) {
+    setIframeBlobSrc(iframe, new Blob([resp.body ?? ''], { type: 'text/html' }));
+    iframe.style.background = 'transparent';
+  } else if (ct.startsWith('image/') && resp.bodyBase64) {
+    const mimeType = ct.split(';')[0].trim();
+    const html = `<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; display:flex; align-items:center; justify-content:center;
+    min-height:100vh; background:transparent; }
+  img { max-width:100%; max-height:100vh; object-fit:contain; }
+</style></head><body>
+<img src="data:${mimeType};base64,${resp.bodyBase64}" />
+</body></html>`;
+    setIframeBlobSrc(iframe, new Blob([html], { type: 'text/html' }));
+    iframe.style.background = 'transparent';
+  } else if (ct.startsWith('image/svg') && resp.body) {
+    setIframeBlobSrc(iframe, new Blob([resp.body], { type: 'text/html' }));
+    iframe.style.background = 'transparent';
+  } else {
+    const escaped = (resp.body ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const html = `<pre style="margin:16px;font-family:monospace;white-space:pre-wrap;">${escaped}</pre>`;
+    setIframeBlobSrc(iframe, new Blob([html], { type: 'text/html' }));
+    iframe.style.background = 'transparent';
+  }
+}
+
+/** Render PDF pages to canvas elements using PDF.js (loaded in the webview) */
+async function renderPdfPreview(container: HTMLElement, base64: string): Promise<void> {
+  container.innerHTML = '';
+
+  const pdfjsLib = (window as any).pdfjsLib;
+  if (!pdfjsLib) {
+    container.innerHTML = '<div style="padding:24px;color:var(--vscode-foreground);font-family:system-ui;">PDF.js not available</div>';
+    return;
+  }
+
+  try {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+    const containerWidth = container.clientWidth - 32; // 16px padding each side
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const unscaledVp = page.getViewport({ scale: 1 });
+      const scale = Math.min(containerWidth / unscaledVp.width, 2);
+      const vp = page.getViewport({ scale });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      canvas.style.display = 'block';
+      canvas.style.margin = '0 auto 8px';
+      canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,.4)';
+      container.appendChild(canvas);
+
+      await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
+    }
+  } catch (e: any) {
+    container.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground);font-family:system-ui;">Failed to render PDF: ${e.message}</div>`;
   }
 }

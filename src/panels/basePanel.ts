@@ -360,7 +360,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:; font-src ${webview.cspSource};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:; font-src ${webview.cspSource}; frame-src data: blob:;">
 <style>@font-face { font-family: 'codicon'; src: url('${codiconFontUri}') format('truetype'); }
 .codicon { font-family: 'codicon'; font-size: 20px; line-height: 1; display: inline-block; -webkit-font-smoothing: antialiased; }
 .codicon-folder-library::before { content: '\\ebdf'; }

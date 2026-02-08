@@ -200,11 +200,17 @@ export class HttpClient implements vscode.Disposable {
           }
 
           _mark('HTTP', tPhase);
+
+          // Detect binary content types for preview support
+          const ct = (responseHeaders['content-type'] ?? '').toLowerCase();
+          const isBinary = /^(image\/|application\/pdf|application\/octet-stream)/.test(ct);
+
           resolve({
             status: res.statusCode ?? 0,
             statusText: res.statusMessage ?? '',
             headers: responseHeaders,
             body: buffer.toString('utf-8'),
+            bodyBase64: isBinary ? buffer.toString('base64') : undefined,
             duration,
             size: buffer.length,
             timing: _timing,

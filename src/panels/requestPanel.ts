@@ -94,6 +94,18 @@ export class RequestEditorProvider extends BaseEditorProvider {
   protected _getScriptFilename(): string { return 'requestPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
 
+  protected _getHtml(webview: vscode.Webview): string {
+    const html = super._getHtml(webview);
+    // Inject PDF.js scripts before the closing </body> tag
+    const pdfJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.js'));
+    const pdfWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.worker.js'));
+    const nonce = html.match(/nonce="([^"]+)"/)?.[1] ?? '';
+    const pdfScripts = `<script nonce="${nonce}" src="${pdfJsUri}"></script>\n<script nonce="${nonce}" src="${pdfWorkerUri}"></script>\n<script nonce="${nonce}">if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc='${pdfWorkerUri}';</script>`;
+    return html
+      .replace('</body>', pdfScripts + '\n</body>')
+      .replace(/img-src data:/, 'img-src blob: data:');
+  }
+
   protected _onPanelCreated(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
@@ -151,6 +163,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
       }
       case 'methodChanged':
         return true;
+      case 'saveBinaryResponse': {
+        await this._saveBinaryResponse(msg.bodyBase64, msg.contentType);
+        return true;
+      }
       case 'saveExample': {
         await this._saveExample(webview, msg, ctx);
         return true;
@@ -238,6 +254,24 @@ export class RequestEditorProvider extends BaseEditorProvider {
     } catch (e: any) {
       vscode.window.showErrorMessage(`Failed to save example: ${e.message}`);
     }
+  }
+
+  private async _saveBinaryResponse(bodyBase64: string, contentType: string): Promise<void> {
+    const ext = contentType.includes('pdf') ? 'pdf'
+      : contentType.includes('png') ? 'png'
+      : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
+      : contentType.includes('gif') ? 'gif'
+      : contentType.includes('svg') ? 'svg'
+      : contentType.includes('webp') ? 'webp'
+      : 'bin';
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(`response.${ext}`),
+      filters: { [ext.toUpperCase()]: [ext], 'All Files': ['*'] },
+    });
+    if (!uri) return;
+    const buffer = Buffer.from(bodyBase64, 'base64');
+    await vscode.workspace.fs.writeFile(uri, buffer);
+    vscode.window.showInformationMessage(`Saved to ${uri.fsPath}`);
   }
 
   protected _getBodyHtml(_webview: vscode.Webview): string {
@@ -374,6 +408,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       <div class="tabs" id="respTabs" style="display:none;">
         <div class="tab active" data-tab="resp-body">Body</div>
         <div class="tab" data-tab="resp-headers">Headers</div>
+        <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
       <div class="response-body">
         <div class="loading-overlay" id="respLoading" style="display:none;">
@@ -382,6 +417,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
         </div>
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
+          <div id="respBinaryOverlay" style="display:none;padding:32px;text-align:center;color:var(--vscode-foreground);font-family:var(--vscode-font-family,system-ui);">
+            <div style="font-size:14px;margin-bottom:8px;">Response body contains binary data</div>
+            <div style="font-size:12px;opacity:.7;margin-bottom:16px;" id="respBinaryInfo"></div>
+            <button class="save-example-btn" id="showRawBtn">Show Raw</button>
+          </div>
           <div id="respBodyWrap" class="resp-body-wrap" style="display:none;">
             <button class="copy-btn" id="copyRespBtn" title="Copy to clipboard">Copy</button>
             <div class="code-wrap resp-code-wrap">
@@ -392,6 +432,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         </div>
         <div class="tab-panel" id="panel-resp-headers">
           <table class="resp-headers-table" id="respHeadersTable"><tbody id="respHeadersBody"></tbody></table>
+        </div>
+        <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;">
+          <iframe id="respPreviewFrame" sandbox="allow-same-origin" style="border:none;width:100%;height:100%;background:#fff;display:none;"></iframe>
+          <div id="respPdfContainer" style="display:none;background:var(--vscode-editor-background);padding:16px 0;text-align:center;"></div>
         </div>
       </div>
     </div>
