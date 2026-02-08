@@ -223,16 +223,13 @@ export class CollectionService implements vscode.Disposable {
 
   /** Build a lightweight fingerprint from yml file paths + mtimes to detect external changes. */
   private async _computeFingerprint(): Promise<string> {
+    const files = await vscode.workspace.findFiles('**/*.{yml,yaml}', '**/node_modules/**');
     const parts: string[] = [];
-    const patterns = ['**/collection.{yml,yaml}', '**/workspace.{yml,yaml}', '**/*.{yml,yaml}'];
-    for (const pattern of patterns) {
-      const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-      for (const uri of files) {
-        try {
-          const stat = await vscode.workspace.fs.stat(uri);
-          parts.push(`${uri.fsPath}:${stat.mtime}`);
-        } catch { /* deleted between find and stat */ }
-      }
+    for (const uri of files) {
+      try {
+        const stat = await vscode.workspace.fs.stat(uri);
+        parts.push(`${uri.fsPath}:${stat.mtime}`);
+      } catch { /* deleted between find and stat */ }
     }
     parts.sort();
     return parts.join('\n');
