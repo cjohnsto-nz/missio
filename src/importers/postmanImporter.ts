@@ -24,8 +24,7 @@ export class PostmanImporter implements CollectionImporter {
     }
 
     const collName = postman.info?.name || 'Imported Collection';
-    const slug = this.slugify(collName);
-    const collDir = path.join(targetDir, slug);
+    const collDir = path.join(targetDir, this.sanitizePath(collName));
     fs.mkdirSync(collDir, { recursive: true });
 
     let requestCount = 0;
@@ -157,8 +156,8 @@ export class PostmanImporter implements CollectionImporter {
       if (this.isFolder(item)) {
         folders++;
         const folderName = this.uniqueName(item.name || 'Untitled Folder', nameCounters);
-        const folderSlug = this.slugify(folderName);
-        const folderDir = path.join(parentDir, folderSlug);
+        const folderSafe = this.sanitizePath(folderName);
+        const folderDir = path.join(parentDir, folderSafe);
         fs.mkdirSync(folderDir, { recursive: true });
 
         // Write folder.yml if there's folder-level config (auth, headers, variables)
@@ -175,8 +174,8 @@ export class PostmanImporter implements CollectionImporter {
       } else if (item.request) {
         requests++;
         const reqName = this.uniqueName(item.name || 'Untitled Request', nameCounters);
-        const reqSlug = this.slugify(reqName);
-        const reqFile = path.join(parentDir, reqSlug + '.yml');
+        const reqSafe = this.sanitizePath(reqName);
+        const reqFile = path.join(parentDir, reqSafe + '.yml');
 
         const request = this.convertRequest(item, reqName, i + 1);
         const yaml = stringifyYaml(request, { lineWidth: 120 });
@@ -439,6 +438,11 @@ export class PostmanImporter implements CollectionImporter {
 
   private slugify(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled';
+  }
+
+  /** Preserve case and spaces, only strip characters unsafe for file/directory names. */
+  private sanitizePath(name: string): string {
+    return name.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim() || 'Untitled';
   }
 
   private uniqueName(name: string, counters: Map<string, number>): string {
