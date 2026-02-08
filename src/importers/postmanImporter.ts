@@ -436,10 +436,6 @@ export class PostmanImporter implements CollectionImporter {
     return str.replace(/:([a-zA-Z_]\w*)/g, '{{$1}}');
   }
 
-  private slugify(name: string): string {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled';
-  }
-
   /** Preserve case and spaces, only strip characters unsafe for file/directory names. */
   private sanitizePath(name: string): string {
     return name.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim() || 'Untitled';
