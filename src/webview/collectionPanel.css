@@ -58,9 +58,14 @@
   line-height: 1;
   padding: 0;
 }
-.env-toolbar-btn:hover { border-color: var(--btn-bg); background: rgba(0,120,212,0.05); }
-.env-toolbar-btn.env-toolbar-delete { color: var(--m-fg-muted); }
-.env-toolbar-btn.env-toolbar-delete:hover { color: var(--badge-error); border-color: var(--badge-error); background: rgba(239,68,68,0.05); }
+.env-toolbar-btn .codicon { font-size: 14px; }
+.env-toolbar-btn:hover { border-color: var(--m-fg-muted); background: rgba(255,255,255,0.03); }
+.env-toolbar-btn.env-toolbar-add { color: var(--badge-success, #22c55e); }
+.env-toolbar-btn.env-toolbar-add:hover { border-color: var(--badge-success, #22c55e); background: rgba(34,197,94,0.05); }
+.env-toolbar-btn.env-toolbar-import { color: var(--btn-bg, #0078d4); }
+.env-toolbar-btn.env-toolbar-import:hover { border-color: var(--btn-bg, #0078d4); background: rgba(0,120,212,0.05); }
+.env-toolbar-btn.env-toolbar-delete { color: var(--badge-error, #ef4444); }
+.env-toolbar-btn.env-toolbar-delete:hover { border-color: var(--badge-error, #ef4444); background: rgba(239,68,68,0.05); }
 
 /* ── Add Environment Menu ─────────────── */
 .env-add-menu {
