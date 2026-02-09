@@ -352,15 +352,95 @@ function addHeader(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td class="val-cell"><div class="val-ce h-value" contenteditable="true" data-placeholder="value"></div></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); syncAutoContentType(); scheduleDocumentUpdate(); });
   tr.addEventListener('change', scheduleDocumentUpdate);
   const hNameInput = tr.querySelector('.h-name') as HTMLInputElement;
   enableVarOverlay(hNameInput);
-  hNameInput.addEventListener('input', scheduleDocumentUpdate);
+  hNameInput.addEventListener('input', () => { syncAutoContentType(); scheduleDocumentUpdate(); });
   enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value, scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
 }
+
+// ── Auto-generated headers (Content-Type, Content-Length) ───────────
+const _autoContentTypes: Record<string, string> = {
+  json: 'application/json',
+  text: 'text/plain',
+  xml: 'application/xml',
+  sparql: 'application/sparql-query',
+  'form-urlencoded': 'application/x-www-form-urlencoded',
+  'multipart-form': 'multipart/form-data',
+};
+
+function _hasUserHeader(headerName: string): boolean {
+  const lower = headerName.toLowerCase();
+  let found = false;
+  document.querySelectorAll('#headersBody tr:not(.auto-header)').forEach((tr) => {
+    const name = (tr.querySelector('.h-name') as HTMLInputElement)?.value ?? '';
+    if (name.toLowerCase() === lower) found = true;
+  });
+  return found;
+}
+
+function _makeAutoRow(name: string, value: string): HTMLTableRowElement {
+  const tr = document.createElement('tr');
+  tr.classList.add('auto-header');
+  tr.innerHTML =
+    '<td></td>' +
+    '<td><span class="auto-label">' + name + '</span></td>' +
+    '<td><span class="auto-label">' + value + '</span></td>' +
+    '<td></td>';
+  return tr;
+}
+
+function _getBodySize(): number {
+  if (currentBodyType === 'none') return 0;
+  if (currentBodyType === 'form-urlencoded') {
+    const params = new URLSearchParams();
+    document.querySelectorAll('#bodyFormBody tr').forEach((tr) => {
+      if ((tr.querySelector('.f-enabled') as HTMLInputElement)?.checked) {
+        params.set(
+          (tr.querySelector('.f-name') as HTMLInputElement)?.value ?? '',
+          (tr.querySelector('.f-value') as HTMLInputElement)?.value ?? '',
+        );
+      }
+    });
+    return new TextEncoder().encode(params.toString()).length;
+  }
+  if (currentBodyType === 'multipart-form') return 0; // boundary is dynamic, can't predict
+  // Raw body types
+  const data = ($('bodyData') as HTMLTextAreaElement).value;
+  return new TextEncoder().encode(data).length;
+}
+
+function syncAutoHeaders(): void {
+  const tbody = $('headersBody');
+  // Remove all existing auto rows
+  tbody.querySelectorAll('tr.auto-header').forEach(r => r.remove());
+
+  if (currentBodyType === 'none') return;
+
+  // Content-Type
+  let typeKey: string | null = null;
+  if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
+    typeKey = currentBodyType;
+  } else {
+    typeKey = currentLang;
+  }
+  const ct = typeKey ? _autoContentTypes[typeKey] : null;
+  if (ct && !_hasUserHeader('content-type')) {
+    tbody.insertBefore(_makeAutoRow('Content-Type', ct), tbody.firstChild);
+  }
+
+  // Content-Length (not for multipart — boundary is dynamic)
+  if (currentBodyType !== 'multipart-form' && !_hasUserHeader('content-length')) {
+    const size = _getBodySize();
+    tbody.insertBefore(_makeAutoRow('Content-Length', String(size)), tbody.firstChild);
+  }
+}
+
+// Alias for backward compat with existing call sites
+const syncAutoContentType = syncAutoHeaders;
 
 // enableVarOverlay, enableContentEditableValue, syncAllVarOverlays, restoreCursor
 // are all imported from varFields.ts — single source of truth for all panels.
@@ -382,9 +462,9 @@ function addFormField(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="f-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td><input type="text" class="f-value" value="' + esc(value) + '" placeholder="value" /></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
-  tr.addEventListener('change', scheduleDocumentUpdate);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); syncAutoHeaders(); scheduleDocumentUpdate(); });
+  tr.addEventListener('input', () => { syncAutoHeaders(); scheduleDocumentUpdate(); });
+  tr.addEventListener('change', () => { syncAutoHeaders(); scheduleDocumentUpdate(); });
   enableVarOverlay(tr.querySelector('.f-name') as HTMLInputElement);
   enableVarOverlay(tr.querySelector('.f-value') as HTMLInputElement);
   tbody.appendChild(tr);
@@ -392,7 +472,7 @@ function addFormField(name = '', value = '', disabled = false): void {
 
 function updateBadges(): void {
   const params = document.querySelectorAll('#paramsBody tr');
-  const headers = document.querySelectorAll('#headersBody tr');
+  const headers = document.querySelectorAll('#headersBody tr:not(.auto-header)');
   $('paramsBadge').textContent = String(params.length);
   $('headersBadge').textContent = String(headers.length);
 }
@@ -421,11 +501,13 @@ function setBodyType(type: string): void {
     form.style.display = 'none';
     langSelect.style.display = 'block';
   }
+  syncAutoContentType();
 }
 
 document.querySelectorAll('#bodyTypePills .pill').forEach((pill) => {
   pill.addEventListener('click', () => {
     setBodyType((pill as HTMLElement).dataset.bodyType!);
+    scheduleDocumentUpdate();
   });
 });
 
@@ -587,6 +669,7 @@ $('bodyData').addEventListener('input', () => {
     breakIllusion();
   }
   syncHighlight();
+  syncAutoHeaders();
   handleAutocomplete($('bodyData') as HTMLTextAreaElement, syncHighlight);
   scheduleDocumentUpdate();
 });
@@ -788,7 +871,7 @@ function buildRequest(): any {
 
   // Headers
   const headers: any[] = [];
-  document.querySelectorAll('#headersBody tr').forEach((tr) => {
+  document.querySelectorAll('#headersBody tr:not(.auto-header)').forEach((tr) => {
     headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
       value: ((tr.querySelector('.h-value') as any)._getRawText ? (tr.querySelector('.h-value') as any)._getRawText() : (tr.querySelector('.h-value') as HTMLElement).textContent || ''),
@@ -893,6 +976,7 @@ function loadRequest(req: any): void {
         setBodyType('raw');
         setCurrentLang(body.type || 'json');
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        syncAutoContentType();
         if (body.data) {
           ($('bodyData') as HTMLTextAreaElement).value = body.data;
         }
@@ -1066,6 +1150,70 @@ $('copyRespBtn').addEventListener('click', () => {
     setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
   });
 });
+// Right-click context menu on preview panel for saving/copying binary content
+document.getElementById('panel-resp-preview')!.addEventListener('contextmenu', (e: MouseEvent) => {
+  const r = getLastResponse();
+  if (!r || !r.bodyBase64) return;
+  e.preventDefault();
+
+  const old = document.getElementById('previewContextMenu');
+  if (old) old.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'previewContextMenu';
+  menu.style.cssText = 'position:fixed;z-index:9999;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
+
+  const addItem = (label: string, onClick: () => void) => {
+    const item = document.createElement('div');
+    item.textContent = label;
+    item.style.cssText = 'padding:6px 16px;cursor:pointer;color:var(--vscode-menu-foreground,#ccc);font-size:13px;font-family:var(--vscode-font-family,system-ui);';
+    item.addEventListener('mouseenter', () => { item.style.background = 'var(--vscode-menu-selectionBackground,#094771)'; item.style.color = 'var(--vscode-menu-selectionForeground,#fff)'; });
+    item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; item.style.color = 'var(--vscode-menu-foreground,#ccc)'; });
+    item.addEventListener('click', () => { menu.remove(); onClick(); });
+    menu.appendChild(item);
+  };
+
+  const ct = (r.headers?.['content-type'] ?? '').toLowerCase();
+  const isImage = ct.startsWith('image/');
+
+  // Copy
+  addItem(isImage ? 'Copy Image' : 'Copy', () => {
+    if (isImage) {
+      // Convert to PNG via canvas — clipboard API only supports image/png
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx2d = canvas.getContext('2d')!;
+        ctx2d.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).catch(() => {
+              navigator.clipboard.writeText(r.bodyBase64);
+            });
+          }
+        }, 'image/png');
+      };
+      const mimeType = ct.split(';')[0].trim() || 'image/png';
+      img.src = `data:${mimeType};base64,${r.bodyBase64}`;
+    } else {
+      navigator.clipboard.writeText(r.bodyBase64);
+    }
+  });
+
+  // Save to Disk
+  addItem('Save to Disk', () => {
+    vscode.postMessage({ type: 'saveBinaryResponse', bodyBase64: r.bodyBase64, contentType: ct });
+  });
+
+  document.body.appendChild(menu);
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+
+  const close = () => { menu.remove(); document.removeEventListener('click', close); };
+  setTimeout(() => document.addEventListener('click', close), 0);
+});
 $('refreshOAuthRetryBtn').addEventListener('click', () => {
   const req = buildRequest();
   vscode.postMessage({ type: 'refreshOAuthAndRetry', request: req });
@@ -1086,6 +1234,7 @@ $('panel-settings').addEventListener('change', scheduleDocumentUpdate);
 $('bodyLangMode').addEventListener('change', () => {
   setCurrentLang(($('bodyLangMode') as HTMLSelectElement).value);
   syncHighlight();
+  syncAutoContentType();
   scheduleDocumentUpdate();
 });
 

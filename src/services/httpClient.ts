@@ -57,6 +57,11 @@ export class HttpClient implements vscode.Disposable {
     // Interpolate URL
     let url = this._environmentService.interpolate(details.url, variables);
 
+    // Auto-prepend http:// if no scheme provided (matches Postman behaviour)
+    if (url && !/^https?:\/\//i.test(url)) {
+      url = 'http://' + url;
+    }
+
     // Apply query params — params array is the source of truth, so strip any
     // query string baked into the URL (common Postman import artifact)
     const allQueryParams = (details.params ?? []).filter(p => p.type === 'query');
@@ -229,9 +234,11 @@ export class HttpClient implements vscode.Disposable {
 
       this._activeRequests.set(requestId, req);
 
-      // Handle redirects manually if needed
       if (body) {
-        req.write(body);
+        const bodyBuffer = typeof body === 'string' ? Buffer.from(body, 'utf-8') : body;
+        req.setHeader('Content-Length', bodyBuffer.length);
+        _log(`  body: ${bodyBuffer.length} bytes`);
+        req.write(bodyBuffer);
       }
       req.end();
     });

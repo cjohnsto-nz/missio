@@ -424,6 +424,21 @@ body {
 }
 .kv-table .row-delete:hover { color: var(--badge-error); background: rgba(239,68,68,0.1); }
 
+/* ── Auto-generated header row ── */
+.kv-table tr.auto-header td {
+  opacity: 0.5;
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+  border-bottom: 1px dashed var(--border);
+}
+.kv-table tr.auto-header .auto-label {
+  font-size: 11px;
+  color: var(--m-fg-dim);
+  padding: 4px 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
 /* ── Expandable value cells (contenteditable) ── */
 .kv-table td.val-cell {
   position: relative;
