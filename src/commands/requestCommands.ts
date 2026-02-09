@@ -90,7 +90,6 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
     vscode.commands.registerCommand('missio.openRequest', async (filePath: string, _collectionId?: string) => {
       if (filePath) {
         await RequestEditorProvider.open(filePath);
-        RequestEditorProvider.postMessageToPanel(filePath, { type: 'clearExample' });
       }
     }),
 
