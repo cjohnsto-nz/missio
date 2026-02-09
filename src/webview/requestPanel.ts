@@ -944,7 +944,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
-      showResponse(msg.response, msg.preRequestMs, msg.timing);
+      showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
       requestTokenStatus();
       break;
     case 'sending':
@@ -1065,6 +1065,10 @@ $('copyRespBtn').addEventListener('click', () => {
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
   });
+});
+$('refreshOAuthRetryBtn').addEventListener('click', () => {
+  const req = buildRequest();
+  vscode.postMessage({ type: 'refreshOAuthAndRetry', request: req });
 });
 $('saveExampleBtn').addEventListener('click', () => {
   if (!getLastResponse()) return;

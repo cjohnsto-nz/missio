@@ -167,6 +167,29 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._saveBinaryResponse(msg.bodyBase64, msg.contentType);
         return true;
       }
+      case 'refreshOAuthAndRetry': {
+        const collection = this._findCollection(filePath);
+        if (!collection) {
+          webview.postMessage({ type: 'error', message: 'Collection not found' });
+          return true;
+        }
+        const folderDefaults = await this._getFolderDefaults(filePath, collection);
+        // Clear the existing OAuth2 token before retrying
+        let effectiveAuth = msg.request?.http?.auth;
+        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+        if (effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2') {
+          const auth = effectiveAuth as any;
+          if (auth.accessTokenUrl) {
+            const variables = await this._environmentService.resolveVariables(collection);
+            const url = this._environmentService.interpolate(auth.accessTokenUrl, variables);
+            const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+            await this._oauth2Service.clearToken(collection.id, envName, url, auth.credentialsId);
+          }
+        }
+        await this._sendRequest(webview, msg.request, collection, folderDefaults);
+        return true;
+      }
       case 'saveExample': {
         await this._saveExample(webview, msg, ctx);
         return true;
@@ -204,7 +227,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];
-      webview.postMessage({ type: 'response', response, timing });
+      webview.postMessage({ type: 'response', response, timing, usedOAuth2: !!isOAuth2 });
     } catch (e: any) {
       webview.postMessage({
         type: 'response',
@@ -403,6 +426,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <span class="status-badge" id="statusBadge"></span>
         <span class="meta" id="responseMeta"></span>
         <span class="example-indicator" id="exampleIndicator"></span>
+        <button class="save-example-btn" id="refreshOAuthRetryBtn" style="display:none;" title="Clear OAuth2 token and retry">Refresh OAuth &amp; Retry</button>
         <button class="save-example-btn" id="saveExampleBtn" title="Save as example">Save as Example</button>
       </div>
       <div class="tabs" id="respTabs" style="display:none;">

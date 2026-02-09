@@ -74,7 +74,7 @@ function esc(s: string): string {
 
 type TimingEntry = { label: string; start: number; end: number };
 
-export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEntry[]): void {
+export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEntry[], usedOAuth2?: boolean): void {
   const renderStart = Date.now();
   hideLoading();
   lastResponse = resp;
@@ -90,6 +90,12 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   badge.textContent = resp.status + ' ' + resp.statusText;
   const cat = Math.floor(resp.status / 100);
   badge.className = 'status-badge s' + cat + 'xx';
+
+  // Show "Refresh OAuth & Retry" button on 4xx when OAuth2 was used
+  const oauthRetryBtn = document.getElementById('refreshOAuthRetryBtn');
+  if (oauthRetryBtn) {
+    oauthRetryBtn.style.display = (cat === 4 && usedOAuth2) ? '' : 'none';
+  }
 
   // Body — detect language from content-type and apply highlighting
   let bodyText = resp.body || '';
