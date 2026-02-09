@@ -308,10 +308,15 @@ export function renderPreview(): void {
 
   const ct = lastContentType.toLowerCase();
   const isPdf = ct.includes('application/pdf') && resp.bodyBase64;
+  const isImage = ct.startsWith('image/') && resp.bodyBase64;
 
   // Toggle visibility: PDF uses canvas container, everything else uses iframe
   iframe.style.display = isPdf ? 'none' : 'block';
   pdfContainer.style.display = isPdf ? 'block' : 'none';
+
+  // Show overlay on top of iframe for binary content so right-click context menu works
+  const overlay = document.getElementById('previewOverlay');
+  if (overlay) overlay.style.display = isImage ? 'block' : 'none';
 
   if (isPdf) {
     renderPdfPreview(pdfContainer, resp.bodyBase64!);

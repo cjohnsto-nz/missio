@@ -457,8 +457,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab-panel" id="panel-resp-headers">
           <table class="resp-headers-table" id="respHeadersTable"><tbody id="respHeadersBody"></tbody></table>
         </div>
-        <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;">
+        <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;position:relative;">
           <iframe id="respPreviewFrame" sandbox="allow-same-origin" style="border:none;width:100%;height:100%;background:#fff;display:none;"></iframe>
+          <div id="previewOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></div>
           <div id="respPdfContainer" style="display:none;background:var(--vscode-editor-background);padding:16px 0;text-align:center;"></div>
         </div>
       </div>
