@@ -165,6 +165,12 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "missio.importRequest",
+        "title": "Import Request (cURL, wget, HTTP)",
+        "category": "Missio",
+        "icon": "$(clippy)"
+      },
+      {
         "command": "missio.newRequest",
         "title": "New Request",
         "category": "Missio",
@@ -342,6 +348,11 @@
           "command": "missio.importEnvironment",
           "when": "view == missio.collections",
           "group": "2_import"
+        },
+        {
+          "command": "missio.importRequest",
+          "when": "view == missio.collections",
+          "group": "2_import"
         }
       ],
       "view/item/context": [
@@ -384,6 +395,11 @@
           "command": "missio.newFolder",
           "when": "view == missio.collections && viewItem =~ /^(collection|folder|folderWithSubdirs)$/",
           "group": "inline"
+        },
+        {
+          "command": "missio.importRequest",
+          "when": "view == missio.collections && viewItem =~ /^(collection|folder|folderWithSubdirs)$/",
+          "group": "3_import@1"
         },
         {
           "command": "missio.renameRequest",
