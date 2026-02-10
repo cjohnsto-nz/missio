@@ -70,7 +70,7 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
       `</div>` +
       `<div id="${p}OAuth2AuthCodeFields" style="display:none;">` +
         `<div class="auth-row"><label>Auth URL</label>${inp(p + 'OAuth2AuthorizationUrl', '{{authUrl}}/authorize', w)}</div>` +
-        `<div class="auth-row"><label>Callback URL</label>${inp(p + 'OAuth2CallbackUrl', 'https://localhost/callback', w)}</div>` +
+        `<div class="auth-row"><label>PKCE</label><input type="checkbox" id="${p}OAuth2Pkce" checked /></div>` +
       `</div>` +
       `<div class="auth-row"><label>Refresh URL</label>${inp(p + 'OAuth2RefreshTokenUrl', '(optional)', w)}</div>` +
       `<div class="auth-row"><label>Credentials In</label>` +
@@ -139,7 +139,7 @@ export function buildAuthData(type: string, prefix: string): any {
         auth.password = $el(p + 'OAuth2Password')?.value || '';
       } else if (flow === 'authorization_code') {
         auth.authorizationUrl = $el(p + 'OAuth2AuthorizationUrl')?.value || '';
-        auth.callbackUrl = $el(p + 'OAuth2CallbackUrl')?.value || '';
+        auth.pkce = ($el(p + 'OAuth2Pkce') as HTMLInputElement)?.checked !== false;
       }
       // Remove empty optional fields to keep YAML clean
       if (!auth.refreshTokenUrl) delete auth.refreshTokenUrl;
@@ -195,7 +195,7 @@ export function loadAuthData(auth: any, prefix: string): void {
         const pw = $el(p + 'OAuth2Password'); if (pw) pw.value = auth.password || '';
       } else if (auth.flow === 'authorization_code') {
         const au = $el(p + 'OAuth2AuthorizationUrl'); if (au) au.value = auth.authorizationUrl || '';
-        const cb = $el(p + 'OAuth2CallbackUrl'); if (cb) cb.value = auth.callbackUrl || '';
+        const pk = $el(p + 'OAuth2Pkce') as HTMLInputElement; if (pk) pk.checked = auth.pkce !== false;
       }
       break;
     }

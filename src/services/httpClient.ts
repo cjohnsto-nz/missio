@@ -366,7 +366,6 @@ export class HttpClient implements vscode.Disposable {
       accessTokenUrl: await resolve(auth.accessTokenUrl),
       refreshTokenUrl: await resolve(auth.refreshTokenUrl),
       authorizationUrl: await resolve(auth.authorizationUrl),
-      callbackUrl: await resolve(auth.callbackUrl),
       clientId: await resolve(auth.clientId),
       clientSecret: await resolve(auth.clientSecret),
       username: await resolve(auth.username),

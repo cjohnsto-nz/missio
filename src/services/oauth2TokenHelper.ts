@@ -47,6 +47,7 @@ export async function handleOAuth2TokenMessage(
         flow: auth.flow,
         accessTokenUrl,
         refreshTokenUrl: await resolve(auth.refreshTokenUrl),
+        authorizationUrl: await resolve(auth.authorizationUrl),
         clientId: await resolve(auth.clientId),
         clientSecret: await resolve(auth.clientSecret),
         username: await resolve(auth.username),
@@ -56,6 +57,7 @@ export async function handleOAuth2TokenMessage(
         credentialsId: auth.credentialsId,
         autoFetchToken: true,
         autoRefreshToken: auth.autoRefreshToken,
+        pkce: auth.pkce,
       };
       webview.postMessage({ type: 'oauth2Progress', message: 'Acquiring token...' });
       await oauth2Service.getToken(interpolated, collection.id, envName);

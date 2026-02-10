@@ -761,6 +761,9 @@ function getOAuth2AuthFromForm(): any {
   if (flow === 'password') {
     auth.username = $input('oauth2Username')?.value || '';
     auth.password = $input('oauth2Password')?.value || '';
+  } else if (flow === 'authorization_code') {
+    auth.authorizationUrl = $input('oauth2AuthorizationUrl')?.value || '';
+    auth.pkce = ($('oauth2Pkce') as HTMLInputElement)?.checked !== false;
   }
   return auth;
 }
