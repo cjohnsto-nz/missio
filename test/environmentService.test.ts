@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 import { EnvironmentService } from '../src/services/environmentService';
 import type { MissioCollection } from '../src/models/types';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const FIXTURES = path.resolve(__dirname, 'fixtures', 'test-collection');
+let testCollectionRoot = '';
 
 function mockContext(): any {
   const state: Record<string, any> = {};
@@ -33,8 +35,8 @@ function mockSecretService(): any {
 function makeCollection(overrides?: Partial<MissioCollection>): MissioCollection {
   return {
     id: 'test-collection',
-    filePath: path.join(FIXTURES, 'collection.yml'),
-    rootDir: FIXTURES,
+    filePath: path.join(testCollectionRoot, 'collection.yml'),
+    rootDir: testCollectionRoot,
     data: {
       opencollection: '1.0.0',
       info: { name: 'Test Collection' },
@@ -96,8 +98,18 @@ describe('EnvironmentService', () => {
   let collection: MissioCollection;
 
   beforeEach(() => {
+    testCollectionRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-test-collection-'));
+    fs.writeFileSync(path.join(testCollectionRoot, 'collection.yml'), 'opencollection: "1.0.0"\ninfo:\n  name: Test Collection\n', 'utf-8');
+    fs.writeFileSync(path.join(testCollectionRoot, '.env'), 'DOTENV_VAR=from-dotenv\nQUOTED_VAR="quoted-value"\napiKey=dotenv-api-key\n', 'utf-8');
+
     service = new EnvironmentService(mockContext(), mockSecretService());
     collection = makeCollection();
+  });
+
+  afterEach(() => {
+    if (testCollectionRoot) {
+      fs.rmSync(testCollectionRoot, { recursive: true, force: true });
+    }
   });
 
   // ── Collection-level variables ──────────────────────────────────
