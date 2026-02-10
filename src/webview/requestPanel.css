@@ -874,17 +874,19 @@ td.var-cell .var-overlay {
   padding: 7px 0;
   width: 90px;
   font-size: 12px;
-  border: none;
+  background: none;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
   text-align: center;
 }
-.auth-btn:hover { opacity: 0.85; }
-.auth-btn-get { background: #1a9a4a; color: #fff; }
-.auth-btn-refresh { background: var(--btn-bg); color: var(--btn-fg); }
-.auth-btn-delete { background: #b91c1c; color: #fff; }
-.auth-btn-delete:hover { opacity: 0.75; }
+.auth-btn-get { color: var(--badge-success, #22c55e); }
+.auth-btn-get:hover { border-color: var(--badge-success, #22c55e); background: rgba(34,197,94,0.05); }
+.auth-btn-refresh { color: var(--btn-bg, #0078d4); }
+.auth-btn-refresh:hover { border-color: var(--btn-bg, #0078d4); background: rgba(0,120,212,0.05); }
+.auth-btn-delete { color: var(--badge-error, #ef4444); }
+.auth-btn-delete:hover { border-color: var(--badge-error, #ef4444); background: rgba(239,68,68,0.05); }
 
 /* ── OAuth2 Token Status ─────────────────── */
 .oauth2-token-status { margin-top: 8px; }

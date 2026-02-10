@@ -91,8 +91,8 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
       (showTokenStatus
         ? `<div class="auth-token-actions">` +
             `<button class="auth-btn auth-btn-get" id="${p}OAuth2GetTokenBtn">Get Token</button>` +
-            `<button class="auth-btn auth-btn-refresh" id="${p}OAuth2RefreshTokenBtn">Refresh</button>` +
-            `<button class="auth-btn auth-btn-delete" id="${p}OAuth2DeleteTokenBtn">Delete</button>` +
+            `<button class="auth-btn auth-btn-refresh" id="${p}OAuth2RefreshTokenBtn" style="display:none">Refresh</button>` +
+            `<button class="auth-btn auth-btn-delete" id="${p}OAuth2DeleteTokenBtn" style="display:none">Delete</button>` +
           `</div>` +
           `<div class="oauth2-token-status" id="${p}OAuth2TokenStatus"></div>`
         : '');

@@ -48,9 +48,18 @@ export function initOAuth2TokenStatusController(opts: OAuth2TokenStatusControlle
     opts.postMessage({ type: 'getTokenStatus', auth });
   }
 
+  function updateTokenButtons(hasToken: boolean) {
+    const refreshBtn = document.getElementById(`${opts.prefix}OAuth2RefreshTokenBtn`);
+    const deleteBtn = document.getElementById(`${opts.prefix}OAuth2DeleteTokenBtn`);
+    if (refreshBtn) refreshBtn.style.display = hasToken ? '' : 'none';
+    if (deleteBtn) deleteBtn.style.display = hasToken ? '' : 'none';
+  }
+
   function renderStatus(status: any) {
     const el = getContainer();
     if (!el) return;
+
+    updateTokenButtons(!!status?.hasToken);
 
     if (!status?.hasToken) {
       el.innerHTML = '<div class="token-status-text token-none">' +
