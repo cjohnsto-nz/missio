@@ -25,6 +25,7 @@ const SCOPES: ScopeDef[] = [
 
 // SVG eye icon that works in both light and dark themes
 const EYE_SVG = "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>";
+const ENTER_KEY_SVG = "<svg width='14' height='14' viewBox='0 0 16 16' fill='none' aria-hidden='true'><rect x='1.1' y='1.1' width='13.8' height='13.8' rx='2.8' stroke='currentColor' stroke-width='1.2'/><path d='M10.6 5.4v4H5.4m0 0l2-2m-2 2l2 2' stroke='currentColor' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
 
 function scopeDefForSource(source: string): ScopeDef {
   if (source === 'environment' || source === 'dotenv') return SCOPES[0];
@@ -136,6 +137,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         ).join('') +
       "</div>" +
     "</div>" +
+    "<button class='var-tooltip-save-btn' title='Save variable (same as Enter)'>" + ENTER_KEY_SVG + "</button>" +
   "</div>";
 
   tooltip.innerHTML = inputHtml + scopeHtml;
@@ -191,16 +193,30 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
     });
   }
 
+  const saveValue = (): void => {
+    if (!valueInput) return;
+    const value = valueInput.value ?? '';
+    if (ctx.postMessage) {
+      ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
+    }
+    hideVarTooltip();
+  };
+
+  const saveBtn = tooltip.querySelector('.var-tooltip-save-btn') as HTMLButtonElement | null;
+  if (saveBtn) {
+    saveBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      saveValue();
+    });
+  }
+
   // Value input — Enter to save, Escape to close
   if (valueInput) {
     valueInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        const value = valueInput.value ?? '';
-        if (ctx.postMessage) {
-          ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
-        }
-        hideVarTooltip();
+        saveValue();
       }
       if (e.key === 'Escape') {
         hideVarTooltip();
