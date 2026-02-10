@@ -370,6 +370,10 @@ info:
 http:
   method: GET
   url: "{{api_url}}/users"
+  headers: []
+
+runtime:
+  auth: inherit
 ```
 
 ### Full GET Request with Query Params
@@ -395,13 +399,18 @@ http:
     - name: page
       value: "1"
       type: query
+      disabled: false
     - name: limit
       value: "25"
       type: query
+      disabled: false
     - name: status
       value: active
       type: query
       disabled: false
+
+runtime:
+  auth: inherit
 
 settings:
   encodeUrl: true
@@ -436,6 +445,7 @@ http:
       }
 
 runtime:
+  auth: inherit
   assertions:
     - expression: res.status
       operator: equals
@@ -470,6 +480,9 @@ http:
         value: "{{password}}"
       - name: grant_type
         value: password
+
+runtime:
+  auth: inherit
 ```
 
 ### POST with Multipart Form Body
@@ -482,6 +495,7 @@ info:
 http:
   method: POST
   url: "{{api_url}}/users/{{user_id}}/avatar"
+  headers: []
   body:
     type: multipart-form
     data:
@@ -491,6 +505,9 @@ http:
       - name: description
         type: text
         value: Profile photo
+
+runtime:
+  auth: inherit
 ```
 
 ### PUT Request
@@ -514,6 +531,9 @@ http:
         "name": "{{updated_name}}",
         "email": "{{updated_email}}"
       }
+
+runtime:
+  auth: inherit
 ```
 
 ### DELETE Request
@@ -527,6 +547,10 @@ info:
 http:
   method: DELETE
   url: "{{api_url}}/users/{{user_id}}"
+  headers: []
+
+runtime:
+  auth: inherit
 ```
 
 ### Request with Path Parameters
@@ -541,9 +565,11 @@ http:
     - name: user_id
       value: "{{user_id}}"
       type: path
+      disabled: false
     - name: post_id
       value: "123"
       type: path
+      disabled: false
 ```
 
 ## Authentication Types
@@ -888,6 +914,7 @@ info:
 http:
   method: POST
   url: "{{base_url}}/auth/login"
+  headers: []
   body:
     type: json
     data: |-
@@ -897,6 +924,7 @@ http:
       }
 
 runtime:
+  auth: inherit
   assertions:
     - expression: res.status
       operator: equals
@@ -934,13 +962,16 @@ info:
 http:
   method: GET
   url: "{{api_url}}/users"
+  headers: []
   params:
     - name: page
       value: "1"
       type: query
+      disabled: false
     - name: limit
       value: "20"
       type: query
+      disabled: false
 
 runtime:
   auth: inherit
@@ -956,6 +987,7 @@ info:
 http:
   method: POST
   url: "{{api_url}}/users"
+  headers: []
   body:
     type: json
     data: |-
