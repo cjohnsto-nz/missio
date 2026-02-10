@@ -7,6 +7,8 @@ let lastResponse: any = null;
 let lastResponseBody = '';
 let lastContentType = '';
 let lastBlobUrl: string | undefined;
+let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
+let loadingStartTime = 0;
 
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
@@ -28,6 +30,7 @@ export function showLoading(text?: string): void {
   $('responseBar').style.display = 'none';
   $('respTabs').style.display = 'none';
   if (text) setLoadingText(text);
+  startLoadingTimer();
   // Invalidate preview content
   const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
   if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
@@ -42,7 +45,26 @@ export function setLoadingText(text: string): void {
 }
 
 export function hideLoading(): void {
+  stopLoadingTimer();
   $('respLoading').style.display = 'none';
+}
+
+function startLoadingTimer(): void {
+  stopLoadingTimer();
+  loadingStartTime = Date.now();
+  const el = document.getElementById('loadingTimer');
+  if (el) el.textContent = '0.0s';
+  loadingTimerInterval = setInterval(() => {
+    const elapsed = (Date.now() - loadingStartTime) / 1000;
+    if (el) el.textContent = elapsed < 10 ? elapsed.toFixed(1) + 's' : elapsed.toFixed(0) + 's';
+  }, 100);
+}
+
+function stopLoadingTimer(): void {
+  if (loadingTimerInterval) {
+    clearInterval(loadingTimerInterval);
+    loadingTimerInterval = null;
+  }
 }
 
 export function clearResponse(): void {

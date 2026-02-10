@@ -457,6 +457,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="loading-overlay" id="respLoading" style="display:none;">
           <div class="spinner"></div>
           <span>Sending request…</span>
+          <span class="loading-timer" id="loadingTimer">0.0s</span>
         </div>
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>

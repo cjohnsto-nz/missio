@@ -937,6 +937,7 @@ td.var-cell .var-overlay {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+.loading-timer { font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Example Indicator ──────────────────── */
