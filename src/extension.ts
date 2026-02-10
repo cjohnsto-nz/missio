@@ -164,8 +164,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const collName = collection.data.info?.name ?? path.basename(collection.rootDir);
     if (envName) {
       statusBarItem.text = `$(server-environment) ${collName}: ${envName}`;
+      statusBarItem.backgroundColor = undefined;
     } else {
-      statusBarItem.text = `$(server-environment) ${collName}: No Env`;
+      const hasEnvironments = (collection.data.config?.environments?.length ?? 0) > 0;
+      if (hasEnvironments) {
+        statusBarItem.text = `$(warning) ${collName}: No Env`;
+        statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      } else {
+        statusBarItem.text = `$(server-environment) ${collName}: No Env`;
+        statusBarItem.backgroundColor = undefined;
+      }
     }
     statusBarItem.show();
   }

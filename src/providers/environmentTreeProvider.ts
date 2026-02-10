@@ -33,7 +33,7 @@ class EnvironmentNode extends vscode.TreeItem {
     super(environment.name, hasChildren ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
     this.id = `env:${collectionId}:${environment.name}`;
     this.contextValue = 'environment';
-    this.description = isActive ? '● Active' : (environment.extends ? `↳ ${environment.extends}` : '');
+    this.description = isActive ? '● Active' : '';
 
     // Color the icon using the stored ThemeColor token
     const iconName = isActive ? 'circle-filled' : 'circle-outline';
