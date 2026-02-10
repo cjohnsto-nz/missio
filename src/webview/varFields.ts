@@ -92,7 +92,7 @@ export function syncAllVarOverlays(): void {
       overlay.innerHTML = highlightVariables(escHtml(input.value));
     }
   });
-  document.querySelectorAll('.val-ce').forEach((el) => {
+  document.querySelectorAll('.val-ce, .auth-val-ce').forEach((el) => {
     const getRaw = (el as any)._getRawText;
     if (getRaw && document.activeElement !== el) {
       const raw = getRaw();
@@ -152,6 +152,7 @@ export function enableContentEditableValue(el: HTMLElement, initialValue: string
   let rawText = initialValue || '';
   (el as any)._getRawText = () => rawText;
   (el as any)._setRawText = (t: string) => { rawText = t; };
+  (el as any)._syncHighlight = () => syncHighlightCE();
 
   function syncHighlightCE(): void {
     if (!rawText) {

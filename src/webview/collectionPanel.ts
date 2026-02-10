@@ -208,7 +208,7 @@ const collectionAuthConfig: AuthFieldsConfig = {
   showInherit: false,
   wrapInputs: true,
   showTokenStatus: true,
-  onFieldsRendered: (inputs) => inputs.forEach(inp => enableVarOverlay(inp)),
+  onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleUpdate)),
 };
 
 const tokenStatusCtrl = initOAuth2TokenStatusController({

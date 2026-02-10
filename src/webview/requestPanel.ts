@@ -736,7 +736,7 @@ const requestAuthConfig: import('./authFields').AuthFieldsConfig = {
   showInherit: true,
   wrapInputs: true,
   showTokenStatus: true,
-  onFieldsRendered: (inputs) => inputs.forEach(enableVarOverlay),
+  onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleDocumentUpdate)),
 };
 
 function onAuthTypeChange(): void {
@@ -745,26 +745,31 @@ function onAuthTypeChange(): void {
 }
 
 // ── OAuth2 Token Status ─────────────────────────
+function _ceVal(id: string): string {
+  const el = $(id) as any;
+  return el?._getRawText ? el._getRawText() : (el?.textContent || '');
+}
+
 function getOAuth2AuthFromForm(): any {
   const flow = ($('oauth2Flow') as HTMLSelectElement)?.value || 'client_credentials';
   const auth: any = {
     type: 'oauth2',
     flow,
-    accessTokenUrl: $input('oauth2AccessTokenUrl')?.value || '',
-    clientId: $input('oauth2ClientId')?.value || '',
-    clientSecret: $input('oauth2ClientSecret')?.value || '',
-    scope: $input('oauth2Scope')?.value || '',
-    refreshTokenUrl: $input('oauth2RefreshTokenUrl')?.value || '',
+    accessTokenUrl: _ceVal('oauth2AccessTokenUrl'),
+    clientId: _ceVal('oauth2ClientId'),
+    clientSecret: _ceVal('oauth2ClientSecret'),
+    scope: _ceVal('oauth2Scope'),
+    refreshTokenUrl: _ceVal('oauth2RefreshTokenUrl'),
     credentialsPlacement: ($('oauth2CredentialsPlacement') as HTMLSelectElement)?.value || 'basic_auth_header',
     credentialsId: (currentRequest as any)?.http?.auth?.credentialsId,
     autoFetchToken: ($('oauth2AutoFetch') as HTMLInputElement)?.checked !== false,
     autoRefreshToken: ($('oauth2AutoRefresh') as HTMLInputElement)?.checked !== false,
   };
   if (flow === 'password') {
-    auth.username = $input('oauth2Username')?.value || '';
+    auth.username = _ceVal('oauth2Username');
     auth.password = $input('oauth2Password')?.value || '';
   } else if (flow === 'authorization_code') {
-    auth.authorizationUrl = $input('oauth2AuthorizationUrl')?.value || '';
+    auth.authorizationUrl = _ceVal('oauth2AuthorizationUrl');
     auth.pkce = ($('oauth2Pkce') as HTMLInputElement)?.checked !== false;
   }
   return auth;

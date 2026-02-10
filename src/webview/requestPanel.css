@@ -587,10 +587,6 @@ body {
 td.var-cell .var-overlay {
   top: 4px; left: 8px; right: 8px; bottom: 4px;
 }
-/* Inside an auth-row, no extra offset needed */
-.auth-row .var-cell .var-overlay {
-  top: 0; left: 0; right: 0; bottom: 0;
-}
 .add-row-btn {
   background: transparent;
   color: var(--btn-bg);
@@ -785,7 +781,7 @@ td.var-cell .var-overlay {
 .auth-select:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
 
 /* ── Auth Section ────────────────────────── */
-.auth-section { display: flex; flex-direction: column; gap: 12px; }
+.auth-section { display: flex; flex-direction: column; }
 .auth-section label { font-size: 12px; color: var(--m-fg-muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
 .auth-section .form-field { display: flex; flex-direction: column; gap: 2px; }
 .auth-section .form-field label { font-size: 11px; }
@@ -796,6 +792,44 @@ td.var-cell .var-overlay {
   padding: 6px 8px;
   border-radius: 4px;
   font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.auth-section input:focus {
+  border-color: var(--btn-bg);
+  outline: none;
+  background: var(--input-bg);
+}
+/* Contenteditable value fields in auth rows — matches val-ce table styling */
+.auth-val-ce {
+  flex: 1;
+  display: block;
+  background: transparent;
+  color: var(--fg);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: 0;
+  outline: none;
+  cursor: text;
+  box-sizing: border-box;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-val-ce:focus {
+  border-color: var(--btn-bg);
+  background: var(--input-bg);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: visible;
+  text-overflow: clip;
+}
+.auth-val-ce:empty::before {
+  content: attr(data-placeholder);
+  color: var(--m-input-placeholder);
+  pointer-events: none;
 }
 .auth-section input[type="checkbox"] {
   width: 14px;
@@ -824,15 +858,14 @@ td.var-cell .var-overlay {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-.auth-section input:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
-.auth-row { display: flex; gap: 10px; align-items: center; }
+.auth-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .auth-row label { min-width: 130px; flex-shrink: 0; }
 .auth-row input { flex: 1; }
 .auth-input-wrap { flex: 1; position: relative; display: block; }
 .auth-input-wrap input { width: 100%; }
 
 /* ── OAuth2 Token Status ─────────────────── */
-.oauth2-token-status { margin-top: 4px; }
+.oauth2-token-status { margin-top: 12px; max-width: 480px; }
 .token-status {
   display: flex;
   align-items: center;
