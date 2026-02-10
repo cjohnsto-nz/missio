@@ -78,9 +78,6 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   const renderStart = Date.now();
   hideLoading();
   lastResponse = resp;
-  $('sendBtn').classList.remove('sending');
-  ($('sendBtn') as HTMLButtonElement).disabled = false;
-  $('sendBtn').textContent = 'Send';
   $('responseBar').style.display = 'flex';
   $('respTabs').style.display = 'flex';
   $('respEmpty').style.display = 'none';

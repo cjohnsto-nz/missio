@@ -154,6 +154,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._sendRequest(webview, msg.request, collection, folderDefaults);
         return true;
       }
+      case 'cancelRequest': {
+        this._httpClient.cancelAll();
+        return true;
+      }
       case 'editVariable':
         // Handled by addVariable in basePanel — kept for backwards compat
         return true;

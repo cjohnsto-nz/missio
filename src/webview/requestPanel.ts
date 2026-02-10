@@ -920,14 +920,36 @@ function buildRequest(): any {
   return req;
 }
 
-// ── Send ────────────────────────────────────────
+// ── Send / Cancel ────────────────────────────────
+let isSending = false;
+
 function sendRequest(): void {
   const req = buildRequest();
-  $('sendBtn').classList.add('sending');
-  ($('sendBtn') as HTMLButtonElement).disabled = true;
-  $('sendBtn').textContent = 'Sending...';
+  setSendingState(true);
   showLoading();
   vscode.postMessage({ type: 'sendRequest', request: req });
+}
+
+function cancelRequest(): void {
+  vscode.postMessage({ type: 'cancelRequest' });
+  setSendingState(false);
+  hideLoading();
+}
+
+function setSendingState(sending: boolean, label?: string): void {
+  isSending = sending;
+  const btn = $('sendBtn') as HTMLButtonElement;
+  if (sending) {
+    btn.classList.add('sending');
+    btn.classList.add('btn-cancel');
+    btn.textContent = label || 'Cancel';
+    btn.disabled = false;
+  } else {
+    btn.classList.remove('sending');
+    btn.classList.remove('btn-cancel');
+    btn.textContent = 'Send';
+    btn.disabled = false;
+  }
 }
 
 // ── Save ────────────────────────────────────────
@@ -1032,12 +1054,11 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'response':
       $('exampleIndicator').style.display = 'none';
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
+      setSendingState(false);
       requestTokenStatus();
       break;
     case 'sending':
-      $('sendBtn').classList.add('sending');
-      ($('sendBtn') as HTMLButtonElement).disabled = true;
-      $('sendBtn').textContent = 'Sending...';
+      setSendingState(true, msg.message ? 'Cancel' : undefined);
       if (msg.message) setLoadingText(msg.message);
       break;
     case 'saved':
@@ -1051,9 +1072,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     case 'error':
       hideLoading();
-      $('sendBtn').classList.remove('sending');
-      ($('sendBtn') as HTMLButtonElement).disabled = false;
-      $('sendBtn').textContent = 'Send';
+      setSendingState(false);
       break;
     case 'languageChanged':
       setCurrentLang(msg.language);
@@ -1123,7 +1142,9 @@ $('varToggleBtn').addEventListener('click', () => {
   syncUrlHighlight();
   syncAllVarOverlays();
 });
-$('sendBtn').addEventListener('click', sendRequest);
+$('sendBtn').addEventListener('click', () => {
+  if (isSending) { cancelRequest(); } else { sendRequest(); }
+});
 document.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();

@@ -232,6 +232,7 @@ body {
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
+.btn-primary.btn-cancel { background: var(--vscode-errorForeground, #f14c4c); animation: none; }
 .btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--input-border); }
 .btn-secondary:hover { border-color: var(--btn-bg); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
