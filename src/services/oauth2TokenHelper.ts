@@ -31,6 +31,10 @@ export async function handleOAuth2TokenMessage(
     if (msg.type === 'getTokenStatus') {
       const status = await oauth2Service.getTokenStatus(collection.id, envName, accessTokenUrl, auth.credentialsId);
       webview.postMessage({ type: 'oauth2TokenStatus', status });
+    } else if (msg.type === 'deleteToken') {
+      await oauth2Service.clearToken(collection.id, envName, accessTokenUrl, auth.credentialsId);
+      const status = await oauth2Service.getTokenStatus(collection.id, envName, accessTokenUrl, auth.credentialsId);
+      webview.postMessage({ type: 'oauth2TokenStatus', status });
     } else if (msg.type === 'getToken') {
       // Clear existing token first so we always fetch fresh
       await oauth2Service.clearToken(collection.id, envName, accessTokenUrl, auth.credentialsId);

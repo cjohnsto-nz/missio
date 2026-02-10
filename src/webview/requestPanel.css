@@ -783,7 +783,7 @@ td.var-cell .var-overlay {
 /* ── Auth Section ────────────────────────── */
 .auth-section { display: flex; flex-direction: column; }
 .auth-section label { font-size: 12px; color: var(--m-fg-muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-.auth-section .form-field { display: flex; flex-direction: column; gap: 2px; }
+.auth-section > .form-field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .auth-section .form-field label { font-size: 11px; }
 .auth-section input {
   background: var(--input-bg);
@@ -864,23 +864,39 @@ td.var-cell .var-overlay {
 .auth-input-wrap { flex: 1; position: relative; display: block; }
 .auth-input-wrap input { width: 100%; }
 
+/* ── Auth Token Actions ────────────────────── */
+.auth-token-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.auth-btn {
+  padding: 7px 0;
+  width: 90px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.auth-btn:hover { opacity: 0.85; }
+.auth-btn-get { background: #1a9a4a; color: #fff; }
+.auth-btn-refresh { background: var(--btn-bg); color: var(--btn-fg); }
+.auth-btn-delete { background: #b91c1c; color: #fff; }
+.auth-btn-delete:hover { opacity: 0.75; }
+
 /* ── OAuth2 Token Status ─────────────────── */
-.oauth2-token-status { margin-top: 12px; max-width: 480px; }
-.token-status {
+.oauth2-token-status { margin-top: 8px; }
+.token-status-text {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 4px;
+  gap: 6px;
   font-size: 12px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
+  color: var(--m-fg-muted);
 }
-.token-valid { border-color: var(--m-token-valid-border); }
-.token-expired { border-color: var(--m-token-expired-border); }
-.token-none { border-color: var(--input-border); }
-.token-error { border-color: var(--m-token-expired-border); color: var(--m-token-error-color); }
-.token-progress { border-color: var(--m-token-progress-border); color: var(--m-token-progress-color); }
+.token-error { color: var(--m-token-error-color, var(--badge-error, #ef4444)); }
+.token-progress { color: var(--m-token-progress-color, var(--btn-bg)); }
 .token-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -890,18 +906,6 @@ td.var-cell .var-overlay {
 .dot-expired { background: var(--m-dot-expired); }
 .dot-none { background: var(--m-dot-none); }
 .token-expiry-time { color: var(--m-fg-muted); font-size: 11px; }
-.token-btn {
-  margin-left: auto;
-  padding: 3px 10px;
-  font-size: 11px;
-  background: var(--btn-bg);
-  color: var(--btn-fg);
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.token-btn:hover { opacity: 0.85; }
 .token-spinner {
   width: 12px; height: 12px;
   border: 2px solid rgba(55,148,255,0.3);

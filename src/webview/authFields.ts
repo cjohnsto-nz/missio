@@ -18,6 +18,12 @@ export interface AuthFieldsConfig {
   onFieldsRendered?: (elements: HTMLElement[]) => void;
   /** Whether to show the token status area for OAuth2 */
   showTokenStatus: boolean;
+  /** Optional: called when the user clicks Get Token */
+  onGetToken?: () => void;
+  /** Optional: called when the user clicks Refresh Token */
+  onRefreshToken?: () => void;
+  /** Optional: called when the user clicks Delete Token */
+  onDeleteToken?: () => void;
 }
 
 /** Returns the HTML for the auth type <select> options. */
@@ -84,7 +90,14 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
         `</select></div>` +
       `<div class="auth-row"><label>Auto Fetch</label><input type="checkbox" id="${p}OAuth2AutoFetch" checked /></div>` +
       `<div class="auth-row"><label>Auto Refresh</label><input type="checkbox" id="${p}OAuth2AutoRefresh" checked /></div>` +
-      (showTokenStatus ? `<div class="oauth2-token-status" id="${p}OAuth2TokenStatus"></div>` : '');
+      (showTokenStatus
+        ? `<div class="auth-token-actions">` +
+            `<button class="auth-btn auth-btn-get" id="${p}OAuth2GetTokenBtn">Get Token</button>` +
+            `<button class="auth-btn auth-btn-refresh" id="${p}OAuth2RefreshTokenBtn">Refresh</button>` +
+            `<button class="auth-btn auth-btn-delete" id="${p}OAuth2DeleteTokenBtn">Delete</button>` +
+          `</div>` +
+          `<div class="oauth2-token-status" id="${p}OAuth2TokenStatus"></div>`
+        : '');
 
     const flowSelect = document.getElementById(p + 'OAuth2Flow') as HTMLSelectElement;
     const pwFields = document.getElementById(p + 'OAuth2PasswordFields')!;
@@ -96,6 +109,15 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
     };
     flowSelect.addEventListener('change', () => { updateFlowFields(); onChange(); });
     updateFlowFields();
+
+    if (showTokenStatus) {
+      const getBtn = document.getElementById(p + 'OAuth2GetTokenBtn');
+      const refreshBtn = document.getElementById(p + 'OAuth2RefreshTokenBtn');
+      const deleteBtn = document.getElementById(p + 'OAuth2DeleteTokenBtn');
+      if (getBtn && config.onGetToken) getBtn.addEventListener('click', () => config.onGetToken!());
+      if (refreshBtn && config.onRefreshToken) refreshBtn.addEventListener('click', () => config.onRefreshToken!());
+      if (deleteBtn && config.onDeleteToken) deleteBtn.addEventListener('click', () => config.onDeleteToken!());
+    }
   }
 
   // Wire change listeners for password inputs and selects

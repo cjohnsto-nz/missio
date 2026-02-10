@@ -196,6 +196,18 @@ const folderAuthConfig: AuthFieldsConfig = {
   wrapInputs: true,
   showTokenStatus: true,
   onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleUpdate)),
+  onGetToken: () => {
+    const auth = buildAuthData(($('defaultAuthType') as HTMLSelectElement).value, 'dAuth');
+    vscode.postMessage({ type: 'getToken', auth });
+  },
+  onRefreshToken: () => {
+    const auth = buildAuthData(($('defaultAuthType') as HTMLSelectElement).value, 'dAuth');
+    vscode.postMessage({ type: 'getToken', auth });
+  },
+  onDeleteToken: () => {
+    const auth = buildAuthData(($('defaultAuthType') as HTMLSelectElement).value, 'dAuth');
+    vscode.postMessage({ type: 'deleteToken', auth });
+  },
 };
 
 const tokenStatusCtrl = initOAuth2TokenStatusController({

@@ -53,13 +53,8 @@ export function initOAuth2TokenStatusController(opts: OAuth2TokenStatusControlle
     if (!el) return;
 
     if (!status?.hasToken) {
-      el.innerHTML = '<div class="token-status token-none">' +
-        '<span class="token-dot dot-none"></span> No token' +
-        `<button class="token-btn" id="${containerId}-get">Get Token</button></div>`;
-      el.querySelector(`#${containerId}-get`)?.addEventListener('click', () => {
-        const auth = opts.buildAuth();
-        opts.postMessage({ type: 'getToken', auth });
-      });
+      el.innerHTML = '<div class="token-status-text token-none">' +
+        '<span class="token-dot dot-none"></span> No token</div>';
       return;
     }
 
@@ -74,16 +69,10 @@ export function initOAuth2TokenStatusController(opts: OAuth2TokenStatusControlle
         : 'Valid (no expiry)';
     const expiresAt = status.expiresAt ? new Date(status.expiresAt).toLocaleTimeString() : '';
 
-    el.innerHTML = '<div class="token-status ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
+    el.innerHTML = '<div class="token-status-text ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
       '<span class="token-dot ' + dotClass + '"></span> ' + label +
       (expiresAt ? '<span class="token-expiry-time"> (' + opts.esc(expiresAt) + ')</span>' : '') +
-      `<button class="token-btn" id="${containerId}-refresh">${isExpired ? 'Get Token' : 'Refresh'}</button>` +
       '</div>';
-
-    el.querySelector(`#${containerId}-refresh`)?.addEventListener('click', () => {
-      const auth = opts.buildAuth();
-      opts.postMessage({ type: 'getToken', auth });
-    });
   }
 
   function handleStatus(status: any) {
@@ -108,7 +97,7 @@ export function initOAuth2TokenStatusController(opts: OAuth2TokenStatusControlle
 
     clearTimer();
     const isError = message.startsWith('Error:');
-    el.innerHTML = '<div class="token-status ' + (isError ? 'token-error' : 'token-progress') + '">' +
+    el.innerHTML = '<div class="token-status-text ' + (isError ? 'token-error' : 'token-progress') + '">' +
       (isError ? '<span class="token-dot dot-expired"></span> ' : '<span class="token-spinner"></span> ') +
       opts.esc(message) + '</div>';
   }

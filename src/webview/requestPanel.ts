@@ -737,6 +737,18 @@ const requestAuthConfig: import('./authFields').AuthFieldsConfig = {
   wrapInputs: true,
   showTokenStatus: true,
   onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleDocumentUpdate)),
+  onGetToken: () => {
+    const auth = getOAuth2AuthFromForm();
+    vscode.postMessage({ type: 'getToken', auth });
+  },
+  onRefreshToken: () => {
+    const auth = getOAuth2AuthFromForm();
+    vscode.postMessage({ type: 'getToken', auth });
+  },
+  onDeleteToken: () => {
+    const auth = getOAuth2AuthFromForm();
+    vscode.postMessage({ type: 'deleteToken', auth });
+  },
 };
 
 function onAuthTypeChange(): void {
@@ -802,13 +814,8 @@ function updateOAuth2TokenStatus(status: any): void {
   if (tokenStatusTimer) { clearInterval(tokenStatusTimer); tokenStatusTimer = null; }
 
   if (!status.hasToken) {
-    el.innerHTML = '<div class="token-status token-none">' +
-      '<span class="token-dot dot-none"></span> No token' +
-      '<button class="token-btn" id="oauth2GetTokenBtn">Get Token</button></div>';
-    el.querySelector('#oauth2GetTokenBtn')?.addEventListener('click', () => {
-      const auth = getOAuth2AuthFromForm();
-      vscode.postMessage({ type: 'getToken', auth });
-    });
+    el.innerHTML = '<div class="token-status-text token-none">' +
+      '<span class="token-dot dot-none"></span> No token</div>';
     return;
   }
 
@@ -819,15 +826,10 @@ function updateOAuth2TokenStatus(status: any): void {
     const dotClass = isExpired ? 'dot-expired' : 'dot-valid';
     const label = isExpired ? 'Expired' : remaining !== undefined ? `Expires in ${formatTimeRemaining(remaining)}` : 'Valid (no expiry)';
     const expiresAt = status.expiresAt ? new Date(status.expiresAt).toLocaleTimeString() : '';
-    el.innerHTML = '<div class="token-status ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
+    el.innerHTML = '<div class="token-status-text ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
       '<span class="token-dot ' + dotClass + '"></span> ' + label +
       (expiresAt ? '<span class="token-expiry-time"> (' + expiresAt + ')</span>' : '') +
-      '<button class="token-btn" id="oauth2RefreshTokenBtn">' + (isExpired ? 'Get Token' : 'Refresh') + '</button>' +
       '</div>';
-    el.querySelector('#oauth2RefreshTokenBtn')?.addEventListener('click', () => {
-      const auth = getOAuth2AuthFromForm();
-      vscode.postMessage({ type: 'getToken', auth });
-    });
   };
 
   renderStatus();
@@ -847,7 +849,7 @@ function updateOAuth2Progress(message: string): void {
   if (!el) return;
   if (message) {
     const isError = message.startsWith('Error:');
-    el.innerHTML = '<div class="token-status ' + (isError ? 'token-error' : 'token-progress') + '">' +
+    el.innerHTML = '<div class="token-status-text ' + (isError ? 'token-error' : 'token-progress') + '">' +
       (isError ? '<span class="token-dot dot-expired"></span> ' : '<span class="token-spinner"></span> ') +
       esc(message) + '</div>';
   }

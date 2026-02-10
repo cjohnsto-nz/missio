@@ -128,7 +128,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
           await sendVariables();
           return;
         }
-        if (msg.type === 'getTokenStatus' || msg.type === 'getToken') {
+        if (msg.type === 'getTokenStatus' || msg.type === 'getToken' || msg.type === 'deleteToken') {
           await this._handleTokenMessage(webviewPanel.webview, msg, document.uri.fsPath);
           return;
         }
