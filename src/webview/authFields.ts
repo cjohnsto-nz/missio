@@ -18,12 +18,10 @@ export interface AuthFieldsConfig {
   onFieldsRendered?: (elements: HTMLElement[]) => void;
   /** Whether to show the token status area for OAuth2 */
   showTokenStatus: boolean;
-  /** Optional: called when the user clicks Get Token */
-  onGetToken?: () => void;
-  /** Optional: called when the user clicks Refresh Token */
-  onRefreshToken?: () => void;
-  /** Optional: called when the user clicks Delete Token */
-  onDeleteToken?: () => void;
+  /** ID of the auth type select element (needed to build auth data for token actions) */
+  authTypeSelectId?: string;
+  /** postMessage bridge for token actions (get/refresh/delete) */
+  postMessage?: (msg: any) => void;
 }
 
 /** Returns the HTML for the auth type <select> options. */
@@ -110,13 +108,16 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
     flowSelect.addEventListener('change', () => { updateFlowFields(); onChange(); });
     updateFlowFields();
 
-    if (showTokenStatus) {
+    if (showTokenStatus && config.postMessage && config.authTypeSelectId) {
+      const getAuthData = () => buildAuthData(
+        (document.getElementById(config.authTypeSelectId!) as HTMLSelectElement).value, p
+      );
       const getBtn = document.getElementById(p + 'OAuth2GetTokenBtn');
       const refreshBtn = document.getElementById(p + 'OAuth2RefreshTokenBtn');
       const deleteBtn = document.getElementById(p + 'OAuth2DeleteTokenBtn');
-      if (getBtn && config.onGetToken) getBtn.addEventListener('click', () => config.onGetToken!());
-      if (refreshBtn && config.onRefreshToken) refreshBtn.addEventListener('click', () => config.onRefreshToken!());
-      if (deleteBtn && config.onDeleteToken) deleteBtn.addEventListener('click', () => config.onDeleteToken!());
+      if (getBtn) getBtn.addEventListener('click', () => config.postMessage!({ type: 'getToken', auth: getAuthData() }));
+      if (refreshBtn) refreshBtn.addEventListener('click', () => config.postMessage!({ type: 'getToken', auth: getAuthData() }));
+      if (deleteBtn) deleteBtn.addEventListener('click', () => config.postMessage!({ type: 'deleteToken', auth: getAuthData() }));
     }
   }
 

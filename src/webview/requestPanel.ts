@@ -12,6 +12,7 @@ import {
 import { highlight, escHtml } from './highlight';
 import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
+import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 import {
   handleAutocomplete,
   handleAutocompleteContentEditable,
@@ -737,18 +738,8 @@ const requestAuthConfig: import('./authFields').AuthFieldsConfig = {
   wrapInputs: true,
   showTokenStatus: true,
   onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleDocumentUpdate)),
-  onGetToken: () => {
-    const auth = getOAuth2AuthFromForm();
-    vscode.postMessage({ type: 'getToken', auth });
-  },
-  onRefreshToken: () => {
-    const auth = getOAuth2AuthFromForm();
-    vscode.postMessage({ type: 'getToken', auth });
-  },
-  onDeleteToken: () => {
-    const auth = getOAuth2AuthFromForm();
-    vscode.postMessage({ type: 'deleteToken', auth });
-  },
+  authTypeSelectId: 'authType',
+  postMessage: (msg) => vscode.postMessage(msg),
 };
 
 function onAuthTypeChange(): void {
@@ -757,103 +748,12 @@ function onAuthTypeChange(): void {
 }
 
 // ── OAuth2 Token Status ─────────────────────────
-function _ceVal(id: string): string {
-  const el = $(id) as any;
-  return el?._getRawText ? el._getRawText() : (el?.textContent || '');
-}
-
-function getOAuth2AuthFromForm(): any {
-  const flow = ($('oauth2Flow') as HTMLSelectElement)?.value || 'client_credentials';
-  const auth: any = {
-    type: 'oauth2',
-    flow,
-    accessTokenUrl: _ceVal('oauth2AccessTokenUrl'),
-    clientId: _ceVal('oauth2ClientId'),
-    clientSecret: _ceVal('oauth2ClientSecret'),
-    scope: _ceVal('oauth2Scope'),
-    refreshTokenUrl: _ceVal('oauth2RefreshTokenUrl'),
-    credentialsPlacement: ($('oauth2CredentialsPlacement') as HTMLSelectElement)?.value || 'basic_auth_header',
-    credentialsId: (currentRequest as any)?.http?.auth?.credentialsId,
-    autoFetchToken: ($('oauth2AutoFetch') as HTMLInputElement)?.checked !== false,
-    autoRefreshToken: ($('oauth2AutoRefresh') as HTMLInputElement)?.checked !== false,
-  };
-  if (flow === 'password') {
-    auth.username = _ceVal('oauth2Username');
-    auth.password = $input('oauth2Password')?.value || '';
-  } else if (flow === 'authorization_code') {
-    auth.authorizationUrl = _ceVal('oauth2AuthorizationUrl');
-    auth.pkce = ($('oauth2Pkce') as HTMLInputElement)?.checked !== false;
-  }
-  return auth;
-}
-
-function requestTokenStatus(): void {
-  if (($('authType') as HTMLSelectElement)?.value !== 'oauth2') return;
-  const auth = getOAuth2AuthFromForm();
-  if (auth.accessTokenUrl) {
-    vscode.postMessage({ type: 'getTokenStatus', auth });
-  }
-}
-
-function formatTimeRemaining(ms: number): string {
-  if (ms <= 0) return 'expired';
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ${secs % 60}s`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ${mins % 60}m`;
-}
-
-let tokenStatusTimer: any = null;
-
-function updateOAuth2TokenStatus(status: any): void {
-  const el = document.getElementById('oauth2TokenStatus');
-  if (!el) return;
-
-  if (tokenStatusTimer) { clearInterval(tokenStatusTimer); tokenStatusTimer = null; }
-
-  if (!status.hasToken) {
-    el.innerHTML = '<div class="token-status-text token-none">' +
-      '<span class="token-dot dot-none"></span> No token</div>';
-    return;
-  }
-
-  const renderStatus = () => {
-    const now = Date.now();
-    const remaining = status.expiresAt ? status.expiresAt - now : undefined;
-    const isExpired = remaining !== undefined && remaining <= 0;
-    const dotClass = isExpired ? 'dot-expired' : 'dot-valid';
-    const label = isExpired ? 'Expired' : remaining !== undefined ? `Expires in ${formatTimeRemaining(remaining)}` : 'Valid (no expiry)';
-    const expiresAt = status.expiresAt ? new Date(status.expiresAt).toLocaleTimeString() : '';
-    el.innerHTML = '<div class="token-status-text ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
-      '<span class="token-dot ' + dotClass + '"></span> ' + label +
-      (expiresAt ? '<span class="token-expiry-time"> (' + expiresAt + ')</span>' : '') +
-      '</div>';
-  };
-
-  renderStatus();
-  if (status.expiresAt) {
-    tokenStatusTimer = setInterval(() => {
-      renderStatus();
-      if (status.expiresAt && Date.now() > status.expiresAt) {
-        clearInterval(tokenStatusTimer);
-        tokenStatusTimer = null;
-      }
-    }, 1000);
-  }
-}
-
-function updateOAuth2Progress(message: string): void {
-  const el = document.getElementById('oauth2TokenStatus');
-  if (!el) return;
-  if (message) {
-    const isError = message.startsWith('Error:');
-    el.innerHTML = '<div class="token-status-text ' + (isError ? 'token-error' : 'token-progress') + '">' +
-      (isError ? '<span class="token-dot dot-expired"></span> ' : '<span class="token-spinner"></span> ') +
-      esc(message) + '</div>';
-  }
-}
+const tokenStatusCtrl = initOAuth2TokenStatusController({
+  prefix: 'auth',
+  buildAuth: () => buildAuthData(($('authType') as HTMLSelectElement).value, 'auth'),
+  postMessage: (msg) => vscode.postMessage(msg),
+  esc,
+});
 
 // ── Build request object ────────────────────────
 function buildRequest(): any {
@@ -1033,7 +933,7 @@ function loadRequest(req: any): void {
     setTimeout(() => {
       loadAuthData(auth, 'auth');
       syncAllVarOverlays();
-      requestTokenStatus();
+      tokenStatusCtrl.requestStatus();
     }, 0);
   }
 
@@ -1062,7 +962,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       $('exampleIndicator').style.display = 'none';
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
       setSendingState(false);
-      requestTokenStatus();
+      tokenStatusCtrl.requestStatus();
       break;
     case 'sending':
       setSendingState(true, msg.message ? 'Cancel' : undefined);
@@ -1125,17 +1025,17 @@ window.addEventListener('message', (event: MessageEvent) => {
       handleVariablesResolved(msg);
       syncHighlight();
       syncUrlHighlight();
-      requestTokenStatus();
+      tokenStatusCtrl.requestStatus();
       break;
     }
     case 'secretValueResolved':
       handleSecretValueResolved(msg);
       break;
     case 'oauth2TokenStatus':
-      updateOAuth2TokenStatus(msg.status);
+      tokenStatusCtrl.handleStatus(msg.status);
       break;
     case 'oauth2Progress':
-      updateOAuth2Progress(msg.message);
+      tokenStatusCtrl.handleProgress(msg.message);
       break;
   }
 });
