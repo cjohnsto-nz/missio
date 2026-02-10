@@ -6,3 +6,6 @@ out/
 media/*.js
 media/*.css
 media/*.map
+
+# code workspace
+*.code-workspace

@@ -500,6 +500,7 @@ function setBodyType(type: string): void {
     raw.style.flex = '1';
     form.style.display = 'none';
     langSelect.style.display = 'block';
+    syncHighlight();
   }
   syncAutoContentType();
 }
@@ -542,9 +543,10 @@ function syncHighlight(): void {
     const textarea = $('bodyData') as HTMLTextAreaElement;
     const pre = $('bodyHighlight');
     const lines = textarea.value.split('\n');
-    pre.innerHTML = lines.map(line =>
-      '<div class="code-line">' + highlight(line, currentLang) + '\n</div>'
-    ).join('');
+    pre.innerHTML = lines.map(line => {
+      const h = highlight(line, currentLang);
+      return '<div class="code-line">' + (h || '\u00a0') + '\n</div>';
+    }).join('');
     updateLineNumbers();
   } catch {
     // prevent highlighting errors from breaking UI
@@ -1002,9 +1004,7 @@ function loadRequest(req: any): void {
         setCurrentLang(body.type || 'json');
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
         syncAutoContentType();
-        if (body.data) {
-          ($('bodyData') as HTMLTextAreaElement).value = body.data;
-        }
+        ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
         syncHighlight();
       }
     }
