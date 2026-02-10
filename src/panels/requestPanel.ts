@@ -167,6 +167,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._saveBinaryResponse(msg.bodyBase64, msg.contentType);
         return true;
       }
+      case 'openInBrowser': {
+        await this._openInBrowser(msg.bodyBase64, msg.contentType);
+        return true;
+      }
       case 'refreshOAuthAndRetry': {
         const collection = this._findCollection(filePath);
         if (!collection) {
@@ -277,6 +281,15 @@ export class RequestEditorProvider extends BaseEditorProvider {
     } catch (e: any) {
       vscode.window.showErrorMessage(`Failed to save example: ${e.message}`);
     }
+  }
+
+  private async _openInBrowser(bodyBase64: string, contentType: string): Promise<void> {
+    const ext = contentType.includes('pdf') ? 'pdf' : 'bin';
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpPath = path.join(os.tmpdir(), `missio-preview-${Date.now()}.${ext}`);
+    fs.writeFileSync(tmpPath, Buffer.from(bodyBase64, 'base64'));
+    await vscode.env.openExternal(vscode.Uri.file(tmpPath));
   }
 
   private async _saveBinaryResponse(bodyBase64: string, contentType: string): Promise<void> {

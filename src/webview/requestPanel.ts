@@ -1210,6 +1210,13 @@ document.getElementById('panel-resp-preview')!.addEventListener('contextmenu', (
     vscode.postMessage({ type: 'saveBinaryResponse', bodyBase64: r.bodyBase64, contentType: ct });
   });
 
+  // Open in Browser (PDF only)
+  if (ct.includes('application/pdf')) {
+    addItem('Open in Browser', () => {
+      vscode.postMessage({ type: 'openInBrowser', bodyBase64: r.bodyBase64, contentType: ct });
+    });
+  }
+
   document.body.appendChild(menu);
   menu.style.left = e.clientX + 'px';
   menu.style.top = e.clientY + 'px';
