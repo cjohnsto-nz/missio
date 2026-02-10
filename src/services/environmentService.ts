@@ -376,7 +376,7 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   private _resolveVariableValue(value: Variable['value']): string | undefined {
-    if (value === undefined || value === null) { return ''; }
+    if (value === undefined || value === null) { return undefined; }
     if (typeof value === 'string') { return value; }
 
     // VariableTypedValue
