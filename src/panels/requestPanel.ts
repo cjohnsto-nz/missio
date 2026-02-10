@@ -231,7 +231,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
     try {
       // httpClient.send handles the full pipeline: variable resolution, auth
       // (including OAuth2 with $secret references), headers, body, and secrets.
-      const response = await this._httpClient.send(requestData, collection, folderDefaults);
+      const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
+        webview.postMessage({ type: 'sending', message: msg });
+      });
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];

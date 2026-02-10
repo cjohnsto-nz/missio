@@ -37,6 +37,7 @@ export class HttpClient implements vscode.Disposable {
     request: HttpRequest,
     collection: MissioCollection,
     folderDefaults?: import('../models/types').RequestDefaults,
+    onProgress?: (message: string) => void,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
@@ -137,6 +138,7 @@ export class HttpClient implements vscode.Disposable {
 
     _mark('Auth', tPhase);
     _log(`  auth: ${Date.now() - t0}ms`);
+    onProgress?.('Sending request…');
     tPhase = Date.now();
     // Body
     let body: string | Buffer | undefined;
