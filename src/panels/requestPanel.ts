@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest, RequestDefaults, AuthOAuth2, MissioCollection } from '../models/types';
+import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
 import { type HttpClient, requestLog } from '../services/httpClient';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
@@ -181,56 +181,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
       webview.postMessage({ type: 'sending' });
     }
 
-    const preTiming: { label: string; start: number; end: number }[] = [];
     try {
-      if (isOAuth2) {
-        const auth = effectiveAuth as AuthOAuth2;
-        let tPhase = Date.now();
-        const vars = await this._environmentService.resolveVariables(collection);
-        const providers = collection.data.config?.secretProviders ?? [];
-        const resolve = async (val: string | undefined): Promise<string | undefined> => {
-          if (!val) return undefined;
-          let result = this._environmentService.interpolate(val, vars);
-          if (providers.length > 0) {
-            result = await this._secretService.resolveSecretReferences(result, providers, vars);
-          }
-          return result;
-        };
-        const interpolated: AuthOAuth2 = {
-          type: 'oauth2', flow: auth.flow,
-          accessTokenUrl: await resolve(auth.accessTokenUrl),
-          refreshTokenUrl: await resolve(auth.refreshTokenUrl),
-          clientId: await resolve(auth.clientId),
-          clientSecret: await resolve(auth.clientSecret),
-          username: await resolve(auth.username),
-          password: await resolve(auth.password),
-          scope: await resolve(auth.scope),
-          credentialsPlacement: auth.credentialsPlacement,
-          credentialsId: auth.credentialsId,
-          autoFetchToken: true,
-          autoRefreshToken: auth.autoRefreshToken,
-        };
-        preTiming.push({ label: 'OAuth2 Resolve', start: 0, end: Date.now() - _t0 });
-        _rlog(`  oauth2 resolve fields: ${Date.now() - _t0}ms`);
-        tPhase = Date.now();
-        const envName = this._environmentService.getActiveEnvironmentName(collection.id);
-        await this._oauth2Service.getToken(interpolated, collection.id, envName);
-        preTiming.push({ label: 'OAuth2 Token', start: tPhase - _t0, end: Date.now() - _t0 });
-        _rlog(`  oauth2 getToken: ${Date.now() - _t0}ms`);
-        webview.postMessage({ type: 'sending', message: 'Sending request…' });
-      }
-      const preSendMs = Date.now() - _t0;
-      _rlog(`  pre-send: ${preSendMs}ms`);
+      // httpClient.send handles the full pipeline: variable resolution, auth
+      // (including OAuth2 with $secret references), headers, body, and secrets.
       const response = await this._httpClient.send(requestData, collection, folderDefaults);
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
-      // Merge timing: offset httpClient timing by preSendMs so it's relative to _t0
-      const httpTiming = (response as any).timing ?? [];
-      const allTiming = [
-        ...preTiming,
-        ...httpTiming.map((t: any) => ({ label: t.label, start: t.start + preSendMs, end: t.end + preSendMs })),
-      ];
-      webview.postMessage({ type: 'response', response, preRequestMs: preSendMs, timing: allTiming });
+      const timing = (response as any).timing ?? [];
+      webview.postMessage({ type: 'response', response, timing });
     } catch (e: any) {
       webview.postMessage({
         type: 'response',

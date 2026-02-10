@@ -806,6 +806,9 @@ $('addEnvBtn').addEventListener('click', (e) => {
     addEnv('blank');
   }
 });
+$('importEnvBtn').addEventListener('click', () => {
+  vscode.postMessage({ type: 'importEnvironment' });
+});
 $('removeEnvBtn').addEventListener('click', removeEnv);
 $('envSelector').addEventListener('change', () => {
   const idx = parseInt(($('envSelector') as HTMLSelectElement).value, 10);

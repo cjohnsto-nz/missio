@@ -7,12 +7,18 @@ export class CollectionService implements vscode.Disposable {
   private _collections: Map<string, MissioCollection> = new Map();
   private _workspaces: Map<string, OpenCollectionWorkspace> = new Map();
   private _watchers: vscode.FileSystemWatcher[] = [];
+  private _disposables: vscode.Disposable[] = [];
+  private _pollTimer: NodeJS.Timeout | undefined;
+  private _lastFingerprint = '';
   private _onDidChange = new vscode.EventEmitter<void>();
   public readonly onDidChange = this._onDidChange.event;
+  private static readonly POLL_INTERVAL = 5_000; // 5s
 
   async initialize(): Promise<void> {
     await this._scanWorkspaceFolders();
+    this._lastFingerprint = await this._computeFingerprint();
     this._setupWatchers();
+    this._startPolling();
   }
 
   getCollections(): MissioCollection[] {
@@ -31,6 +37,7 @@ export class CollectionService implements vscode.Disposable {
     this._collections.clear();
     this._workspaces.clear();
     await this._scanWorkspaceFolders();
+    this._lastFingerprint = await this._computeFingerprint();
     this._onDidChange.fire();
   }
 
@@ -189,6 +196,43 @@ export class CollectionService implements vscode.Disposable {
     requestWatcher.onDidDelete(debounceRefresh);
 
     this._watchers.push(collectionWatcher, workspaceWatcher, requestWatcher);
+
+    this._disposables.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => debounceRefresh()),
+      vscode.workspace.onDidRenameFiles(() => debounceRefresh()),
+      vscode.workspace.onDidCreateFiles(() => debounceRefresh()),
+      vscode.workspace.onDidDeleteFiles(() => debounceRefresh()),
+    );
+  }
+
+  private _startPolling(): void {
+    const tick = async () => {
+      try {
+        const fingerprint = await this._computeFingerprint();
+        if (fingerprint !== this._lastFingerprint) {
+          this._lastFingerprint = fingerprint;
+          await this.refresh();
+        }
+      } catch {
+        // Swallow — transient FS errors shouldn't crash the poll loop
+      }
+      this._pollTimer = setTimeout(tick, CollectionService.POLL_INTERVAL);
+    };
+    this._pollTimer = setTimeout(tick, CollectionService.POLL_INTERVAL);
+  }
+
+  /** Build a lightweight fingerprint from yml file paths + mtimes to detect external changes. */
+  private async _computeFingerprint(): Promise<string> {
+    const files = await vscode.workspace.findFiles('**/*.{yml,yaml}', '**/node_modules/**');
+    const parts: string[] = [];
+    for (const uri of files) {
+      try {
+        const stat = await vscode.workspace.fs.stat(uri);
+        parts.push(`${uri.fsPath}:${stat.mtime}`);
+      } catch { /* deleted between find and stat */ }
+    }
+    parts.sort();
+    return parts.join('\n');
   }
 
   private _debounce(fn: () => void, ms: number): () => void {
@@ -200,7 +244,9 @@ export class CollectionService implements vscode.Disposable {
   }
 
   dispose(): void {
+    if (this._pollTimer) { clearTimeout(this._pollTimer); }
     this._watchers.forEach(w => w.dispose());
+    this._disposables.forEach(d => d.dispose());
     this._onDidChange.dispose();
   }
 }

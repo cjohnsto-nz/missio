@@ -107,6 +107,10 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     msg: any,
     ctx: EditorContext,
   ): Promise<boolean> {
+    if (msg.type === 'importEnvironment') {
+      await vscode.commands.executeCommand('missio.importEnvironment');
+      return true;
+    }
     if (msg.type === 'testSecretProvider') {
       try {
         const collection = this._findCollection(ctx.document.uri.fsPath);
@@ -241,8 +245,9 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <div class="tab-panel" id="panel-environments">
         <div class="env-toolbar">
           <div class="form-field"><label>Environment</label><select class="auth-select" id="envSelector"></select></div>
-          <button class="env-toolbar-btn" id="addEnvBtn" title="Add Environment">+</button>
-          <button class="env-toolbar-btn env-toolbar-delete" id="removeEnvBtn" title="Remove Environment">\u00d7</button>
+          <button class="env-toolbar-btn env-toolbar-add" id="addEnvBtn" title="Add Environment"><span class="codicon codicon-add"></span></button>
+          <button class="env-toolbar-btn env-toolbar-import" id="importEnvBtn" title="Import Environment"><span class="codicon codicon-desktop-download"></span></button>
+          <button class="env-toolbar-btn env-toolbar-delete" id="removeEnvBtn" title="Remove Environment"><span class="codicon codicon-trash"></span></button>
         </div>
         <div id="envDetail"></div>
       </div>

@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "configurations": [
     {
       "name": "Missio: Run Extension (build once)",
@@ -28,6 +28,22 @@
         "${workspaceFolder}/dist/**/*.js"
       ],
       "preLaunchTask": "npm: watch"
+    },
+    {
+      "name": "Missio: Debug All Tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+      "args": [
+        "run"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "smartStep": true
     }
   ]
 }

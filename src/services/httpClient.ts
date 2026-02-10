@@ -336,19 +336,29 @@ export class HttpClient implements vscode.Disposable {
       throw new Error('OAuth2 service not available');
     }
 
-    // Interpolate all OAuth2 config fields with variables
+    // Interpolate + resolve $secret references in all OAuth2 config fields
+    const providers = collection.data.config?.secretProviders ?? [];
+    const resolve = async (val: string | undefined): Promise<string | undefined> => {
+      if (!val) return undefined;
+      let result = this._environmentService.interpolate(val, variables);
+      if (providers.length > 0 && this._secretService) {
+        result = await this._secretService.resolveSecretReferences(result, providers, variables);
+      }
+      return result;
+    };
+
     const interpolated: AuthOAuth2 = {
       type: 'oauth2',
       flow: auth.flow,
-      accessTokenUrl: auth.accessTokenUrl ? this._environmentService.interpolate(auth.accessTokenUrl, variables) : undefined,
-      refreshTokenUrl: auth.refreshTokenUrl ? this._environmentService.interpolate(auth.refreshTokenUrl, variables) : undefined,
-      authorizationUrl: auth.authorizationUrl ? this._environmentService.interpolate(auth.authorizationUrl, variables) : undefined,
-      callbackUrl: auth.callbackUrl ? this._environmentService.interpolate(auth.callbackUrl, variables) : undefined,
-      clientId: auth.clientId ? this._environmentService.interpolate(auth.clientId, variables) : undefined,
-      clientSecret: auth.clientSecret ? this._environmentService.interpolate(auth.clientSecret, variables) : undefined,
-      username: auth.username ? this._environmentService.interpolate(auth.username, variables) : undefined,
-      password: auth.password ? this._environmentService.interpolate(auth.password, variables) : undefined,
-      scope: auth.scope ? this._environmentService.interpolate(auth.scope, variables) : undefined,
+      accessTokenUrl: await resolve(auth.accessTokenUrl),
+      refreshTokenUrl: await resolve(auth.refreshTokenUrl),
+      authorizationUrl: await resolve(auth.authorizationUrl),
+      callbackUrl: await resolve(auth.callbackUrl),
+      clientId: await resolve(auth.clientId),
+      clientSecret: await resolve(auth.clientSecret),
+      username: await resolve(auth.username),
+      password: await resolve(auth.password),
+      scope: await resolve(auth.scope),
       credentialsPlacement: auth.credentialsPlacement,
       credentialsId: auth.credentialsId,
       autoFetchToken: auth.autoFetchToken,
