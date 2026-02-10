@@ -881,12 +881,12 @@ td.var-cell .var-overlay {
   white-space: nowrap;
   text-align: center;
 }
-.auth-btn-get { color: var(--badge-success, #22c55e); }
-.auth-btn-get:hover { border-color: var(--badge-success, #22c55e); background: rgba(34,197,94,0.05); }
-.auth-btn-refresh { color: var(--btn-bg, #0078d4); }
-.auth-btn-refresh:hover { border-color: var(--btn-bg, #0078d4); background: rgba(0,120,212,0.05); }
-.auth-btn-delete { color: var(--badge-error, #ef4444); }
-.auth-btn-delete:hover { border-color: var(--badge-error, #ef4444); background: rgba(239,68,68,0.05); }
+.auth-btn-get { color: var(--fg); border-color: var(--badge-success, #22c55e); }
+.auth-btn-get:hover { background: rgba(34,197,94,0.08); }
+.auth-btn-refresh { color: var(--fg); border-color: var(--btn-bg, #0078d4); }
+.auth-btn-refresh:hover { background: rgba(0,120,212,0.08); }
+.auth-btn-delete { color: var(--fg); border-color: var(--badge-error, #ef4444); }
+.auth-btn-delete:hover { background: rgba(239,68,68,0.08); }
 
 /* ── OAuth2 Token Status ─────────────────── */
 .oauth2-token-status { margin-top: 8px; }
