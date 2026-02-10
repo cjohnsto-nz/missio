@@ -43,9 +43,30 @@ function inp(id: string, placeholder: string, wrap: boolean, type: string = 'tex
   return `<div class="auth-val-ce" id="${id}" contenteditable="true" data-placeholder="${placeholder}"></div>`;
 }
 
+// In-session cache: preserves auth field values when switching between auth types.
+// Keyed by prefix → auth type → auth data object.
+const _authCache: Record<string, Record<string, any>> = {};
+
+/** Detect which auth type is currently rendered by checking for known element IDs. */
+function _detectCurrentAuthType(prefix: string): string | null {
+  if (document.getElementById(prefix + 'Token')) return 'bearer';
+  if (document.getElementById(prefix + 'Username') && !document.getElementById(prefix + 'OAuth2Flow')) return 'basic';
+  if (document.getElementById(prefix + 'Key')) return 'apikey';
+  if (document.getElementById(prefix + 'OAuth2Flow')) return 'oauth2';
+  return null;
+}
+
 /** Render the appropriate fields for the given auth type. */
 export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
   const { prefix: p, fieldsContainer: fields, onChange, wrapInputs: w, showTokenStatus } = config;
+
+  // Snapshot current auth data before replacing fields
+  const prevType = _detectCurrentAuthType(p);
+  if (prevType && prevType !== 'none' && prevType !== 'inherit') {
+    if (!_authCache[p]) _authCache[p] = {};
+    _authCache[p][prevType] = buildAuthData(prevType, p);
+  }
+
   fields.innerHTML = '';
 
   if (type === 'bearer') {
@@ -132,6 +153,12 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
   if (config.onFieldsRendered) {
     const ceElements = Array.from(fields.querySelectorAll<HTMLElement>('.auth-val-ce'));
     config.onFieldsRendered(ceElements);
+  }
+
+  // Restore cached auth data if available (preserves values when switching between types)
+  const cached = _authCache[p]?.[type];
+  if (cached) {
+    loadAuthData(cached, p);
   }
 }
 
