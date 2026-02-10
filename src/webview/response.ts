@@ -25,18 +25,8 @@ function isPreviewable(ct: string): boolean {
 
 export function showLoading(text?: string): void {
   $('respLoading').style.display = 'flex';
-  $('respEmpty').style.display = 'none';
-  $('respBodyWrap').style.display = 'none';
-  $('responseBar').style.display = 'none';
-  $('respTabs').style.display = 'none';
   if (text) setLoadingText(text);
   startLoadingTimer();
-  // Invalidate preview content
-  const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
-  if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
-  const pdfContainer = document.getElementById('respPdfContainer');
-  if (pdfContainer) { pdfContainer.innerHTML = ''; pdfContainer.style.display = 'none'; }
-  if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = undefined; }
 }
 
 export function setLoadingText(text: string): void {
@@ -99,6 +89,12 @@ type TimingEntry = { label: string; start: number; end: number };
 export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEntry[], usedOAuth2?: boolean): void {
   const renderStart = Date.now();
   hideLoading();
+  // Invalidate previous preview content
+  const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
+  if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
+  const pdfContainer = document.getElementById('respPdfContainer');
+  if (pdfContainer) { pdfContainer.innerHTML = ''; pdfContainer.style.display = 'none'; }
+  if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = undefined; }
   lastResponse = resp;
   $('responseBar').style.display = 'flex';
   $('respTabs').style.display = 'flex';

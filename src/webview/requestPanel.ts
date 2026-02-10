@@ -977,6 +977,16 @@ window.addEventListener('message', (event: MessageEvent) => {
       }
       break;
     }
+    case 'cancelled': {
+      hideLoading();
+      setSendingState(false);
+      $('responseBar').style.display = 'flex';
+      $('respTabs').style.display = 'flex';
+      const badge = $('statusBadge');
+      badge.textContent = '0 Cancelled';
+      badge.className = 'status-badge s0xx';
+      break;
+    }
     case 'error':
       hideLoading();
       setSendingState(false);

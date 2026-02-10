@@ -338,6 +338,7 @@ body {
   flex: 1;
   overflow: auto;
   padding: 12px 16px;
+  position: relative;
 }
 .response-body pre {
   font-family: var(--vscode-editor-font-family, monospace);
@@ -928,6 +929,11 @@ td.var-cell .var-overlay {
   padding: 40px;
   color: var(--m-fg-muted);
   font-size: 13px;
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--vscode-editor-background, rgba(30,30,30,0.85));
+  opacity: 0.9;
 }
 .loading-overlay .spinner {
   width: 28px;

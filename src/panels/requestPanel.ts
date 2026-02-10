@@ -239,10 +239,15 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const timing = (response as any).timing ?? [];
       webview.postMessage({ type: 'response', response, timing, usedOAuth2: !!isOAuth2 });
     } catch (e: any) {
-      webview.postMessage({
-        type: 'response',
-        response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
-      });
+      if (e.message === 'Request cancelled') {
+        webview.postMessage({ type: 'cancelled' });
+        return;
+      } else {
+        webview.postMessage({
+          type: 'response',
+          response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
+        });
+      }
     }
   }
 
