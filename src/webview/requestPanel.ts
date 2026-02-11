@@ -26,7 +26,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, cancelHoverTimer } from './varTooltip';
+import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, handleSetSecretValueResult, cancelHoverTimer } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -1040,6 +1040,9 @@ window.addEventListener('message', (event: MessageEvent) => {
     }
     case 'secretValueResolved':
       handleSecretValueResolved(msg);
+      break;
+    case 'setSecretValueResult':
+      handleSetSecretValueResult(msg);
       break;
     case 'oauth2TokenStatus':
       tokenStatusCtrl.handleStatus(msg.status);

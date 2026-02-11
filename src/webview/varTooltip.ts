@@ -23,6 +23,8 @@ const SCOPES: ScopeDef[] = [
   { key: 'global',      label: 'Globals',      badge: 'G', badgeClass: 'var-scope-badge-G' },
 ];
 
+const SECRET_SCOPE: ScopeDef = { key: 'secret', label: 'Secret Provider', badge: 'S', badgeClass: 'var-scope-badge-secret' };
+
 // SVG eye icon that works in both light and dark themes
 const EYE_SVG = "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>";
 
@@ -37,6 +39,7 @@ function scopeDefForSource(source: string): ScopeDef {
 
 let activeTooltip: HTMLElement | null = null;
 let _pendingSecretRef: string | null = null;
+let _pendingSetRef: string | null = null;
 let _dismissTimer: ReturnType<typeof setTimeout> | null = null;
 let _hoverTimer: ReturnType<typeof setTimeout> | null = null;
 const DISMISS_DELAY = 150; // ms before tooltip disappears after mouse leaves
@@ -87,6 +90,26 @@ export function handleSecretValueResolved(msg: { secretRef: string; value?: stri
   valueInput.value = msg.value ?? '';
 }
 
+/** Called when the extension host responds to a setSecretValue request. */
+export function handleSetSecretValueResult(msg: { secretRef: string; success: boolean; error?: string }): void {
+  if (!activeTooltip || msg.secretRef !== _pendingSetRef) return;
+  const feedback = activeTooltip.querySelector('.var-tooltip-feedback') as HTMLElement;
+  _pendingSetRef = null;
+
+  if (msg.success) {
+    if (feedback) {
+      feedback.innerHTML = "<span style='color:var(--badge-success, #22c55e);'>\u2713 Saved</span>";
+      setTimeout(() => hideVarTooltip(), 1200);
+    } else {
+      hideVarTooltip();
+    }
+  } else {
+    if (feedback) {
+      feedback.innerHTML = "<span style='color:var(--badge-error, #ef4444);'>\u2717 " + esc(msg.error || 'Failed') + "</span>";
+    }
+  }
+}
+
 export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: VarTooltipContext): void {
   hideVarTooltip();
 
@@ -117,9 +140,12 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   }
   inputHtml += "</div>";
 
-  // Scope selector row — identical for all types
-  const currentScope = resolved ? scopeDefForSource(source) : (isProviderSecret ? { badge: 'S', badgeClass: 'var-scope-badge-secret', label: 'Secret Provider', key: 'secret' } as any : null);
+  // Scope selector row — same dropdown for all types, provider secrets get an extra "Secret Provider" option
+  const currentScope = resolved
+    ? (isProviderSecret ? SECRET_SCOPE : scopeDefForSource(source))
+    : (isProviderSecret ? SECRET_SCOPE : null);
   const selectedScope = currentScope || SCOPES[0];
+  const allScopes = isProviderSecret ? [SECRET_SCOPE, ...SCOPES] : SCOPES;
 
   const scopeHtml = "<div class='var-tooltip-scope-row'>" +
     "<div class='var-scope-dropdown'>" +
@@ -128,7 +154,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         "<span>Save to " + selectedScope.label + " \u25BE</span>" +
       "</button>" +
       "<div class='var-scope-menu'>" +
-        SCOPES.map(s =>
+        allScopes.map(s =>
           "<button class='var-scope-option' data-scope='" + s.key + "'>" +
             "<span class='var-scope-badge " + s.badgeClass + "'>" + s.badge + "</span>" +
             "<span>" + s.label + "</span>" +
@@ -136,6 +162,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         ).join('') +
       "</div>" +
     "</div>" +
+    "<span class='var-tooltip-feedback'></span>" +
   "</div>";
 
   tooltip.innerHTML = inputHtml + scopeHtml;
@@ -153,7 +180,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   // ── Wire interactions ──
 
   // Scope dropdown
-  let selectedScopeKey = (currentScope?.key ?? SCOPES[0].key);
+  let selectedScopeKey = selectedScope.key;
   const scopeTrigger = tooltip.querySelector('.var-scope-trigger');
   const scopeMenu = tooltip.querySelector('.var-scope-menu');
   if (scopeTrigger && scopeMenu) {
@@ -166,7 +193,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         e.stopPropagation();
         const scope = (opt as HTMLElement).dataset.scope!;
         selectedScopeKey = scope;
-        const sd = SCOPES.find(s => s.key === scope) || SCOPES[0];
+        const sd = allScopes.find(s => s.key === scope) || SCOPES[0];
         scopeTrigger.innerHTML =
           "<span class='var-scope-badge " + sd.badgeClass + "'>" + sd.badge + "</span>" +
           "<span>Save to " + sd.label + " \u25BE</span>";
@@ -197,10 +224,19 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
       if (e.key === 'Enter') {
         e.preventDefault();
         const value = valueInput.value ?? '';
-        if (ctx.postMessage) {
-          ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
+        if (selectedScopeKey === 'secret') {
+          // Save to secret provider vault
+          if (!value) return;
+          _pendingSetRef = varName;
+          const fb = tooltip.querySelector('.var-tooltip-feedback') as HTMLElement;
+          if (fb) fb.innerHTML = "<span style='color:var(--m-fg-muted);'>Saving\u2026</span>";
+          ctx.postMessage?.({ type: 'setSecretValue', secretRef: varName, value });
+        } else {
+          if (ctx.postMessage) {
+            ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
+          }
+          hideVarTooltip();
         }
-        hideVarTooltip();
       }
       if (e.key === 'Escape') {
         hideVarTooltip();

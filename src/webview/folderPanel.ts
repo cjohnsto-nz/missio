@@ -7,7 +7,7 @@ import {
   registerFlushOnSave, setPostMessage,
   getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { handleSecretValueResolved } from './varTooltip';
+import { handleSecretValueResolved, handleSetSecretValueResult } from './varTooltip';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -297,6 +297,9 @@ window.addEventListener('message', (event: MessageEvent) => {
   }
   if (msg.type === 'secretValueResolved') {
     handleSecretValueResolved(msg);
+  }
+  if (msg.type === 'setSecretValueResult') {
+    handleSetSecretValueResult(msg);
   }
   if (msg.type === 'oauth2TokenStatus') {
     tokenStatusCtrl.handleStatus(msg.status);

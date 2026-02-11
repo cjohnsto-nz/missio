@@ -261,6 +261,32 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
           }
           return;
         }
+        if (msg.type === 'setSecretValue') {
+          try {
+            const secretRef: string = msg.secretRef; // e.g. "$secret.kv-name.my-key"
+            const match = /^\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)$/.exec(secretRef);
+            if (!match) {
+              webviewPanel.webview.postMessage({ type: 'setSecretValueResult', secretRef: msg.secretRef, success: false, error: 'Invalid secret reference format.' });
+              return;
+            }
+            const [, providerName, secretName] = match;
+            const collection = this._findCollection(document.uri.fsPath);
+            if (!collection) {
+              webviewPanel.webview.postMessage({ type: 'setSecretValueResult', secretRef: msg.secretRef, success: false, error: 'Collection not found.' });
+              return;
+            }
+            const providers = collection.data.config?.secretProviders || [];
+            const variables = await this._environmentService.resolveVariables(collection);
+            await this._secretService.setSecret(providerName, secretName, msg.value, providers, variables);
+            // Invalidate the secret names cache so new secrets show up in autocomplete
+            this._secretService.clearSecretNamesCache();
+            webviewPanel.webview.postMessage({ type: 'setSecretValueResult', secretRef: msg.secretRef, success: true });
+            await sendVariables();
+          } catch (e: any) {
+            webviewPanel.webview.postMessage({ type: 'setSecretValueResult', secretRef: msg.secretRef, success: false, error: e.message });
+          }
+          return;
+        }
         // Delegate to subclass
         await this._onMessage(webviewPanel.webview, msg, ctx);
       }),

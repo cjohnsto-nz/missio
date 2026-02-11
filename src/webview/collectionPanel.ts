@@ -3,6 +3,7 @@ import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 import { escHtml } from './varlib';
 import {
   setSecretNamesForProvider,
+  getSecretNamesForProvider,
 } from './autocomplete';
 import {
   highlightVariables, enableVarOverlay, enableContentEditableValue,
@@ -10,7 +11,7 @@ import {
   registerFlushOnSave, setPostMessage,
   getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { handleSecretValueResolved } from './varTooltip';
+import { handleSecretValueResolved, handleSetSecretValueResult as handleSetSecretValueResultTooltip } from './varTooltip';
 
 declare function acquireVsCodeApi(): { postMessage(msg: any): void; getState(): any; setState(s: any): void };
 const vscode = acquireVsCodeApi();
@@ -21,6 +22,9 @@ let ignoreNextLoad = false;
 let isLoading = false;
 let activeEnvIdx = -1;
 let saveTimer: any = null;
+
+// Track which providers have write access (set after testConnection)
+const _providerWriteAccess = new Map<string, boolean>();
 
 // ── Helpers ──────────────────────────────────
 function $(id: string) { return document.getElementById(id)!; }
@@ -671,10 +675,27 @@ window.addEventListener('message', (event) => {
     if (targetRow) {
       const btn = targetRow.querySelector('.btn-test-vault') as HTMLButtonElement;
       if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
+      // Populate role cell
+      const roleCell = targetRow.querySelector('.sp-role-cell') as HTMLElement;
+      if (roleCell && msg.success) {
+        const roleName = msg.role || '';
+        const shortRole = roleName.replace('Key Vault ', '');
+        if (msg.canWrite) {
+          roleCell.innerHTML = '<span class="sp-access-badge writable">' + esc(shortRole) + '</span>';
+        } else if (roleName) {
+          roleCell.innerHTML = '<span class="sp-access-badge read-only">' + esc(shortRole) + '</span>';
+        } else {
+          roleCell.innerHTML = '<span class="sp-access-badge read-only">No role</span>';
+        }
+      }
     }
     // Store secret names for autocomplete
     if (msg.success && msg.providerName && msg.secretNames) {
       setSecretNamesForProvider(msg.providerName, msg.secretNames);
+    }
+    // Track write access
+    if (msg.success && msg.providerName) {
+      _providerWriteAccess.set(msg.providerName, !!msg.canWrite);
     }
     // Show result
     const resultDiv = $('secretTestResult');
@@ -683,7 +704,9 @@ window.addEventListener('message', (event) => {
     } else {
       resultDiv.innerHTML = `<span style="color:var(--badge-error);">\u2717 ${esc(msg.error || 'Connection failed')}</span>`;
     }
-    setTimeout(() => { resultDiv.innerHTML = ''; }, 10000);
+    // Update create secret form visibility
+    updateCreateSecretForm();
+    setTimeout(() => { resultDiv.innerHTML = ''; }, 15000);
   }
   if (msg.type === 'secretNamesResult') {
     if (msg.providerName && msg.secretNames) {
@@ -709,6 +732,30 @@ window.addEventListener('message', (event) => {
   }
   if (msg.type === 'secretValueResolved') {
     handleSecretValueResolved(msg);
+  }
+  if (msg.type === 'createSecretInVaultResult') {
+    const resultDiv = $('createSecretResult');
+    const btn = $('createSecretBtn') as HTMLButtonElement;
+    if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+    if (msg.success) {
+      if (resultDiv) resultDiv.innerHTML = `<span style="color:var(--badge-success);">✓ Secret "${esc(msg.secretName)}" saved to ${esc(msg.providerName)}</span>`;
+      // Clear form inputs
+      const nameInp = $('createSecretName') as HTMLInputElement;
+      const valInp = $('createSecretValue') as HTMLInputElement;
+      if (nameInp) nameInp.value = '';
+      if (valInp) valInp.value = '';
+      // Update autocomplete
+      if (msg.providerName && msg.secretNames) {
+        setSecretNamesForProvider(msg.providerName, msg.secretNames);
+      }
+    } else {
+      if (resultDiv) resultDiv.innerHTML = `<span style="color:var(--badge-error);">✗ ${esc(msg.error || 'Failed to create secret')}</span>`;
+    }
+    if (resultDiv) setTimeout(() => { resultDiv.innerHTML = ''; }, 10000);
+  }
+  if (msg.type === 'setSecretValueResult') {
+    handleSetSecretValueResultTooltip(msg);
+    handleSetSecretValueResult(msg);
   }
   if (msg.type === 'switchTab') {
     const tab = msg.tab;
@@ -742,6 +789,7 @@ function addSecretProviderRow(name?: string, providerType?: string, url?: string
     `<td><input type="text" value="${esc(name || '')}" placeholder="my-vault" class="sp-name" /></td>` +
     `<td><select class="type-select select-borderless sp-type"><option value="azure-keyvault"${t === 'azure-keyvault' ? ' selected' : ''}>Azure Key Vault</option></select></td>` +
     `<td class="val-cell"><div class="val-ce sp-url" contenteditable="true" data-placeholder="https://{{vault-name}}.vault.azure.net"></div></td>` +
+    `<td class="sp-role-cell"></td>` +
     `<td><button class="btn-test-vault" title="Test connection">Test</button></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); $('secretsBadge').textContent = String(tbody.children.length); scheduleUpdate(); });
@@ -780,6 +828,115 @@ function buildSecretProviders(): any[] {
     }
   });
   return providers;
+}
+
+// ── Create Secret Form ───────────────────────
+function getWritableProviders(): string[] {
+  const names: string[] = [];
+  for (const [name, canWrite] of _providerWriteAccess) {
+    if (canWrite) names.push(name);
+  }
+  return names;
+}
+
+function updateCreateSecretForm() {
+  const container = $('createSecretFormContainer');
+  if (!container) return;
+  const writable = getWritableProviders();
+  if (writable.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML =
+    '<div class="create-secret-form">' +
+      '<div class="form-title">Create / Update Secret</div>' +
+      '<div class="form-row">' +
+        '<div class="form-field">' +
+          '<label>Provider</label>' +
+          '<select id="createSecretProvider">' +
+            writable.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') +
+          '</select>' +
+        '</div>' +
+        '<div class="form-field" style="position:relative;">' +
+          '<label>Secret Name</label>' +
+          '<input type="text" id="createSecretName" placeholder="my-secret-key" autocomplete="off" />' +
+          '<div id="createSecretNameDropdown" class="secret-name-dropdown"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-row">' +
+        '<div class="form-field">' +
+          '<label>Value</label>' +
+          '<input type="password" id="createSecretValue" placeholder="secret value" />' +
+        '</div>' +
+        '<button class="create-secret-btn" id="createSecretBtn" style="width:80px;flex-shrink:0;">Create</button>' +
+      '</div>' +
+      '<div id="createSecretResult" class="create-secret-result"></div>' +
+    '</div>';
+
+  // Wire create button
+  const btn = $('createSecretBtn') as HTMLButtonElement;
+  btn.addEventListener('click', () => {
+    const providerName = ($('createSecretProvider') as HTMLSelectElement).value;
+    const secretName = ($('createSecretName') as HTMLInputElement).value.trim();
+    const value = ($('createSecretValue') as HTMLInputElement).value;
+    if (!providerName || !secretName) {
+      const rd = $('createSecretResult');
+      if (rd) rd.innerHTML = '<span style="color:var(--badge-error);">Provider and secret name are required.</span>';
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    vscode.postMessage({ type: 'createSecretInVault', providerName, secretName, value });
+  });
+
+  // Wire reveal toggle on value input
+  const valInp = $('createSecretValue') as HTMLInputElement;
+  valInp?.addEventListener('dblclick', () => {
+    valInp.type = valInp.type === 'password' ? 'text' : 'password';
+  });
+
+  // Custom autocomplete dropdown for secret name
+  const providerSelect = $('createSecretProvider') as HTMLSelectElement;
+  const nameInp = $('createSecretName') as HTMLInputElement;
+  const dropdown = $('createSecretNameDropdown') as HTMLElement;
+
+  function showSecretNameDropdown() {
+    if (!dropdown || !nameInp) return;
+    const names = getSecretNamesForProvider(providerSelect.value);
+    const filter = nameInp.value.toLowerCase();
+    const filtered = filter ? names.filter(n => n.toLowerCase().includes(filter)) : names;
+    if (filtered.length === 0) { dropdown.style.display = 'none'; return; }
+    dropdown.innerHTML = filtered.map(n =>
+      '<div class="secret-name-option">' + esc(n) + '</div>'
+    ).join('');
+    dropdown.style.display = 'block';
+    dropdown.querySelectorAll('.secret-name-option').forEach(opt => {
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        nameInp.value = (opt as HTMLElement).textContent || '';
+        dropdown.style.display = 'none';
+      });
+    });
+  }
+
+  nameInp?.addEventListener('focus', showSecretNameDropdown);
+  nameInp?.addEventListener('input', showSecretNameDropdown);
+  nameInp?.addEventListener('blur', () => { if (dropdown) dropdown.style.display = 'none'; });
+  providerSelect?.addEventListener('change', () => { if (dropdown) dropdown.style.display = 'none'; });
+}
+
+function handleSetSecretValueResult(msg: { secretRef: string; success: boolean; error?: string }) {
+  // This is called from the tooltip's setSecretValue flow
+  // The tooltip itself is in varTooltip.ts — we just need to forward the result
+  // The tooltip listens for this via the message handler
+  if (!msg.success && msg.error) {
+    // Show a toast-style error in the test result area as a fallback
+    const resultDiv = $('secretTestResult');
+    if (resultDiv) {
+      resultDiv.innerHTML = '<span style="color:var(--badge-error);">\u2717 ' + esc(msg.error) + '</span>';
+      setTimeout(() => { resultDiv.innerHTML = ''; }, 10000);
+    }
+  }
 }
 
 // ── Init ─────────────────────────────────────

@@ -722,10 +722,12 @@ td.var-cell .var-overlay {
   cursor: pointer;
   white-space: nowrap;
   line-height: 1;
-  width: 40px;
+  width: 44px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 .btn-test-vault:hover:not(:disabled) { background: rgba(0,120,212,0.1); }
 .btn-test-vault:disabled { opacity: 0.7; cursor: default; }
@@ -1351,6 +1353,29 @@ td.var-cell .var-overlay {
 }
 .var-scope-option:hover {
   background: var(--m-suggest-highlight);
+}
+
+/* ── Tooltip Save-to-Vault Button ────────── */
+.var-tooltip-save-vault {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--btn-bg);
+  color: var(--btn-fg, #fff);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.var-tooltip-save-vault:hover { opacity: 0.9; }
+.var-tooltip-save-vault:disabled { opacity: 0.5; cursor: default; }
+.var-tooltip-feedback {
+  font-size: 11px;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* ── Tooltip hint link ───────────────────── */
