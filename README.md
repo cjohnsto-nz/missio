@@ -35,11 +35,17 @@ BYO Agentic Coding tools.
 - **Tree view sidebar** — browse collections, folders, and requests with inline actions
 - **CodeLens** — send requests directly from YAML files
 - **Import from Postman** — import Postman v2.0/v2.1 collections and environments
+- **Import requests** — paste a cURL, wget, or raw HTTP request and import it directly into a collection
 
 ### Request Editor
 - **Visual request builder** — method selector, URL bar, headers, query params, body (raw, form-encoded, multipart)
 - **Send with Ctrl+Enter** — keyboard shortcut to send requests
 - **Response viewer** — formatted body (JSON, XML, HTML) with syntax highlighting, word wrap, line numbers, headers, status, timing, and size
+- **Response preview** — PDF and image responses render inline with an option to open in browser
+- **Cancel requests** — cancel in-flight requests from the command palette or UI
+- **Request timer** — live elapsed time display while a request is in progress, with the previous response dimmed until the new one arrives
+- **Auto headers** — `Content-Type` and `Content-Length` are calculated automatically and shown as read-only (override by specifying your own)
+- **Unresolved variable prompts** — if any `{{variables}}` remain unresolved after interpolation, a modal prompts you to fill them in before sending
 - **Save examples** — save response snapshots and load them later
 
 ### Variables & Environments
@@ -54,9 +60,10 @@ BYO Agentic Coding tools.
 ### Authentication
 - **Auth types** — None, Bearer Token, Basic Auth, API Key, OAuth 2.0
 - **Auth inheritance** — Request > Folder > Collection (first non-inherit wins)
-- **OAuth 2.0** — client credentials and password flows with automatic token management
+- **OAuth 2.0** — client credentials, password, and authorization code (PKCE) flows with automatic token management
 - **Token status display** — live token expiry countdown with Get Token / Refresh buttons in request, folder, and collection editors
 - **Token caching** — tokens stored securely per collection, environment, and credentials
+- **Refresh on 4xx** — helper button on 4xx responses to clear a stale OAuth token and retry
 
 ### Folder Defaults
 - **Folder editor** — configure folder-level auth, headers, and variables via `folder.yml`
@@ -123,6 +130,7 @@ Secrets are resolved at send time and during OAuth2 token acquisition. The colle
 | `Missio: Select Active Environment` | Choose the active environment |
 | `Missio: New Collection` | Scaffold a new collection |
 | `Missio: Import Collection` | Import from Postman (v2.0/v2.1) |
+| `Missio: Import Request` | Import a request from cURL, wget, or raw HTTP format |
 | `Missio: Import Environment` | Import environment from Postman |
 | `Missio: New Request` | Create a new request YAML file |
 | `Missio: New Folder` | Create a new folder in a collection |
