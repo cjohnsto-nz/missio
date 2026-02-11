@@ -1,13 +1,10 @@
-<img width="150" height="150" alt="image" src="https://github.com/user-attachments/assets/53a69964-1e7d-49a3-a9f0-e4d04991bd55" />
-
 # Missio REST Client
 
 A lightweight, [OpenCollection](https://www.opencollection.com) compatible REST API client for VS Code.
 
 Missio uses the OpenCollection standard, which is file based (and AI friendly). Collaboration is supported via Git and external secret providers.
 
-<img width="1813" height="1472" alt="image" src="https://github.com/user-attachments/assets/bd0c39bd-1a1a-49f4-8519-7cfcf65f1902" />
-
+<img width="1813" height="1209" alt="Missio Editor" src="https://github.com/user-attachments/assets/f9aea382-110c-4c45-a505-ae970daba555" />
 
 ## Missio is a REST Client without an identity crisis
 
@@ -29,20 +26,35 @@ Git integration, Workspaces, Commands, are all provided by VSCode.
 
 BYO Agentic Coding tools. 
 
+### Please Note
+
+Missio is still in alpha. Key missing features from Postman include:
+- Scripting
+- Websockets
+- GraphQL
+
+We aim to support these in the coming weeks.
+
 ## Features
 
 ### Collections & Requests
-- **OpenCollection v1.0.0 compatible (partially at least)** — YAML-based collections, requests, and environments
+- **OpenCollection v1.0.0 compatible (partially at least)** — YAML-based collections, requests, folder, and environments
 - **Auto-detect collections** — scans workspace for `collection.yml` / `workspace.yml`
 - **Custom editors** — visual editors for requests, folders, and collections with native dirty indicators, Ctrl+S save, and undo/redo
 - **Tree view sidebar** — browse collections, folders, and requests with inline actions
 - **CodeLens** — send requests directly from YAML files
 - **Import from Postman** — import Postman v2.0/v2.1 collections and environments
+- **Import requests** — paste a cURL, wget, or raw HTTP request and import it directly into a collection
 
 ### Request Editor
 - **Visual request builder** — method selector, URL bar, headers, query params, body (raw, form-encoded, multipart)
 - **Send with Ctrl+Enter** — keyboard shortcut to send requests
 - **Response viewer** — formatted body (JSON, XML, HTML) with syntax highlighting, word wrap, line numbers, headers, status, timing, and size
+- **Response preview** — PDF and image responses render inline with an option to open in browser
+- **Cancel requests** — cancel in-flight requests from the command palette or UI
+- **Request timer** — live elapsed time display while a request is in progress, with the previous response dimmed until the new one arrives
+- **Auto headers** — `Content-Type` and `Content-Length` are calculated automatically and shown as read-only (override by specifying your own)
+- **Unresolved variable prompts** — if any `{{variables}}` remain unresolved after interpolation, a modal prompts you to fill them in before sending
 - **Save examples** — save response snapshots and load them later
 
 ### Variables & Environments
@@ -57,9 +69,10 @@ BYO Agentic Coding tools.
 ### Authentication
 - **Auth types** — None, Bearer Token, Basic Auth, API Key, OAuth 2.0
 - **Auth inheritance** — Request > Folder > Collection (first non-inherit wins)
-- **OAuth 2.0** — client credentials and password flows with automatic token management
+- **OAuth 2.0** — client credentials, password, and authorization code (PKCE) flows with automatic token management
 - **Token status display** — live token expiry countdown with Get Token / Refresh buttons in request, folder, and collection editors
 - **Token caching** — tokens stored securely per collection, environment, and credentials
+- **Refresh on 4xx** — helper button on 4xx responses to clear a stale OAuth token and retry
 
 ### Folder Defaults
 - **Folder editor** — configure folder-level auth, headers, and variables via `folder.yml`
@@ -78,95 +91,6 @@ BYO Agentic Coding tools.
 - **Secret autocomplete** — type `{{$secret.` to get provider and secret name suggestions
 - **On-demand reveal** — click a secret variable to see its source, then click "Reveal Value" to fetch and display it
 - **Test connection** — verify vault access and RBAC from the collection editor's Secrets tab
-
-## Getting Started
-
-There is UI for all of this. You don't need to get into the .yml files unless you want to.
-
-### 1. Create a collection
-
-Run **Missio: New Collection** from the command palette, or create a `collection.yml`:
-
-```yaml
-opencollection: "1.0.0"
-
-info:
-  name: My API
-  version: "1.0.0"
-
-config:
-  environments:
-    - name: development
-      variables:
-        - name: baseUrl
-          value: "http://localhost:3000"
-    - name: production
-      variables:
-        - name: baseUrl
-          value: "https://api.example.com"
-
-items: []
-```
-
-### 2. Create a request
-
-Create a `.yml` file in the same directory:
-
-```yaml
-info:
-  name: Get Users
-  type: http
-  seq: 1
-
-http:
-  method: GET
-  url: "{{baseUrl}}/api/users"
-  headers:
-    - name: Authorization
-      value: "Bearer {{token}}"
-  params:
-    - name: page
-      value: "1"
-      type: query
-```
-
-### 3. Send it
-
-Click **Send Request** in the CodeLens above the file, use the play button in the tree view, or press **Ctrl+Enter** in the request editor.
-
-### 4. Configure folder defaults (optional)
-
-Create a `folder.yml` in any folder to set default auth, headers, or variables for all requests in that folder:
-
-```yaml
-info:
-  name: Users
-
-request:
-  auth:
-    type: bearer
-    token: "{{accessToken}}"
-  headers:
-    - name: X-Custom-Header
-      value: my-value
-```
-
-## Workspace File
-
-Use a `workspace.yml` to organize multiple collections:
-
-```yaml
-workspace: "1.0.0"
-
-info:
-  name: My Workspace
-
-collections:
-  - name: Users API
-    path: ./users-api
-  - name: Orders API
-    path: ./orders-api
-```
 
 ## Secret Providers
 
@@ -215,6 +139,7 @@ Secrets are resolved at send time and during OAuth2 token acquisition. The colle
 | `Missio: Select Active Environment` | Choose the active environment |
 | `Missio: New Collection` | Scaffold a new collection |
 | `Missio: Import Collection` | Import from Postman (v2.0/v2.1) |
+| `Missio: Import Request` | Import a request from cURL, wget, or raw HTTP format |
 | `Missio: Import Environment` | Import environment from Postman |
 | `Missio: New Request` | Create a new request YAML file |
 | `Missio: New Folder` | Create a new folder in a collection |

@@ -2,14 +2,14 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/cjohnsto-nz/missio"
   },
-  "icon": "media/icon.png",
+  "icon": "media/missio_bkg.png",
   "engines": {
     "vscode": "^1.85.0",
     "npm": ">=10"
@@ -38,7 +38,10 @@
         {
           "id": "missio",
           "title": "Missio",
-          "icon": "media/icon30.png"
+          "icon": {
+            "light": "media/icon-light.png",
+            "dark": "media/icon.png"
+          }
         }
       ]
     },
