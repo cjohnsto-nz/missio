@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Missio — REST Client for VS Code</title>
+  <meta name="description" content="A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.">
+  <meta name="theme-color" content="#0a0a0f">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Missio — REST Client for VS Code">
+  <meta property="og:description" content="A lightweight, OpenCollection-compliant REST API client for VS Code. File-based, Git-native, no subscriptions.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://cjohnsto-nz.github.io/missio/">
+
+  <!-- Brand Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=ADLaM+Display&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-card-hover: #1a1a26;
+      --border: #1e1e2e;
+      --text: #e4e4ef;
+      --text-muted: #8888a0;
+      --accent: #7c6aef;
+      --accent-glow: rgba(124, 106, 239, 0.15);
+      --green: #89d185;
+      --orange: #d18616;
+      --blue: #3794ff;
+      --red: #f14c4c;
+      --purple: #b180d7;
+      --font-brand: 'ADLaM Display', cursive;
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Ambient background ── */
+    .bg-glow {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bg-glow::before {
+      content: '';
+      position: absolute;
+      width: 800px;
+      height: 800px;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(124,106,239,0.08) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .bg-glow::after {
+      content: '';
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      bottom: -100px;
+      right: -200px;
+      background: radial-gradient(circle, rgba(137,209,133,0.05) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(10, 10, 15, 0.8);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .nav-brand svg { width: 28px; height: auto; }
+    .nav-brand span {
+      font-family: var(--font-brand);
+      font-size: 1.3rem;
+      letter-spacing: 0.02em;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: color 0.2s, background 0.2s;
+    }
+    .nav-link:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+    }
+    .nav-link svg { width: 16px; height: 16px; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 160px 0 100px;
+      text-align: center;
+    }
+    .hero-logo {
+      width: 100px;
+      height: auto;
+      margin-bottom: 32px;
+      filter: drop-shadow(0 0 40px rgba(124,106,239,0.2));
+      animation: float 6s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .hero h1 {
+      font-family: var(--font-brand);
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      letter-spacing: 0.02em;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #fff 0%, #c4bfff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: clamp(0.95rem, 2vw, 1.1rem);
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto 24px;
+      line-height: 1.7;
+    }
+    .hero p.hero-subtitle {
+      font-size: clamp(1.3rem, 3vw, 1.75rem);
+      font-weight: 400;
+      max-width: none;
+    }
+    .hero-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: all 0.25s ease;
+      border: none;
+      cursor: pointer;
+    }
+    .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 4px 24px rgba(124,106,239,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    .btn-primary:hover {
+      background: #8b7bf5;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(124,106,239,0.4), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.15);
+      transform: translateY(-2px);
+    }
+
+    /* ── Pill badges ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: var(--accent-glow);
+      color: var(--accent);
+      border: 1px solid rgba(124,106,239,0.2);
+      margin-bottom: 28px;
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    a.badge:hover {
+      background: rgba(124,106,239,0.2);
+      border-color: rgba(124,106,239,0.4);
+    }
+
+    /* ── Identity section ── */
+    .identity {
+      padding: 60px 0 80px;
+    }
+    .identity-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .identity-card {
+      padding: 32px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+    }
+    .identity-card h3 {
+      font-family: var(--font-brand);
+      font-size: 1.2rem;
+      margin-bottom: 16px;
+    }
+    .identity-card.is {
+      border-color: rgba(137,209,133,0.2);
+    }
+    .identity-card.is h3 { color: var(--green); }
+    .identity-card.isnt {
+      border-color: rgba(241,76,76,0.15);
+    }
+    .identity-card.isnt h3 { color: var(--red); }
+    .identity-card ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .identity-card li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    .identity-card li svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .identity-card.is li svg { color: var(--green); }
+    .identity-card.isnt li svg { color: var(--red); opacity: 0.6; }
+
+    /* ── Features ── */
+    .features {
+      padding: 80px 0;
+    }
+    .features-header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .features-header h2 {
+      font-family: var(--font-brand);
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      margin-bottom: 12px;
+    }
+    .features-header p {
+      color: var(--text-muted);
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature-card {
+      padding: 28px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      transition: border-color 0.3s, background 0.3s;
+    }
+    .feature-card:hover {
+      border-color: rgba(124,106,239,0.3);
+      background: var(--bg-card-hover);
+    }
+    .feature-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      font-size: 1.2rem;
+    }
+    .feature-icon svg { width: 20px; height: 20px; }
+    .fi-green  { background: rgba(137,209,133,0.1); color: var(--green); }
+    .fi-orange { background: rgba(209,134,22,0.1);  color: var(--orange); }
+    .fi-blue   { background: rgba(55,148,255,0.1);  color: var(--blue); }
+    .fi-purple { background: rgba(177,128,215,0.1); color: var(--purple); }
+    .fi-red    { background: rgba(241,76,76,0.1);   color: var(--red); }
+    .fi-accent { background: var(--accent-glow);     color: var(--accent); }
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── Screenshot ── */
+    .screenshot {
+      padding: 40px 0 80px;
+      text-align: center;
+    }
+    .screenshot img {
+      max-width: 100%;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03);
+    }
+
+    /* ── CTA ── */
+    .cta {
+      padding: 80px 0 120px;
+      text-align: center;
+    }
+    .cta-box {
+      padding: 56px 40px;
+      border-radius: 24px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg) 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .cta-box::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 400px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+    .cta h2 {
+      font-family: var(--font-brand);
+      font-size: clamp(1.6rem, 3vw, 2rem);
+      margin-bottom: 12px;
+    }
+    .cta p {
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      max-width: 440px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .cta .hero-buttons { justify-content: center; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 32px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    footer p {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    footer a:hover { color: var(--text); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .features-grid { grid-template-columns: 1fr; }
+      .identity-grid { grid-template-columns: 1fr; }
+      .hero { padding: 130px 0 60px; }
+      .nav-links { gap: 4px; }
+      .nav-link { padding: 8px 10px; font-size: 0.8rem; }
+      .btn { padding: 12px 20px; font-size: 0.875rem; }
+    }
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg-glow"></div>
+
+<!-- Nav -->
+<nav>
+  <div class="container nav-inner">
+    <a href="#" class="nav-brand">
+      <svg viewBox="0 0 125.00578 113.94175" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(-42.443383,-151.13933)">
+          <path d="M 87.046269,171.80538 C 68.765252,202.54142 59.36359,218.29729 43.256644,245.33046 a 5.7720046,5.7720046 47.327232 0 0 7.500752,8.13624 c 8.85261,-4.34189 17.705353,-8.6835 26.557926,-13.02546 a 4.2639718,4.2639718 11.45596 0 1 5.097718,1.03306 c 6.372638,7.3413 12.743883,14.68382 19.1174,22.02436 a 4.5948839,4.5948839 179.99999 0 0 6.93912,0 c 6.36377,-7.32931 12.72527,-14.6606 19.08816,-21.99068 a 4.3218301,4.3218301 168.54475 0 1 5.16696,-1.04703 c 8.77062,4.30196 17.54166,8.60303 26.31238,12.90478 a 5.8401281,5.8401281 132.67697 0 0 7.5897,-8.23152 C 148.92732,215.41714 131.22537,185.70155 113.5246,155.98527 a 9.925585,9.925585 0.0083146 0 0 -17.053368,-0.002 c -1.453043,2.43781 -2.861657,4.80108 -4.010786,6.729 a 11291.231,11291.231 120.76889 0 0 -5.414177,9.09359 z m 65.372011,70.86723 c -7.47883,-3.87667 -13.65153,-7.31797 -21.45503,-11.30285 a 5.7021797,5.7021797 50.222851 0 1 -2.87452,-3.4529 c -6.56764,-22.10535 -13.13527,-41.92532 -19.70291,-63.84982 a 0.65133111,0.65133111 156.62024 0 1 1.18696,-0.51314 c 15.72206,26.64237 29.1427,50.33147 44.86487,76.97399 a 1.5324625,1.5324625 133.27581 0 1 -2.01937,2.14472 z m -50.80822,7.52379 -14.791817,-16.35561 a 4.5766583,4.5766583 76.389523 0 1 -1.028286,-4.24703 l 17.479283,-65.66959 a 0.70713806,0.70713806 7.2933719 0 1 1.39047,0.17796 l 0.47041,84.72738 a 2.0210983,2.0210983 158.77804 0 1 -3.52006,1.36689 z"/>
+        </g>
+      </svg>
+      <span>Missio</span>
+    </a>
+    <div class="nav-links">
+      <a href="https://github.com/cjohnsto-nz/missio" class="nav-link" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+      <a href="https://marketplace.visualstudio.com/items?itemName=missio.missio" class="nav-link" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.583 2L8.834 9.304 4.146 5.87 2 6.9v10.182l2.15 1.048 4.687-3.452L17.583 22 22 19.889V4.111L17.583 2zM4.146 14.727V9.273l2.927 2.727-2.927 2.727zm9.564.091L8.834 12l4.876-2.818v5.636z"/></svg>
+        Marketplace
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <img src="https://github.com/user-attachments/assets/53a69964-1e7d-49a3-a9f0-e4d04991bd55" alt="Missio logo" class="hero-logo">
+    <h1>Missio</h1>
+    <p class="hero-subtitle">A lightweight REST client for VS Code</p>
+    <p>File-based collections, Git-native environments, and external secret providers. No subscriptions, no cloud sync.</p>
+    <a href="https://www.opencollection.com/" class="badge" target="_blank" rel="noopener">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      OpenCollection v1.0.0
+    </a>
+    <div class="hero-buttons">
+      <a href="https://marketplace.visualstudio.com/items?itemName=missio.missio" class="btn btn-primary" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.583 2L8.834 9.304 4.146 5.87 2 6.9v10.182l2.15 1.048 4.687-3.452L17.583 22 22 19.889V4.111L17.583 2zM4.146 14.727V9.273l2.927 2.727-2.927 2.727zm9.564.091L8.834 12l4.876-2.818v5.636z"/></svg>
+        Install from Marketplace
+      </a>
+      <a href="https://github.com/cjohnsto-nz/missio" class="btn btn-secondary" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- Screenshot -->
+<section class="screenshot">
+  <div class="container">
+    <img src="https://github.com/user-attachments/assets/bd0c39bd-1a1a-49f4-8519-7cfcf65f1902" alt="Missio request editor showing a REST API request with response" loading="lazy">
+  </div>
+</section>
+
+<!-- Identity -->
+<section class="identity">
+  <div class="container">
+    <div class="identity-grid">
+      <div class="identity-card is">
+        <h3>What Missio Is</h3>
+        <ul>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            A VS Code Extension
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            A REST Client
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Local &amp; Git Native
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Free &amp; Open Source
+          </li>
+        </ul>
+      </div>
+      <div class="identity-card isnt">
+        <h3>What Missio Is Not</h3>
+        <ul>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            A Standalone IDE
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            A SaaS Platform
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Cloud Synced
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            A Monthly Subscription
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features">
+  <div class="container">
+    <div class="features-header">
+      <h2>Built for developers</h2>
+      <p>Everything you need to test APIs, nothing you don't.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon fi-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <h3>File-Based Collections</h3>
+        <p>YAML files you can read, diff, and version control. OpenCollection v1.0.0 compatible.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon fi-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+        <h3>Environments &amp; Variables</h3>
+        <p>Switch between dev, staging, and prod. Variable highlighting, autocomplete, and click-to-inspect.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon fi-purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h3>Secret Providers</h3>
+        <p>Azure Key Vault integration with <code>$secret</code> syntax. No secrets in files, ever.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon fi-orange">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3>OAuth 2.0</h3>
+        <p>Client credentials and password flows with automatic token management and live expiry countdown.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon fi-accent">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        </div>
+        <h3>Visual Editors</h3>
+        <p>Custom editors for requests, folders, and collections with native dirty indicators and undo/redo.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon fi-red">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <h3>Import from Postman</h3>
+        <p>Migrate your Postman v2.0/v2.1 collections and environments. Also import cURL, wget, and raw HTTP.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <div class="container">
+    <div class="cta-box">
+      <h2>Ready to try Missio?</h2>
+      <p>Install from the VS Code Marketplace or check out the source on GitHub.</p>
+      <div class="hero-buttons">
+        <a href="https://marketplace.visualstudio.com/items?itemName=missio.missio" class="btn btn-primary" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.583 2L8.834 9.304 4.146 5.87 2 6.9v10.182l2.15 1.048 4.687-3.452L17.583 22 22 19.889V4.111L17.583 2zM4.146 14.727V9.273l2.927 2.727-2.927 2.727zm9.564.091L8.834 12l4.876-2.818v5.636z"/></svg>
+          Install Extension
+        </a>
+        <a href="https://github.com/cjohnsto-nz/missio" class="btn btn-secondary" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          View Source
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p>MIT License &middot; <a href="https://github.com/cjohnsto-nz/missio" target="_blank" rel="noopener">Missio</a> &middot; Built on <a href="https://www.opencollection.com" target="_blank" rel="noopener">OpenCollection</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
