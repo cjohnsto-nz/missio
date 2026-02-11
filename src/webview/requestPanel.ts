@@ -843,13 +843,13 @@ function cancelRequest(): void {
   hideLoading();
 }
 
-function setSendingState(sending: boolean, label?: string): void {
+function setSendingState(sending: boolean): void {
   isSending = sending;
   const btn = $('sendBtn') as HTMLButtonElement;
   if (sending) {
     btn.classList.add('sending');
     btn.classList.add('btn-cancel');
-    btn.textContent = label || 'Cancel';
+    btn.textContent = 'Cancel';
     btn.disabled = false;
   } else {
     btn.classList.remove('sending');
@@ -1045,7 +1045,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'sending':
       if (!isSending) showLoading();
-      setSendingState(true, msg.message || 'Cancel');
+      setSendingState(true);
       if (msg.message) setLoadingText(msg.message);
       break;
     case 'saved':

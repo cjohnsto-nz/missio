@@ -229,6 +229,7 @@ body {
   box-sizing: border-box;
 }
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
+#sendBtn { min-width: 70px; text-align: center; }
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
