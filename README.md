@@ -1,13 +1,10 @@
-<img width="150" height="150" alt="image" src="https://raw.githubusercontent.com/cjohnsto-nz/missio/main/media/icon-bkg.png" />
-
 # Missio REST Client
 
 A lightweight, [OpenCollection](https://www.opencollection.com) compatible REST API client for VS Code.
 
 Missio uses the OpenCollection standard, which is file based (and AI friendly). Collaboration is supported via Git and external secret providers.
 
-<img alt="Missio request editor" src="https://github.com/user-attachments/assets/bd0c39bd-1a1a-49f4-8519-7cfcf65f1902" />
-
+<img width="1813" height="1209" alt="Missio Editor" src="https://github.com/user-attachments/assets/f9aea382-110c-4c45-a505-ae970daba555" />
 
 ## Missio is a REST Client without an identity crisis
 
@@ -32,7 +29,7 @@ BYO Agentic Coding tools.
 ## Features
 
 ### Collections & Requests
-- **OpenCollection v1.0.0 compatible (partially at least)** — YAML-based collections, requests, and environments
+- **OpenCollection v1.0.0 compatible (partially at least)** — YAML-based collections, requests, folder, and environments
 - **Auto-detect collections** — scans workspace for `collection.yml` / `workspace.yml`
 - **Custom editors** — visual editors for requests, folders, and collections with native dirty indicators, Ctrl+S save, and undo/redo
 - **Tree view sidebar** — browse collections, folders, and requests with inline actions
@@ -78,95 +75,6 @@ BYO Agentic Coding tools.
 - **Secret autocomplete** — type `{{$secret.` to get provider and secret name suggestions
 - **On-demand reveal** — click a secret variable to see its source, then click "Reveal Value" to fetch and display it
 - **Test connection** — verify vault access and RBAC from the collection editor's Secrets tab
-
-## Getting Started
-
-There is UI for all of this. You don't need to get into the .yml files unless you want to.
-
-### 1. Create a collection
-
-Run **Missio: New Collection** from the command palette, or create a `collection.yml`:
-
-```yaml
-opencollection: "1.0.0"
-
-info:
-  name: My API
-  version: "1.0.0"
-
-config:
-  environments:
-    - name: development
-      variables:
-        - name: baseUrl
-          value: "http://localhost:3000"
-    - name: production
-      variables:
-        - name: baseUrl
-          value: "https://api.example.com"
-
-items: []
-```
-
-### 2. Create a request
-
-Create a `.yml` file in the same directory:
-
-```yaml
-info:
-  name: Get Users
-  type: http
-  seq: 1
-
-http:
-  method: GET
-  url: "{{baseUrl}}/api/users"
-  headers:
-    - name: Authorization
-      value: "Bearer {{token}}"
-  params:
-    - name: page
-      value: "1"
-      type: query
-```
-
-### 3. Send it
-
-Click **Send Request** in the CodeLens above the file, use the play button in the tree view, or press **Ctrl+Enter** in the request editor.
-
-### 4. Configure folder defaults (optional)
-
-Create a `folder.yml` in any folder to set default auth, headers, or variables for all requests in that folder:
-
-```yaml
-info:
-  name: Users
-
-request:
-  auth:
-    type: bearer
-    token: "{{accessToken}}"
-  headers:
-    - name: X-Custom-Header
-      value: my-value
-```
-
-## Workspace File
-
-Use a `workspace.yml` to organize multiple collections:
-
-```yaml
-workspace: "1.0.0"
-
-info:
-  name: My Workspace
-
-collections:
-  - name: Users API
-    path: ./users-api
-  - name: Orders API
-    path: ./orders-api
-```
 
 ## Secret Providers
 
