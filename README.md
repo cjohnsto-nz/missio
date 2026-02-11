@@ -4,7 +4,7 @@ A lightweight, [OpenCollection](https://www.opencollection.com) compatible REST 
 
 Missio uses the OpenCollection standard, which is file based (and AI friendly). Collaboration is supported via Git and external secret providers.
 
-<img width="1813" height="1209" alt="Missio Editor" src="https://github.com/user-attachments/assets/f9aea382-110c-4c45-a505-ae970daba555" />
+<img alt="Missio Editor" src="https://github.com/user-attachments/assets/f9aea382-110c-4c45-a505-ae970daba555" />
 
 ## Missio is a REST Client without an identity crisis
 
