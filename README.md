@@ -1,4 +1,4 @@
-<img width="150" height="150" alt="image" src="https://github.com/user-attachments/assets/53a69964-1e7d-49a3-a9f0-e4d04991bd55" />
+<img width="150" height="150" alt="image" src="https://raw.githubusercontent.com/cjohnsto-nz/missio/main/media/icon-bkg.png" />
 
 # Missio REST Client
 
