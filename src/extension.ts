@@ -44,7 +44,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     responseProvider,
   );
 
-  await collectionService.initialize();
+  // Initialize collections in the background — don't block activate()
+  const initPromise = collectionService.initialize().catch(e => {
+    console.error('[Missio] Collection initialization failed:', e);
+  });
 
   // ── Tree Views ─────────────────────────────────────────────────
 

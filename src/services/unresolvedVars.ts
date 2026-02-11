@@ -6,17 +6,16 @@ import type { EnvironmentService } from './environmentService';
 const BUILTINS = new Set(['$guid', '$timestamp', '$randomInt']);
 
 /**
- * Scan a raw request for {{variable}} references, resolve the known ones,
- * and prompt the user to fill in any that remain unresolved.
- * Returns a Map of user-provided values, or undefined if the user cancelled.
+ * Detect unresolved {{variable}} references in a raw request.
+ * Returns the list of variable names that have no value after resolution,
+ * excluding builtins and $secret.* references.
  */
-export async function promptForUnresolvedVars(
+export async function detectUnresolvedVars(
   requestData: HttpRequest,
   collection: MissioCollection,
   environmentService: EnvironmentService,
   folderDefaults?: RequestDefaults,
-): Promise<Map<string, string> | undefined> {
-  // Collect all {{var}} names referenced in the raw request
+): Promise<string[]> {
   const varNames = new Set<string>();
   const scan = (s: string | undefined) => {
     if (!s) return;
@@ -26,7 +25,7 @@ export async function promptForUnresolvedVars(
   };
 
   const details = requestData.http;
-  if (!details) return new Map();
+  if (!details) return [];
 
   scan(details.url);
   for (const h of details.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
@@ -51,17 +50,28 @@ export async function promptForUnresolvedVars(
     }
   }
 
-  if (varNames.size === 0) return new Map();
+  if (varNames.size === 0) return [];
 
-  // Resolve variables to find which are unresolved
   const resolved = await environmentService.resolveVariables(collection, folderDefaults);
-  const unresolved = [...varNames].filter(
+  return [...varNames].filter(
     name => !BUILTINS.has(name) && !resolved.has(name) && !name.startsWith('$secret.'),
   );
+}
 
+/**
+ * Fallback prompt for environments without a webview (e.g. command palette).
+ * Prompts the user sequentially via VS Code input boxes.
+ * Returns a Map of user-provided values, or undefined if the user cancelled.
+ */
+export async function promptForUnresolvedVars(
+  requestData: HttpRequest,
+  collection: MissioCollection,
+  environmentService: EnvironmentService,
+  folderDefaults?: RequestDefaults,
+): Promise<Map<string, string> | undefined> {
+  const unresolved = await detectUnresolvedVars(requestData, collection, environmentService, folderDefaults);
   if (unresolved.length === 0) return new Map();
 
-  // Prompt the user for each unresolved variable
   const extras = new Map<string, string>();
   for (let i = 0; i < unresolved.length; i++) {
     const name = unresolved[i];
@@ -71,10 +81,7 @@ export async function promptForUnresolvedVars(
       placeHolder: name,
       ignoreFocusOut: true,
     });
-    if (value === undefined) {
-      // User pressed Escape — cancel the request
-      return undefined;
-    }
+    if (value === undefined) return undefined;
     extras.set(name, value);
   }
   return extras;

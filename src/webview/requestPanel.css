@@ -1432,3 +1432,103 @@ td.var-cell .var-overlay {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Unresolved Variables Modal ─────────── */
+.uv-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.uv-modal-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  width: 420px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.uv-modal-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.uv-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+.uv-modal-subtitle {
+  font-size: 11px;
+  color: var(--m-fg-muted);
+  line-height: 1.4;
+}
+.uv-modal-fields {
+  padding: 12px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.uv-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.uv-modal-label {
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--m-tk-var, #e06c75);
+  font-weight: 500;
+}
+.uv-modal-input {
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  outline: none;
+}
+.uv-modal-input:focus {
+  border-color: var(--btn-bg);
+  outline: 1px solid var(--btn-bg);
+}
+.uv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.uv-modal-cancel {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.uv-modal-cancel:hover { background: rgba(255,255,255,0.05); }
+.uv-modal-send {
+  background: var(--btn-bg);
+  color: var(--btn-fg, #fff);
+  border: none;
+  padding: 6px 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.uv-modal-send:hover { opacity: 0.9; }

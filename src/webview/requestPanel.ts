@@ -834,8 +834,6 @@ let isSending = false;
 
 function sendRequest(): void {
   const req = buildRequest();
-  setSendingState(true);
-  showLoading();
   vscode.postMessage({ type: 'sendRequest', request: req });
 }
 
@@ -947,6 +945,87 @@ function loadRequest(req: any): void {
   updateBadges();
 }
 
+// ── Unresolved Variables Modal ───────────────────
+function showUnresolvedVarsModal(variables: string[]): void {
+  // Remove any existing modal
+  const existing = document.getElementById('unresolvedVarsModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'unresolvedVarsModal';
+  overlay.className = 'uv-modal-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'uv-modal-card';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'uv-modal-header';
+  header.innerHTML =
+    '<div class="uv-modal-title">Unresolved Variables</div>' +
+    '<div class="uv-modal-subtitle">Enter values to continue or cancel the request.</div>';
+  card.appendChild(header);
+
+  // Fields
+  const fields = document.createElement('div');
+  fields.className = 'uv-modal-fields';
+  for (const name of variables) {
+    const row = document.createElement('div');
+    row.className = 'uv-modal-field';
+    row.innerHTML =
+      '<label class="uv-modal-label">{{' + name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '}}</label>' +
+      '<input type="text" class="uv-modal-input" data-var="' + name.replace(/"/g, '&quot;') + '" placeholder="Enter value" />';
+    fields.appendChild(row);
+  }
+  card.appendChild(fields);
+
+  // Buttons
+  const actions = document.createElement('div');
+  actions.className = 'uv-modal-actions';
+  actions.innerHTML =
+    '<button class="uv-modal-cancel">Cancel</button>' +
+    '<button class="uv-modal-send">Send</button>';
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  // Focus first input
+  const firstInput = card.querySelector('.uv-modal-input') as HTMLInputElement;
+  if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+  // Wire cancel
+  const cancelBtn = card.querySelector('.uv-modal-cancel') as HTMLButtonElement;
+  cancelBtn.addEventListener('click', () => {
+    overlay.remove();
+    vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: true });
+  });
+
+  // Wire send
+  const sendBtn = card.querySelector('.uv-modal-send') as HTMLButtonElement;
+  sendBtn.addEventListener('click', () => {
+    const values: Record<string, string> = {};
+    card.querySelectorAll('.uv-modal-input').forEach(inp => {
+      const input = inp as HTMLInputElement;
+      values[input.dataset.var!] = input.value;
+    });
+    overlay.remove();
+    vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: false, values });
+  });
+
+  // Enter in last input triggers send, Escape cancels
+  card.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: true });
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+}
+
 // ── Message handler ─────────────────────────────
 window.addEventListener('message', (event: MessageEvent) => {
   const msg = event.data;
@@ -965,7 +1044,8 @@ window.addEventListener('message', (event: MessageEvent) => {
       tokenStatusCtrl.requestStatus();
       break;
     case 'sending':
-      setSendingState(true, msg.message ? 'Cancel' : undefined);
+      if (!isSending) showLoading();
+      setSendingState(true, msg.message || 'Cancel');
       if (msg.message) setLoadingText(msg.message);
       break;
     case 'saved':
@@ -1049,6 +1129,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'oauth2Progress':
       tokenStatusCtrl.handleProgress(msg.message);
+      break;
+    case 'promptUnresolvedVars':
+      showUnresolvedVarsModal(msg.variables as string[]);
       break;
   }
 });

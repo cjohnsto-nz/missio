@@ -656,9 +656,6 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@azure/identity": "^4.0.0",
-    "@azure/keyvault-secrets": "^4.8.0",
-    "@keeper-security/secrets-manager-core": "^16.6.0",
     "yaml": "^2.3.0"
   }
 }

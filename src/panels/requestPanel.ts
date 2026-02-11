@@ -8,7 +8,7 @@ import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
 import { readFolderFile } from '../services/yamlParser';
-import { promptForUnresolvedVars } from '../services/unresolvedVars';
+import { detectUnresolvedVars } from '../services/unresolvedVars';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -24,6 +24,8 @@ export class RequestEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.requestEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
   private readonly _httpClient: HttpClient;
+  // Pending resolver for the webview-based unresolved-vars prompt
+  private _unresolvedVarsResolver: ((result: Map<string, string> | undefined) => void) | null = null;
 
   static postMessageToPanel(filePath: string, message: any): boolean {
     const panel = RequestEditorProvider._panels.get(filePath.toLowerCase());
@@ -203,6 +205,21 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._saveExample(webview, msg, ctx);
         return true;
       }
+      case 'unresolvedVarsResponse': {
+        if (this._unresolvedVarsResolver) {
+          if (msg.cancelled) {
+            this._unresolvedVarsResolver(undefined);
+          } else {
+            const map = new Map<string, string>();
+            for (const [k, v] of Object.entries(msg.values as Record<string, string>)) {
+              map.set(k, v);
+            }
+            this._unresolvedVarsResolver(map);
+          }
+          this._unresolvedVarsResolver = null;
+        }
+        return true;
+      }
     }
     return false;
   }
@@ -211,20 +228,28 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
-    const _t0 = Date.now();
     const _rlog = (msg: string) => {
       const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
       requestLog.appendLine(`[${ts}] ${msg}`);
     };
-    _rlog(`── _sendRequest start ──`);
 
-    // Detect unresolved variables before sending
-    const extraVariables = await promptForUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+    // Detect unresolved variables and prompt via webview modal
+    const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+    let extraVariables: Map<string, string> | undefined = new Map();
+    if (unresolved.length > 0) {
+      webview.postMessage({ type: 'promptUnresolvedVars', variables: unresolved });
+      extraVariables = await new Promise<Map<string, string> | undefined>(resolve => {
+        this._unresolvedVarsResolver = resolve;
+      });
+    }
     if (extraVariables === undefined) {
-      // User cancelled the prompt
       webview.postMessage({ type: 'cancelled' });
       return;
     }
+
+    // Start timer after the modal is dismissed so dialog time isn't counted
+    const _t0 = Date.now();
+    _rlog(`── _sendRequest start ──`);
 
     // Determine effective auth for progress reporting
     let effectiveAuth = requestData.http?.auth;
