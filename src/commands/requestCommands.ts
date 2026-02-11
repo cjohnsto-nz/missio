@@ -4,6 +4,7 @@ import type { CommandContext } from './types';
 import type { HttpRequest, MissioCollection, RequestDefaults } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
 import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
+import { promptForUnresolvedVars } from '../services/unresolvedVars';
 
 export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService, httpClient, responseProvider } = ctx;
@@ -70,6 +71,10 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
         // Resolve folder defaults (auth, headers, variables) from folder.yml
         const folderDefaults = await getFolderDefaults(filePath, collection);
 
+        // Prompt for unresolved variables before sending
+        const extraVariables = await promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
+        if (extraVariables === undefined) return; // User cancelled
+
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
@@ -78,7 +83,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
           },
           async (_progress, token) => {
             token.onCancellationRequested(() => httpClient.cancelAll());
-            const response = await httpClient.send(request, collection, folderDefaults);
+            const response = await httpClient.send(request, collection, folderDefaults, undefined, extraVariables.size > 0 ? extraVariables : undefined);
             await responseProvider.showResponse(response, request.info?.name);
           },
         );

@@ -8,6 +8,7 @@ import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
 import { readFolderFile } from '../services/yamlParser';
+import { promptForUnresolvedVars } from '../services/unresolvedVars';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -216,6 +217,15 @@ export class RequestEditorProvider extends BaseEditorProvider {
       requestLog.appendLine(`[${ts}] ${msg}`);
     };
     _rlog(`── _sendRequest start ──`);
+
+    // Detect unresolved variables before sending
+    const extraVariables = await promptForUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+    if (extraVariables === undefined) {
+      // User cancelled the prompt
+      webview.postMessage({ type: 'cancelled' });
+      return;
+    }
+
     // Determine effective auth for progress reporting
     let effectiveAuth = requestData.http?.auth;
     if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
@@ -233,7 +243,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       // (including OAuth2 with $secret references), headers, body, and secrets.
       const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
         webview.postMessage({ type: 'sending', message: msg });
-      });
+      }, extraVariables.size > 0 ? extraVariables : undefined);
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];
