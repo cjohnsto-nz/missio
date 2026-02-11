@@ -7,7 +7,6 @@ Missio uses the OpenCollection standard, which is file based (and AI friendly). 
 <img 
   alt="Missio Editor Screenshot" 
   src="https://github.com/user-attachments/assets/2e9d38e9-ce60-45ce-b294-573773690772"
-  width="600"
 />
 
 
