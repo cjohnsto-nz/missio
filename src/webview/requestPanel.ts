@@ -705,10 +705,10 @@ $('bodyData').addEventListener('scroll', syncScroll);
       if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
     }
   });
-  $('bodyData').addEventListener('mouseleave', () => {
+  $('bodyData').addEventListener('mouseleave', (e: Event) => {
     _lastBodyVar = '';
     if (_bodyHoverTimer) { clearTimeout(_bodyHoverTimer); _bodyHoverTimer = null; }
-    scheduleDismiss();
+    scheduleDismiss(e as MouseEvent);
   });
 }
 

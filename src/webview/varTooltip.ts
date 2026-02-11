@@ -43,8 +43,10 @@ let _pendingSecretRef: string | null = null;
 let _pendingSetRef: string | null = null;
 let _dismissTimer: ReturnType<typeof setTimeout> | null = null;
 let _hoverTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastMousePos: { x: number; y: number } | null = null;
 const DISMISS_DELAY = 150; // ms before tooltip disappears after mouse leaves
 const HOVER_DELAY = 250; // ms before tooltip appears on hover
+const DISMISS_PROXIMITY_PX = 16; // keep open while cursor is near tooltip edge
 
 // ── Helpers ──
 
@@ -61,19 +63,41 @@ export function cancelHoverTimer(): void {
   if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
 }
 
-export function scheduleDismiss(): void {
+function trackMousePosition(e: MouseEvent): void {
+  _lastMousePos = { x: e.clientX, y: e.clientY };
+}
+
+function isCursorNearTooltip(): boolean {
+  if (!activeTooltip || !_lastMousePos) return false;
+  const rect = activeTooltip.getBoundingClientRect();
+  return _lastMousePos.x >= rect.left - DISMISS_PROXIMITY_PX
+    && _lastMousePos.x <= rect.right + DISMISS_PROXIMITY_PX
+    && _lastMousePos.y >= rect.top - DISMISS_PROXIMITY_PX
+    && _lastMousePos.y <= rect.bottom + DISMISS_PROXIMITY_PX;
+}
+
+export function scheduleDismiss(e?: MouseEvent): void {
+  if (e) trackMousePosition(e);
   cancelDismiss();
-  _dismissTimer = setTimeout(() => hideVarTooltip(), DISMISS_DELAY);
+  _dismissTimer = setTimeout(() => {
+    if (isCursorNearTooltip()) {
+      scheduleDismiss();
+      return;
+    }
+    hideVarTooltip();
+  }, DISMISS_DELAY);
 }
 
 // ── Public API ──
 
 export function hideVarTooltip(): void {
   cancelDismiss();
+  document.removeEventListener('mousemove', trackMousePosition, true);
   if (activeTooltip) {
     activeTooltip.remove();
     activeTooltip = null;
   }
+  _lastMousePos = null;
   _pendingSecretRef = null;
 }
 
@@ -163,7 +187,7 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         ).join('') +
       "</div>" +
     "</div>" +
-    "<button class='var-tooltip-save-btn' title='Save variable (same as Enter)'>" + ENTER_KEY_SVG + "</button>" +
+    "<button class='var-tooltip-save-btn' title='Save'>" + ENTER_KEY_SVG + "</button>" +
   "</div>";
 
   tooltip.innerHTML = inputHtml + scopeHtml;
@@ -173,10 +197,11 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   tooltip.style.top = (rect.bottom + 4) + 'px';
   document.body.appendChild(tooltip);
   activeTooltip = tooltip;
+  document.addEventListener('mousemove', trackMousePosition, true);
 
   // Keep tooltip open while mouse is over it
   tooltip.addEventListener('mouseenter', cancelDismiss);
-  tooltip.addEventListener('mouseleave', scheduleDismiss);
+  tooltip.addEventListener('mouseleave', (e) => scheduleDismiss(e));
 
   // ── Wire interactions ──
 
@@ -282,8 +307,8 @@ export function setupVarHover(container: HTMLElement, ctx: VarTooltipContext): v
       }, HOVER_DELAY);
     }
   });
-  container.addEventListener('mouseleave', () => {
+  container.addEventListener('mouseleave', (e) => {
     cancelHoverTimer();
-    scheduleDismiss();
+    scheduleDismiss(e as MouseEvent);
   });
 }

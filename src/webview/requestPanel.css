@@ -1382,6 +1382,7 @@ td.var-cell .var-overlay {
 .var-tooltip-save-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 1px var(--m-focus-border);
+}
 
 /* ── Tooltip Save-to-Vault Button ────────── */
 .var-tooltip-save-vault {
