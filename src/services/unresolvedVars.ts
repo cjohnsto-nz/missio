@@ -1,14 +1,38 @@
 import * as vscode from 'vscode';
-import type { HttpRequest, MissioCollection, RequestDefaults } from '../models/types';
+import type { HttpRequest, MissioCollection, RequestDefaults, Auth } from '../models/types';
 import { varPatternGlobal } from '../models/varPattern';
 import type { EnvironmentService } from './environmentService';
 
 const BUILTINS = new Set(['$guid', '$timestamp', '$randomInt']);
 
+/** True for variable names that are resolved dynamically and should not be prompted. */
+function isAutoResolved(name: string): boolean {
+  return BUILTINS.has(name) || name.startsWith('$secret.');
+}
+
+/** Extract all {{variable}} names from a string. */
+function extractVarNames(s: string | undefined, into: Set<string>): void {
+  if (!s) return;
+  const re = varPatternGlobal();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) into.add(m[1].trim());
+}
+
+/** Recursively scan all string values in an object/array. */
+function scanAllStrings(obj: unknown, into: Set<string>): void {
+  if (typeof obj === 'string') { extractVarNames(obj, into); return; }
+  if (Array.isArray(obj)) { for (const item of obj) scanAllStrings(item, into); return; }
+  if (obj && typeof obj === 'object') {
+    for (const val of Object.values(obj)) scanAllStrings(val, into);
+  }
+}
+
 /**
  * Detect unresolved {{variable}} references in a raw request.
  * Returns the list of variable names that have no value after resolution,
  * excluding builtins and $secret.* references.
+ * Handles nested variables (e.g. api_url = "https://{{host}}/{{version}}")
+ * and the inherited auth chain (request → folder → collection).
  */
 export async function detectUnresolvedVars(
   requestData: HttpRequest,
@@ -17,21 +41,17 @@ export async function detectUnresolvedVars(
   folderDefaults?: RequestDefaults,
 ): Promise<string[]> {
   const varNames = new Set<string>();
-  const scan = (s: string | undefined) => {
-    if (!s) return;
-    const re = varPatternGlobal();
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(s)) !== null) varNames.add(m[1].trim());
-  };
+  const scan = (s: string | undefined) => extractVarNames(s, varNames);
 
   const details = requestData.http;
   if (!details) return [];
 
+  // URL & query/path params
   scan(details.url);
   for (const h of details.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
   for (const p of details.params ?? []) { if (!p.disabled) { scan(p.name); scan(p.value); } }
 
-  // Scan body
+  // Body
   const body = details.body;
   if (body) {
     if (Array.isArray(body)) {
@@ -42,20 +62,52 @@ export async function detectUnresolvedVars(
     }
   }
 
-  // Scan auth fields
-  const auth = details.auth;
+  // Auth — walk the effective auth chain (request → folder → collection)
+  let auth: Auth | undefined = details.auth;
+  if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+  if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
   if (auth && auth !== 'inherit' && typeof auth === 'object') {
-    for (const val of Object.values(auth)) {
-      if (typeof val === 'string') scan(val);
-    }
+    scanAllStrings(auth, varNames);
   }
 
   if (varNames.size === 0) return [];
 
+  // Resolve variables, then find which referenced names remain unresolved
   const resolved = await environmentService.resolveVariables(collection, folderDefaults);
-  return [...varNames].filter(
-    name => !BUILTINS.has(name) && !resolved.has(name) && !name.startsWith('$secret.'),
-  );
+
+  const unresolved = new Set<string>();
+
+  // Phase 1: directly referenced variables with no value
+  for (const name of varNames) {
+    if (!isAutoResolved(name) && !resolved.has(name)) {
+      unresolved.add(name);
+    }
+  }
+
+  // Phase 2: recursively walk resolved values to find nested unresolved refs.
+  // e.g. api_url = "https://{{host}}/{{version}}" where version has no value.
+  const visited = new Set<string>();
+  function walkResolved(name: string): void {
+    if (visited.has(name)) return;
+    visited.add(name);
+    const val = resolved.get(name);
+    if (val === undefined) return;
+    const nested = new Set<string>();
+    extractVarNames(val, nested);
+    for (const ref of nested) {
+      if (isAutoResolved(ref)) continue;
+      if (!resolved.has(ref)) {
+        unresolved.add(ref);
+      } else {
+        walkResolved(ref); // recurse into the resolved value
+      }
+    }
+  }
+  for (const name of varNames) {
+    if (!isAutoResolved(name)) walkResolved(name);
+  }
+
+  return [...unresolved];
 }
 
 /**
