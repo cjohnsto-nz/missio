@@ -26,6 +26,15 @@ Git integration, Workspaces, Commands, are all provided by VSCode.
 
 BYO Agentic Coding tools. 
 
+### Please Note
+
+Missio is still in alpha. Key missing features from Postman include:
+- Scripting
+- Websockets
+- GraphQL
+
+We aim to support these in the coming weeks.
+
 ## Features
 
 ### Collections & Requests
