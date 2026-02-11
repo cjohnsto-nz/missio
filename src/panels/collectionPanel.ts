@@ -119,9 +119,26 @@ export class CollectionEditorProvider extends BaseEditorProvider {
           : new Map<string, string>();
         const result = await this._secretService.testConnection(msg.provider, variables);
         const secretNames = await this._secretService.listSecretNames(msg.provider, variables);
-        webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
+        webview.postMessage({ type: 'testSecretProviderResult', success: true, secretCount: result.secretCount, canWrite: result.canWrite, role: result.role, providerIdx: msg.providerIdx, providerName: msg.provider.name, secretNames });
       } catch (e: any) {
         webview.postMessage({ type: 'testSecretProviderResult', success: false, error: e.message, providerIdx: msg.providerIdx });
+      }
+      return true;
+    }
+    if (msg.type === 'createSecretInVault') {
+      try {
+        const collection = this._findCollection(ctx.document.uri.fsPath);
+        const variables = collection
+          ? await this._environmentService.resolveVariables(collection)
+          : new Map<string, string>();
+        const providers = collection?.data.config?.secretProviders || [];
+        await this._secretService.setSecret(msg.providerName, msg.secretName, msg.value, providers, variables);
+        this._secretService.clearSecretNamesCache();
+        const provider = providers.find((p: any) => p.name === msg.providerName);
+        const secretNames = provider ? await this._secretService.listSecretNames(provider, variables) : [];
+        webview.postMessage({ type: 'createSecretInVaultResult', success: true, providerName: msg.providerName, secretName: msg.secretName, secretNames });
+      } catch (e: any) {
+        webview.postMessage({ type: 'createSecretInVaultResult', success: false, providerName: msg.providerName, error: e.message });
       }
       return true;
     }
@@ -233,11 +250,12 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Secrets -->
       <div class="tab-panel" id="panel-secrets">
         <table class="kv-table" id="secretProvidersTable">
-          <colgroup><col style="width:22%"><col style="width:120px"><col><col style="width:70px"><col style="width:32px"></colgroup>
-          <thead><tr><th>Name</th><th>Type</th><th>URL</th><th></th><th></th></tr></thead>
+          <colgroup><col style="width:20%"><col style="width:120px"><col><col style="width:160px"><col style="width:70px"><col style="width:32px"></colgroup>
+          <thead><tr><th>Name</th><th>Type</th><th>URL</th><th>Role</th><th></th><th></th></tr></thead>
           <tbody id="secretProvidersBody"></tbody>
         </table>
         <button class="add-row-btn" id="addSecretProviderBtn">+ Add Secret Provider</button>
+        <div id="createSecretFormContainer"></div>
         <div id="secretTestResult" style="margin-top:8px;font-size:12px;"></div>
       </div>
 

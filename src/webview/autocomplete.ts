@@ -41,6 +41,10 @@ export function setSecretNamesForProvider(provider: string, names: string[]): vo
   _secretNames.set(provider, names);
 }
 
+export function getSecretNamesForProvider(provider: string): string[] {
+  return _secretNames.get(provider) || [];
+}
+
 export function getVarPrefix(text: string, cursorPos: number): string | null {
   const before = text.substring(0, cursorPos);
   const openIdx = before.lastIndexOf('{{');

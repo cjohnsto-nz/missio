@@ -12,6 +12,7 @@ import {
 import { highlight, escHtml } from './highlight';
 import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
+import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 import {
   handleAutocomplete,
   handleAutocompleteContentEditable,
@@ -25,7 +26,7 @@ import {
   setBreakIllusionCallback, setPostMessage,
   getResolvedVariables, getVariableSources, getSecretKeys, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
-import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, cancelHoverTimer } from './varTooltip';
+import { setupVarHover, showVarTooltipAt, scheduleDismiss, handleSecretValueResolved, handleSetSecretValueResult, cancelHoverTimer } from './varTooltip';
 import {
   handleODataAutocomplete, handleODataKeydown,
   hideODataAutocomplete, isODataAutocompleteActive,
@@ -33,6 +34,7 @@ import {
 import {
   showResponse, showLoading, hideLoading, clearResponse,
   getLastResponse, getLastResponseBody, setLoadingText,
+  renderPreview,
 } from './response';
 
 // ── Document update scheduling ───────────────────
@@ -47,7 +49,7 @@ function scheduleDocumentUpdate(): void {
 
 // ── Tab switching ──────────────────────────────
 const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings'];
-const respPanelIds = ['resp-body', 'resp-headers'];
+const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
 
 function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void {
   tabBar.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -66,7 +68,9 @@ $('reqTabs').querySelectorAll('.tab').forEach((tab) => {
 });
 $('respTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
-    switchTab($('respTabs'), (tab as HTMLElement).dataset.tab!, respPanelIds);
+    const tabId = (tab as HTMLElement).dataset.tab!;
+    switchTab($('respTabs'), tabId, respPanelIds);
+    if (tabId === 'resp-preview') renderPreview();
   });
 });
 
@@ -349,15 +353,95 @@ function addHeader(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td class="val-cell"><div class="val-ce h-value" contenteditable="true" data-placeholder="value"></div></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); scheduleDocumentUpdate(); });
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); updateBadges(); syncAutoContentType(); scheduleDocumentUpdate(); });
   tr.addEventListener('change', scheduleDocumentUpdate);
   const hNameInput = tr.querySelector('.h-name') as HTMLInputElement;
   enableVarOverlay(hNameInput);
-  hNameInput.addEventListener('input', scheduleDocumentUpdate);
+  hNameInput.addEventListener('input', () => { syncAutoContentType(); scheduleDocumentUpdate(); });
   enableContentEditableValue(tr.querySelector('.h-value') as HTMLElement, value, scheduleDocumentUpdate);
   tbody.appendChild(tr);
   updateBadges();
 }
+
+// ── Auto-generated headers (Content-Type, Content-Length) ───────────
+const _autoContentTypes: Record<string, string> = {
+  json: 'application/json',
+  text: 'text/plain',
+  xml: 'application/xml',
+  sparql: 'application/sparql-query',
+  'form-urlencoded': 'application/x-www-form-urlencoded',
+  'multipart-form': 'multipart/form-data',
+};
+
+function _hasUserHeader(headerName: string): boolean {
+  const lower = headerName.toLowerCase();
+  let found = false;
+  document.querySelectorAll('#headersBody tr:not(.auto-header)').forEach((tr) => {
+    const name = (tr.querySelector('.h-name') as HTMLInputElement)?.value ?? '';
+    if (name.toLowerCase() === lower) found = true;
+  });
+  return found;
+}
+
+function _makeAutoRow(name: string, value: string): HTMLTableRowElement {
+  const tr = document.createElement('tr');
+  tr.classList.add('auto-header');
+  tr.innerHTML =
+    '<td></td>' +
+    '<td><span class="auto-label">' + name + '</span></td>' +
+    '<td><span class="auto-label">' + value + '</span></td>' +
+    '<td></td>';
+  return tr;
+}
+
+function _getBodySize(): number {
+  if (currentBodyType === 'none') return 0;
+  if (currentBodyType === 'form-urlencoded') {
+    const params = new URLSearchParams();
+    document.querySelectorAll('#bodyFormBody tr').forEach((tr) => {
+      if ((tr.querySelector('.f-enabled') as HTMLInputElement)?.checked) {
+        params.set(
+          (tr.querySelector('.f-name') as HTMLInputElement)?.value ?? '',
+          (tr.querySelector('.f-value') as HTMLInputElement)?.value ?? '',
+        );
+      }
+    });
+    return new TextEncoder().encode(params.toString()).length;
+  }
+  if (currentBodyType === 'multipart-form') return 0; // boundary is dynamic, can't predict
+  // Raw body types
+  const data = ($('bodyData') as HTMLTextAreaElement).value;
+  return new TextEncoder().encode(data).length;
+}
+
+function syncAutoHeaders(): void {
+  const tbody = $('headersBody');
+  // Remove all existing auto rows
+  tbody.querySelectorAll('tr.auto-header').forEach(r => r.remove());
+
+  if (currentBodyType === 'none') return;
+
+  // Content-Type
+  let typeKey: string | null = null;
+  if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
+    typeKey = currentBodyType;
+  } else {
+    typeKey = currentLang;
+  }
+  const ct = typeKey ? _autoContentTypes[typeKey] : null;
+  if (ct && !_hasUserHeader('content-type')) {
+    tbody.insertBefore(_makeAutoRow('Content-Type', ct), tbody.firstChild);
+  }
+
+  // Content-Length (not for multipart — boundary is dynamic)
+  if (currentBodyType !== 'multipart-form' && !_hasUserHeader('content-length')) {
+    const size = _getBodySize();
+    tbody.insertBefore(_makeAutoRow('Content-Length', String(size)), tbody.firstChild);
+  }
+}
+
+// Alias for backward compat with existing call sites
+const syncAutoContentType = syncAutoHeaders;
 
 // enableVarOverlay, enableContentEditableValue, syncAllVarOverlays, restoreCursor
 // are all imported from varFields.ts — single source of truth for all panels.
@@ -379,9 +463,9 @@ function addFormField(name = '', value = '', disabled = false): void {
     '<td><input type="text" class="f-name" value="' + esc(name) + '" placeholder="name" /></td>' +
     '<td><input type="text" class="f-value" value="' + esc(value) + '" placeholder="value" /></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
-  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); scheduleDocumentUpdate(); });
-  tr.addEventListener('input', scheduleDocumentUpdate);
-  tr.addEventListener('change', scheduleDocumentUpdate);
+  tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); syncAutoHeaders(); scheduleDocumentUpdate(); });
+  tr.addEventListener('input', () => { syncAutoHeaders(); scheduleDocumentUpdate(); });
+  tr.addEventListener('change', () => { syncAutoHeaders(); scheduleDocumentUpdate(); });
   enableVarOverlay(tr.querySelector('.f-name') as HTMLInputElement);
   enableVarOverlay(tr.querySelector('.f-value') as HTMLInputElement);
   tbody.appendChild(tr);
@@ -389,7 +473,7 @@ function addFormField(name = '', value = '', disabled = false): void {
 
 function updateBadges(): void {
   const params = document.querySelectorAll('#paramsBody tr');
-  const headers = document.querySelectorAll('#headersBody tr');
+  const headers = document.querySelectorAll('#headersBody tr:not(.auto-header)');
   $('paramsBadge').textContent = String(params.length);
   $('headersBadge').textContent = String(headers.length);
 }
@@ -417,12 +501,15 @@ function setBodyType(type: string): void {
     raw.style.flex = '1';
     form.style.display = 'none';
     langSelect.style.display = 'block';
+    syncHighlight();
   }
+  syncAutoContentType();
 }
 
 document.querySelectorAll('#bodyTypePills .pill').forEach((pill) => {
   pill.addEventListener('click', () => {
     setBodyType((pill as HTMLElement).dataset.bodyType!);
+    scheduleDocumentUpdate();
   });
 });
 
@@ -457,9 +544,10 @@ function syncHighlight(): void {
     const textarea = $('bodyData') as HTMLTextAreaElement;
     const pre = $('bodyHighlight');
     const lines = textarea.value.split('\n');
-    pre.innerHTML = lines.map(line =>
-      '<div class="code-line">' + highlight(line, currentLang) + '\n</div>'
-    ).join('');
+    pre.innerHTML = lines.map(line => {
+      const h = highlight(line, currentLang);
+      return '<div class="code-line">' + (h || '\u00a0') + '\n</div>';
+    }).join('');
     updateLineNumbers();
   } catch {
     // prevent highlighting errors from breaking UI
@@ -530,6 +618,21 @@ setBreakIllusionCallback(() => {
 
 setupVarHover($('url'), tooltipCtx());
 
+$('url').addEventListener('paste', (e: Event) => {
+  e.preventDefault();
+  const text = (e as ClipboardEvent).clipboardData?.getData('text/plain') ?? '';
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0) {
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(document.createTextNode(text));
+    range.collapse(false);
+  } else {
+    $('url').textContent = ($('url').textContent ?? '') + text;
+  }
+  $('url').dispatchEvent(new Event('input', { bubbles: true }));
+});
+
 $('url').addEventListener('input', () => {
   if (getShowResolvedVars()) {
     breakIllusion();
@@ -569,6 +672,7 @@ $('bodyData').addEventListener('input', () => {
     breakIllusion();
   }
   syncHighlight();
+  syncAutoHeaders();
   handleAutocomplete($('bodyData') as HTMLTextAreaElement, syncHighlight);
   scheduleDocumentUpdate();
 });
@@ -633,7 +737,9 @@ const requestAuthConfig: import('./authFields').AuthFieldsConfig = {
   showInherit: true,
   wrapInputs: true,
   showTokenStatus: true,
-  onFieldsRendered: (inputs) => inputs.forEach(enableVarOverlay),
+  onFieldsRendered: (elements) => elements.forEach(el => enableContentEditableValue(el, '', scheduleDocumentUpdate)),
+  authTypeSelectId: 'authType',
+  postMessage: (msg) => vscode.postMessage(msg),
 };
 
 function onAuthTypeChange(): void {
@@ -642,105 +748,12 @@ function onAuthTypeChange(): void {
 }
 
 // ── OAuth2 Token Status ─────────────────────────
-function getOAuth2AuthFromForm(): any {
-  const flow = ($('oauth2Flow') as HTMLSelectElement)?.value || 'client_credentials';
-  const auth: any = {
-    type: 'oauth2',
-    flow,
-    accessTokenUrl: $input('oauth2AccessTokenUrl')?.value || '',
-    clientId: $input('oauth2ClientId')?.value || '',
-    clientSecret: $input('oauth2ClientSecret')?.value || '',
-    scope: $input('oauth2Scope')?.value || '',
-    refreshTokenUrl: $input('oauth2RefreshTokenUrl')?.value || '',
-    credentialsPlacement: ($('oauth2CredentialsPlacement') as HTMLSelectElement)?.value || 'basic_auth_header',
-    credentialsId: (currentRequest as any)?.http?.auth?.credentialsId,
-    autoFetchToken: ($('oauth2AutoFetch') as HTMLInputElement)?.checked !== false,
-    autoRefreshToken: ($('oauth2AutoRefresh') as HTMLInputElement)?.checked !== false,
-  };
-  if (flow === 'password') {
-    auth.username = $input('oauth2Username')?.value || '';
-    auth.password = $input('oauth2Password')?.value || '';
-  }
-  return auth;
-}
-
-function requestTokenStatus(): void {
-  if (($('authType') as HTMLSelectElement)?.value !== 'oauth2') return;
-  const auth = getOAuth2AuthFromForm();
-  if (auth.accessTokenUrl) {
-    vscode.postMessage({ type: 'getTokenStatus', auth });
-  }
-}
-
-function formatTimeRemaining(ms: number): string {
-  if (ms <= 0) return 'expired';
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ${secs % 60}s`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ${mins % 60}m`;
-}
-
-let tokenStatusTimer: any = null;
-
-function updateOAuth2TokenStatus(status: any): void {
-  const el = document.getElementById('oauth2TokenStatus');
-  if (!el) return;
-
-  if (tokenStatusTimer) { clearInterval(tokenStatusTimer); tokenStatusTimer = null; }
-
-  if (!status.hasToken) {
-    el.innerHTML = '<div class="token-status token-none">' +
-      '<span class="token-dot dot-none"></span> No token' +
-      '<button class="token-btn" id="oauth2GetTokenBtn">Get Token</button></div>';
-    el.querySelector('#oauth2GetTokenBtn')?.addEventListener('click', () => {
-      const auth = getOAuth2AuthFromForm();
-      vscode.postMessage({ type: 'getToken', auth });
-    });
-    return;
-  }
-
-  const renderStatus = () => {
-    const now = Date.now();
-    const remaining = status.expiresAt ? status.expiresAt - now : undefined;
-    const isExpired = remaining !== undefined && remaining <= 0;
-    const dotClass = isExpired ? 'dot-expired' : 'dot-valid';
-    const label = isExpired ? 'Expired' : remaining !== undefined ? `Expires in ${formatTimeRemaining(remaining)}` : 'Valid (no expiry)';
-    const expiresAt = status.expiresAt ? new Date(status.expiresAt).toLocaleTimeString() : '';
-    el.innerHTML = '<div class="token-status ' + (isExpired ? 'token-expired' : 'token-valid') + '">' +
-      '<span class="token-dot ' + dotClass + '"></span> ' + label +
-      (expiresAt ? '<span class="token-expiry-time"> (' + expiresAt + ')</span>' : '') +
-      '<button class="token-btn" id="oauth2RefreshTokenBtn">' + (isExpired ? 'Get Token' : 'Refresh') + '</button>' +
-      '</div>';
-    el.querySelector('#oauth2RefreshTokenBtn')?.addEventListener('click', () => {
-      const auth = getOAuth2AuthFromForm();
-      vscode.postMessage({ type: 'getToken', auth });
-    });
-  };
-
-  renderStatus();
-  if (status.expiresAt) {
-    tokenStatusTimer = setInterval(() => {
-      renderStatus();
-      if (status.expiresAt && Date.now() > status.expiresAt) {
-        clearInterval(tokenStatusTimer);
-        tokenStatusTimer = null;
-      }
-    }, 1000);
-  }
-}
-
-function updateOAuth2Progress(message: string): void {
-  const el = document.getElementById('oauth2TokenStatus');
-  if (!el) return;
-  if (message) {
-    const isError = message.startsWith('Error:');
-    el.innerHTML = '<div class="token-status ' + (isError ? 'token-error' : 'token-progress') + '">' +
-      (isError ? '<span class="token-dot dot-expired"></span> ' : '<span class="token-spinner"></span> ') +
-      esc(message) + '</div>';
-  }
-}
+const tokenStatusCtrl = initOAuth2TokenStatusController({
+  prefix: 'auth',
+  buildAuth: () => buildAuthData(($('authType') as HTMLSelectElement).value, 'auth'),
+  postMessage: (msg) => vscode.postMessage(msg),
+  esc,
+});
 
 // ── Build request object ────────────────────────
 function buildRequest(): any {
@@ -770,7 +783,7 @@ function buildRequest(): any {
 
   // Headers
   const headers: any[] = [];
-  document.querySelectorAll('#headersBody tr').forEach((tr) => {
+  document.querySelectorAll('#headersBody tr:not(.auto-header)').forEach((tr) => {
     headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
       value: ((tr.querySelector('.h-value') as any)._getRawText ? (tr.querySelector('.h-value') as any)._getRawText() : (tr.querySelector('.h-value') as HTMLElement).textContent || ''),
@@ -816,14 +829,34 @@ function buildRequest(): any {
   return req;
 }
 
-// ── Send ────────────────────────────────────────
+// ── Send / Cancel ────────────────────────────────
+let isSending = false;
+
 function sendRequest(): void {
   const req = buildRequest();
-  $('sendBtn').classList.add('sending');
-  ($('sendBtn') as HTMLButtonElement).disabled = true;
-  $('sendBtn').textContent = 'Sending...';
-  showLoading();
   vscode.postMessage({ type: 'sendRequest', request: req });
+}
+
+function cancelRequest(): void {
+  vscode.postMessage({ type: 'cancelRequest' });
+  setSendingState(false);
+  hideLoading();
+}
+
+function setSendingState(sending: boolean, label?: string): void {
+  isSending = sending;
+  const btn = $('sendBtn') as HTMLButtonElement;
+  if (sending) {
+    btn.classList.add('sending');
+    btn.classList.add('btn-cancel');
+    btn.textContent = label || 'Cancel';
+    btn.disabled = false;
+  } else {
+    btn.classList.remove('sending');
+    btn.classList.remove('btn-cancel');
+    btn.textContent = 'Send';
+    btn.disabled = false;
+  }
 }
 
 // ── Save ────────────────────────────────────────
@@ -875,9 +908,8 @@ function loadRequest(req: any): void {
         setBodyType('raw');
         setCurrentLang(body.type || 'json');
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
-        if (body.data) {
-          ($('bodyData') as HTMLTextAreaElement).value = body.data;
-        }
+        syncAutoContentType();
+        ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
         syncHighlight();
       }
     }
@@ -899,7 +931,7 @@ function loadRequest(req: any): void {
     setTimeout(() => {
       loadAuthData(auth, 'auth');
       syncAllVarOverlays();
-      requestTokenStatus();
+      tokenStatusCtrl.requestStatus();
     }, 0);
   }
 
@@ -911,6 +943,87 @@ function loadRequest(req: any): void {
   $input('settingMaxRedirects').value = settings.maxRedirects !== undefined && settings.maxRedirects !== 'inherit' ? settings.maxRedirects : '5';
 
   updateBadges();
+}
+
+// ── Unresolved Variables Modal ───────────────────
+function showUnresolvedVarsModal(variables: string[]): void {
+  // Remove any existing modal
+  const existing = document.getElementById('unresolvedVarsModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'unresolvedVarsModal';
+  overlay.className = 'uv-modal-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'uv-modal-card';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'uv-modal-header';
+  header.innerHTML =
+    '<div class="uv-modal-title">Unresolved Variables</div>' +
+    '<div class="uv-modal-subtitle">Enter values to continue or cancel the request.</div>';
+  card.appendChild(header);
+
+  // Fields
+  const fields = document.createElement('div');
+  fields.className = 'uv-modal-fields';
+  for (const name of variables) {
+    const row = document.createElement('div');
+    row.className = 'uv-modal-field';
+    row.innerHTML =
+      '<label class="uv-modal-label">{{' + name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '}}</label>' +
+      '<input type="text" class="uv-modal-input" data-var="' + name.replace(/"/g, '&quot;') + '" placeholder="Enter value" />';
+    fields.appendChild(row);
+  }
+  card.appendChild(fields);
+
+  // Buttons
+  const actions = document.createElement('div');
+  actions.className = 'uv-modal-actions';
+  actions.innerHTML =
+    '<button class="uv-modal-cancel">Cancel</button>' +
+    '<button class="uv-modal-send">Send</button>';
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  // Focus first input
+  const firstInput = card.querySelector('.uv-modal-input') as HTMLInputElement;
+  if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+  // Wire cancel
+  const cancelBtn = card.querySelector('.uv-modal-cancel') as HTMLButtonElement;
+  cancelBtn.addEventListener('click', () => {
+    overlay.remove();
+    vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: true });
+  });
+
+  // Wire send
+  const sendBtn = card.querySelector('.uv-modal-send') as HTMLButtonElement;
+  sendBtn.addEventListener('click', () => {
+    const values: Record<string, string> = {};
+    card.querySelectorAll('.uv-modal-input').forEach(inp => {
+      const input = inp as HTMLInputElement;
+      values[input.dataset.var!] = input.value;
+    });
+    overlay.remove();
+    vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: false, values });
+  });
+
+  // Enter in last input triggers send, Escape cancels
+  card.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      vscode.postMessage({ type: 'unresolvedVarsResponse', cancelled: true });
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
 }
 
 // ── Message handler ─────────────────────────────
@@ -926,22 +1039,37 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
-      showResponse(msg.response, msg.preRequestMs, msg.timing);
-      requestTokenStatus();
+      showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
+      setSendingState(false);
+      tokenStatusCtrl.requestStatus();
       break;
     case 'sending':
-      $('sendBtn').classList.add('sending');
-      ($('sendBtn') as HTMLButtonElement).disabled = true;
-      $('sendBtn').textContent = 'Sending...';
+      if (!isSending) showLoading();
+      setSendingState(true, msg.message || 'Cancel');
       if (msg.message) setLoadingText(msg.message);
       break;
     case 'saved':
       break;
+    case 'saveBinaryResponse': {
+      const r = getLastResponse();
+      if (r && r.bodyBase64) {
+        vscode.postMessage({ type: 'saveBinaryResponse', bodyBase64: r.bodyBase64, contentType: r.headers?.['content-type'] ?? '' });
+      }
+      break;
+    }
+    case 'cancelled': {
+      hideLoading();
+      setSendingState(false);
+      $('responseBar').style.display = 'flex';
+      $('respTabs').style.display = 'flex';
+      const badge = $('statusBadge');
+      badge.textContent = '0 Cancelled';
+      badge.className = 'status-badge s0xx';
+      break;
+    }
     case 'error':
       hideLoading();
-      $('sendBtn').classList.remove('sending');
-      ($('sendBtn') as HTMLButtonElement).disabled = false;
-      $('sendBtn').textContent = 'Send';
+      setSendingState(false);
       break;
     case 'languageChanged':
       setCurrentLang(msg.language);
@@ -987,17 +1115,23 @@ window.addEventListener('message', (event: MessageEvent) => {
       handleVariablesResolved(msg);
       syncHighlight();
       syncUrlHighlight();
-      requestTokenStatus();
+      tokenStatusCtrl.requestStatus();
       break;
     }
     case 'secretValueResolved':
       handleSecretValueResolved(msg);
       break;
+    case 'setSecretValueResult':
+      handleSetSecretValueResult(msg);
+      break;
     case 'oauth2TokenStatus':
-      updateOAuth2TokenStatus(msg.status);
+      tokenStatusCtrl.handleStatus(msg.status);
       break;
     case 'oauth2Progress':
-      updateOAuth2Progress(msg.message);
+      tokenStatusCtrl.handleProgress(msg.message);
+      break;
+    case 'promptUnresolvedVars':
+      showUnresolvedVarsModal(msg.variables as string[]);
       break;
   }
 });
@@ -1011,11 +1145,27 @@ $('varToggleBtn').addEventListener('click', () => {
   syncUrlHighlight();
   syncAllVarOverlays();
 });
-$('sendBtn').addEventListener('click', sendRequest);
+$('sendBtn').addEventListener('click', () => {
+  if (isSending) { cancelRequest(); } else { sendRequest(); }
+});
 document.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     sendRequest();
+  }
+});
+$('showRawBtn').addEventListener('click', () => {
+  const overlay = document.getElementById('respBinaryOverlay');
+  const wrap = document.getElementById('respBodyWrap');
+  if (overlay) overlay.style.display = 'none';
+  if (wrap) wrap.style.display = 'block';
+  // Render the raw body now
+  const body = getLastResponseBody();
+  if (body) {
+    const lines = body.split('\n');
+    $('respBodyPre').innerHTML = lines.map((line: string) =>
+      '<div class="code-line">' + line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '\n</div>'
+    ).join('');
   }
 });
 $('copyRespBtn').addEventListener('click', () => {
@@ -1026,6 +1176,81 @@ $('copyRespBtn').addEventListener('click', () => {
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
   });
+});
+// Right-click context menu on preview panel for saving/copying binary content
+document.getElementById('panel-resp-preview')!.addEventListener('contextmenu', (e: MouseEvent) => {
+  const r = getLastResponse();
+  if (!r || !r.bodyBase64) return;
+  e.preventDefault();
+
+  const old = document.getElementById('previewContextMenu');
+  if (old) old.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'previewContextMenu';
+  menu.style.cssText = 'position:fixed;z-index:9999;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
+
+  const addItem = (label: string, onClick: () => void) => {
+    const item = document.createElement('div');
+    item.textContent = label;
+    item.style.cssText = 'padding:6px 16px;cursor:pointer;color:var(--vscode-menu-foreground,#ccc);font-size:13px;font-family:var(--vscode-font-family,system-ui);';
+    item.addEventListener('mouseenter', () => { item.style.background = 'var(--vscode-menu-selectionBackground,#094771)'; item.style.color = 'var(--vscode-menu-selectionForeground,#fff)'; });
+    item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; item.style.color = 'var(--vscode-menu-foreground,#ccc)'; });
+    item.addEventListener('click', () => { menu.remove(); onClick(); });
+    menu.appendChild(item);
+  };
+
+  const ct = (r.headers?.['content-type'] ?? '').toLowerCase();
+  const isImage = ct.startsWith('image/');
+
+  // Copy
+  addItem(isImage ? 'Copy Image' : 'Copy', () => {
+    if (isImage) {
+      // Convert to PNG via canvas — clipboard API only supports image/png
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx2d = canvas.getContext('2d')!;
+        ctx2d.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).catch(() => {
+              navigator.clipboard.writeText(r.bodyBase64);
+            });
+          }
+        }, 'image/png');
+      };
+      const mimeType = ct.split(';')[0].trim() || 'image/png';
+      img.src = `data:${mimeType};base64,${r.bodyBase64}`;
+    } else {
+      navigator.clipboard.writeText(r.bodyBase64);
+    }
+  });
+
+  // Save to Disk
+  addItem('Save to Disk', () => {
+    vscode.postMessage({ type: 'saveBinaryResponse', bodyBase64: r.bodyBase64, contentType: ct });
+  });
+
+  // Open in Browser (PDF only)
+  if (ct.includes('application/pdf')) {
+    addItem('Open in Browser', () => {
+      vscode.postMessage({ type: 'openInBrowser', bodyBase64: r.bodyBase64, contentType: ct });
+    });
+  }
+
+  document.body.appendChild(menu);
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+
+  const close = () => { menu.remove(); document.removeEventListener('click', close); };
+  setTimeout(() => document.addEventListener('click', close), 0);
+});
+$('refreshOAuthRetryBtn').addEventListener('click', () => {
+  const req = buildRequest();
+  vscode.postMessage({ type: 'refreshOAuthAndRetry', request: req });
 });
 $('saveExampleBtn').addEventListener('click', () => {
   if (!getLastResponse()) return;
@@ -1043,6 +1268,7 @@ $('panel-settings').addEventListener('change', scheduleDocumentUpdate);
 $('bodyLangMode').addEventListener('change', () => {
   setCurrentLang(($('bodyLangMode') as HTMLSelectElement).value);
   syncHighlight();
+  syncAutoContentType();
   scheduleDocumentUpdate();
 });
 

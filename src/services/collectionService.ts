@@ -3,6 +3,8 @@ import * as path from 'path';
 import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile } from './yamlParser';
 import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
+const _log = vscode.window.createOutputChannel('Missio');
+
 export class CollectionService implements vscode.Disposable {
   private _collections: Map<string, MissioCollection> = new Map();
   private _workspaces: Map<string, OpenCollectionWorkspace> = new Map();
@@ -15,10 +17,14 @@ export class CollectionService implements vscode.Disposable {
   private static readonly POLL_INTERVAL = 5_000; // 5s
 
   async initialize(): Promise<void> {
+    const t0 = performance.now();
     await this._scanWorkspaceFolders();
-    this._lastFingerprint = await this._computeFingerprint();
+    const t1 = performance.now();
+    this._lastFingerprint = this._computeFingerprintFromCollections();
     this._setupWatchers();
     this._startPolling();
+    this._onDidChange.fire();
+    _log.appendLine(`initialize: scanWorkspaceFolders=${(t1 - t0).toFixed(1)}ms, total=${(performance.now() - t0).toFixed(1)}ms, collections=${this._collections.size}, workspaces=${this._workspaces.size}`);
   }
 
   getCollections(): MissioCollection[] {
@@ -37,7 +43,7 @@ export class CollectionService implements vscode.Disposable {
     this._collections.clear();
     this._workspaces.clear();
     await this._scanWorkspaceFolders();
-    this._lastFingerprint = await this._computeFingerprint();
+    this._lastFingerprint = this._computeFingerprintFromCollections();
     this._onDidChange.fire();
   }
 
@@ -64,6 +70,7 @@ export class CollectionService implements vscode.Disposable {
   // ── Private ──────────────────────────────────────────────────────
 
   private async _scanWorkspaceFolders(): Promise<void> {
+    const t0 = performance.now();
     const config = vscode.workspace.getConfiguration('missio');
     const collectionPatterns = config.get<string[]>('collectionFilePatterns', ['**/collection.yml', '**/collection.yaml']);
     const workspacePatterns = config.get<string[]>('workspaceFilePatterns', ['**/workspace.yml', '**/workspace.yaml']);
@@ -75,6 +82,7 @@ export class CollectionService implements vscode.Disposable {
         await this._loadWorkspaceFile(uri.fsPath);
       }
     }
+    const t1 = performance.now();
 
     // Find collection files via glob patterns
     for (const pattern of collectionPatterns) {
@@ -83,6 +91,7 @@ export class CollectionService implements vscode.Disposable {
         await this._loadCollectionFile(uri.fsPath);
       }
     }
+    const t2 = performance.now();
 
     // Also resolve collections referenced by workspace files
     for (const [wsPath, ws] of this._workspaces) {
@@ -97,6 +106,8 @@ export class CollectionService implements vscode.Disposable {
         }
       }
     }
+    const t3 = performance.now();
+    _log.appendLine(`_scanWorkspaceFolders: findWorkspaces=${(t1 - t0).toFixed(1)}ms, findCollections=${(t2 - t1).toFixed(1)}ms, resolveWsRefs=${(t3 - t2).toFixed(1)}ms`);
   }
 
   private async _loadCollectionFile(filePath: string): Promise<void> {
@@ -208,7 +219,7 @@ export class CollectionService implements vscode.Disposable {
   private _startPolling(): void {
     const tick = async () => {
       try {
-        const fingerprint = await this._computeFingerprint();
+        const fingerprint = await this._computeFingerprintScoped();
         if (fingerprint !== this._lastFingerprint) {
           this._lastFingerprint = fingerprint;
           await this.refresh();
@@ -221,18 +232,53 @@ export class CollectionService implements vscode.Disposable {
     this._pollTimer = setTimeout(tick, CollectionService.POLL_INTERVAL);
   }
 
-  /** Build a lightweight fingerprint from yml file paths + mtimes to detect external changes. */
-  private async _computeFingerprint(): Promise<string> {
-    const files = await vscode.workspace.findFiles('**/*.{yml,yaml}', '**/node_modules/**');
+  /** Cheap synchronous fingerprint from already-loaded collection data (file paths + count). */
+  private _computeFingerprintFromCollections(): string {
     const parts: string[] = [];
-    for (const uri of files) {
-      try {
-        const stat = await vscode.workspace.fs.stat(uri);
-        parts.push(`${uri.fsPath}:${stat.mtime}`);
-      } catch { /* deleted between find and stat */ }
+    for (const [id] of this._collections) {
+      parts.push(id);
+    }
+    for (const [id] of this._workspaces) {
+      parts.push(id);
     }
     parts.sort();
     return parts.join('\n');
+  }
+
+  /** Scoped fingerprint: only stat yml files within known collection root dirs (parallel). */
+  private async _computeFingerprintScoped(): Promise<string> {
+    const rootDirs = new Set<string>();
+    for (const col of this._collections.values()) {
+      rootDirs.add(col.rootDir);
+    }
+
+    // If no collections loaded yet, fall back to scanning for collection files only
+    if (rootDirs.size === 0) {
+      const files = await vscode.workspace.findFiles('**/collection.{yml,yaml}', '**/node_modules/**');
+      return files.map(f => f.fsPath).sort().join('\n');
+    }
+
+    // Find yml files only within known collection directories
+    const allFiles: vscode.Uri[] = [];
+    for (const rootDir of rootDirs) {
+      const pattern = new vscode.RelativePattern(rootDir, '**/*.{yml,yaml}');
+      const files = await vscode.workspace.findFiles(pattern);
+      allFiles.push(...files);
+    }
+
+    // Stat in parallel
+    const parts = await Promise.all(
+      allFiles.map(async (uri) => {
+        try {
+          const stat = await vscode.workspace.fs.stat(uri);
+          return `${uri.fsPath}:${stat.mtime}`;
+        } catch {
+          return '';
+        }
+      }),
+    );
+
+    return parts.filter(Boolean).sort().join('\n');
   }
 
   private _debounce(fn: () => void, ms: number): () => void {

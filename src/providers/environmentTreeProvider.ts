@@ -23,12 +23,14 @@ class CollectionEnvGroupNode extends vscode.TreeItem {
 }
 
 class EnvironmentNode extends vscode.TreeItem {
+  public readonly childNodes: EnvironmentNode[] = [];
   constructor(
     public readonly environment: Environment,
     public readonly collectionId: string,
     public readonly isActive: boolean,
+    hasChildren: boolean,
   ) {
-    super(environment.name, vscode.TreeItemCollapsibleState.None);
+    super(environment.name, hasChildren ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
     this.id = `env:${collectionId}:${environment.name}`;
     this.contextValue = 'environment';
     this.description = isActive ? '● Active' : '';
@@ -92,17 +94,47 @@ export class EnvironmentTreeProvider implements vscode.TreeDataProvider<EnvTreeN
     }
 
     if (element instanceof CollectionEnvGroupNode) {
-      const collection = element.collection;
-      const environments = this._environmentService.getCollectionEnvironments(collection)
-        .slice()
-        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      const activeName = this._environmentService.getActiveEnvironmentName(collection.id);
-      return environments.map(env =>
-        new EnvironmentNode(env, collection.id, env.name === activeName),
-      );
+      return this._buildEnvHierarchy(element.collection);
+    }
+
+    if (element instanceof EnvironmentNode) {
+      return element.childNodes;
     }
 
     return [];
+  }
+
+  private _buildEnvHierarchy(collection: MissioCollection): EnvironmentNode[] {
+    const environments = this._environmentService.getCollectionEnvironments(collection)
+      .slice()
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const activeName = this._environmentService.getActiveEnvironmentName(collection.id);
+    const envNames = new Set(environments.map(e => e.name));
+
+    // Build a map of parent name → child environments
+    const childrenMap = new Map<string, Environment[]>();
+    const roots: Environment[] = [];
+    for (const env of environments) {
+      if (env.extends && envNames.has(env.extends)) {
+        const siblings = childrenMap.get(env.extends) ?? [];
+        siblings.push(env);
+        childrenMap.set(env.extends, siblings);
+      } else {
+        roots.push(env);
+      }
+    }
+
+    // Recursively build nodes
+    const buildNode = (env: Environment): EnvironmentNode => {
+      const children = childrenMap.get(env.name) ?? [];
+      const node = new EnvironmentNode(env, collection.id, env.name === activeName, children.length > 0);
+      for (const child of children) {
+        node.childNodes.push(buildNode(child));
+      }
+      return node;
+    };
+
+    return roots.map(buildNode);
   }
 
   dispose(): void {

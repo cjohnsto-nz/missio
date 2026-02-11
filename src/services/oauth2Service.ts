@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
+import * as crypto from 'crypto';
 import { URL } from 'url';
 import type { AuthOAuth2 } from '../models/types';
 
@@ -89,7 +90,8 @@ export class OAuth2Service implements vscode.Disposable {
         tokenData = await this._fetchPassword(auth);
         break;
       case 'authorization_code':
-        throw new Error('OAuth2: Authorization Code flow is not yet supported in Missio');
+        tokenData = await this._fetchAuthorizationCode(auth);
+        break;
       default:
         throw new Error(`OAuth2: Unsupported flow: ${flow}`);
     }
@@ -240,6 +242,169 @@ export class OAuth2Service implements vscode.Disposable {
     }
 
     return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
+  }
+
+  private async _fetchAuthorizationCode(auth: AuthOAuth2): Promise<OAuth2TokenData> {
+    if (!auth.clientId) throw new Error('OAuth2: Client ID is required for authorization_code flow');
+    if (!auth.authorizationUrl) throw new Error('OAuth2: Authorization URL is required for authorization_code flow');
+
+    const usePkce = auth.pkce !== false; // default true for auth code flow
+    let codeVerifier: string | undefined;
+    let codeChallenge: string | undefined;
+
+    if (usePkce) {
+      // Generate PKCE code_verifier (43–128 chars, URL-safe)
+      codeVerifier = crypto.randomBytes(32).toString('base64url');
+      // S256 challenge
+      codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    }
+
+    const state = crypto.randomBytes(16).toString('hex');
+
+    // Start a temporary local HTTP server to receive the callback, with cancel support
+    const { code, callbackUrl } = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'OAuth2: Waiting for browser authorization…',
+        cancellable: true,
+      },
+      (_progress, cancelToken) => this._waitForAuthorizationCode(auth, state, codeChallenge, cancelToken),
+    );
+
+    // Exchange authorization code for tokens
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    };
+
+    const params = new URLSearchParams();
+    params.set('grant_type', 'authorization_code');
+    params.set('code', code);
+    params.set('redirect_uri', callbackUrl);
+
+    if (usePkce && codeVerifier) {
+      params.set('code_verifier', codeVerifier);
+    }
+
+    const placement = auth.credentialsPlacement ?? 'basic_auth_header';
+    if (placement === 'basic_auth_header') {
+      const secret = auth.clientSecret ?? '';
+      headers['Authorization'] = `Basic ${Buffer.from(`${auth.clientId}:${secret}`).toString('base64')}`;
+    } else {
+      params.set('client_id', auth.clientId);
+      if (auth.clientSecret) {
+        params.set('client_secret', auth.clientSecret);
+      }
+    }
+
+    return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
+  }
+
+  /**
+   * Start a local HTTP server on a random port, open the browser to the
+   * authorization URL, and wait for the redirect callback with the code.
+   */
+  private _waitForAuthorizationCode(
+    auth: AuthOAuth2,
+    state: string,
+    codeChallenge?: string,
+    cancelToken?: vscode.CancellationToken,
+  ): Promise<{ code: string; callbackUrl: string }> {
+    return new Promise((resolve, reject) => {
+      const server = http.createServer();
+      const cleanup = () => { clearTimeout(timer); server.close(); };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('OAuth2: Authorization timed out (120s). No callback received.'));
+      }, 120_000);
+
+      // Cancel support
+      if (cancelToken) {
+        cancelToken.onCancellationRequested(() => {
+          cleanup();
+          reject(new Error('OAuth2: Authorization cancelled by user.'));
+        });
+      }
+
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as { port: number };
+        const callbackUrl = `http://localhost:${addr.port}`;
+
+        // Build authorization URL
+        const authUrl = new URL(auth.authorizationUrl!);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('client_id', auth.clientId!);
+        authUrl.searchParams.set('redirect_uri', callbackUrl);
+        authUrl.searchParams.set('state', state);
+        if (auth.scope) authUrl.searchParams.set('scope', auth.scope);
+        if (codeChallenge) {
+          authUrl.searchParams.set('code_challenge', codeChallenge);
+          authUrl.searchParams.set('code_challenge_method', 'S256');
+        }
+
+        // Open browser
+        vscode.env.openExternal(vscode.Uri.parse(authUrl.toString()));
+
+        server.on('request', (req, res) => {
+          const reqUrl = new URL(req.url ?? '/', `http://localhost:${addr.port}`);
+
+          const error = reqUrl.searchParams.get('error');
+          if (error) {
+            const desc = reqUrl.searchParams.get('error_description') ?? '';
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(this._callbackHtml(false, `Authorization denied: ${error} — ${desc}`));
+            cleanup();
+            reject(new Error(`OAuth2: Authorization denied — ${error}: ${desc}`));
+            return;
+          }
+
+          const code = reqUrl.searchParams.get('code');
+          const returnedState = reqUrl.searchParams.get('state');
+
+          if (!code) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(this._callbackHtml(false, 'No authorization code received.'));
+            cleanup();
+            reject(new Error('OAuth2: No authorization code in callback'));
+            return;
+          }
+
+          if (returnedState !== state) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(this._callbackHtml(false, 'State mismatch — possible CSRF attack.'));
+            cleanup();
+            reject(new Error('OAuth2: State parameter mismatch'));
+            return;
+          }
+
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(this._callbackHtml(true, 'Authorization successful! You can close this tab.'));
+          cleanup();
+          resolve({ code, callbackUrl });
+        });
+      });
+
+      server.on('error', (err) => {
+        cleanup();
+        reject(new Error(`OAuth2: Failed to start callback server — ${err.message}`));
+      });
+    });
+  }
+
+  private _callbackHtml(success: boolean, message: string): string {
+    const color = success ? '#4ec9b0' : '#f44747';
+    const statusIcon = success ? '✓' : '✗';
+    // Inline SVG of the Missio logo (extracted from media/icon2.svg)
+    const logo = `<svg width="40" height="36" viewBox="0 0 125 114" fill="#ccc" xmlns="http://www.w3.org/2000/svg"><path d="M44.6 20.7C26.3 51.4 16.9 67.2 0.8 94.2a5.8 5.8 47.3 0 0 7.5 8.1c8.9-4.3 17.7-8.7 26.6-13a4.3 4.3 11.5 0 1 5.1 1c6.4 7.3 12.7 14.7 19.1 22a4.6 4.6 180 0 0 6.9 0c6.4-7.3 12.7-14.7 19.1-22a4.3 4.3 168.5 0 1 5.2-1c8.8 4.3 17.5 8.6 26.3 12.9a5.8 5.8 132.7 0 0 7.6-8.2C106.5 64.3 88.8 34.6 71.1 4.8a9.9 9.9 0 0 0-17.1 0c-1.5 2.4-2.9 4.8-4 6.7l-5.4 9.1zm65.4 70.9c-7.5-3.9-13.7-7.3-21.5-11.3a5.7 5.7 50.2 0 1-2.9-3.5c-6.6-22.1-13.1-41.9-19.7-63.8a0.7 0.7 156.6 0 1 1.2-0.5c15.7 26.6 29.1 50.3 44.9 77a1.5 1.5 133.3 0 1-2 2.1zm-50.8 7.5L44.4 82.8a4.6 4.6 76.4 0 1-1-4.2l17.5-65.7a0.7 0.7 7.3 0 1 1.4 0.2l0.5 84.7a2 2 158.8 0 1-3.5 1.4z"/></svg>`;
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Missio</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#1e1e1e;color:#ccc;}
+.card{text-align:center;padding:2.5rem 3rem;border-radius:10px;background:#252526;border:1px solid #333;min-width:300px;}
+.logo{margin-bottom:0.5rem;}
+.brand{font-size:1.1rem;font-weight:600;color:#888;margin-bottom:1.5rem;letter-spacing:0.05em;}
+.status{font-size:2.5rem;color:${color};margin-bottom:0.5rem;}
+.msg{font-size:0.95rem;line-height:1.5;}</style></head>
+<body><div class="card"><div class="logo">${logo}</div><div class="brand">MISSIO</div><div class="status">${statusIcon}</div><p class="msg">${message}</p></div></body></html>`;
   }
 
   private async _refreshToken(auth: AuthOAuth2, refreshToken: string): Promise<OAuth2TokenData> {

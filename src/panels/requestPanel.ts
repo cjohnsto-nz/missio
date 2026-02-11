@@ -8,6 +8,7 @@ import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
 import { readFolderFile } from '../services/yamlParser';
+import { detectUnresolvedVars } from '../services/unresolvedVars';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -23,6 +24,8 @@ export class RequestEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.requestEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
   private readonly _httpClient: HttpClient;
+  // Pending resolver for the webview-based unresolved-vars prompt
+  private _unresolvedVarsResolver: ((result: Map<string, string> | undefined) => void) | null = null;
 
   static postMessageToPanel(filePath: string, message: any): boolean {
     const panel = RequestEditorProvider._panels.get(filePath.toLowerCase());
@@ -94,6 +97,18 @@ export class RequestEditorProvider extends BaseEditorProvider {
   protected _getScriptFilename(): string { return 'requestPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
 
+  protected _getHtml(webview: vscode.Webview): string {
+    const html = super._getHtml(webview);
+    // Inject PDF.js scripts before the closing </body> tag
+    const pdfJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.js'));
+    const pdfWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.worker.js'));
+    const nonce = html.match(/nonce="([^"]+)"/)?.[1] ?? '';
+    const pdfScripts = `<script nonce="${nonce}" src="${pdfJsUri}"></script>\n<script nonce="${nonce}" src="${pdfWorkerUri}"></script>\n<script nonce="${nonce}">if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc='${pdfWorkerUri}';</script>`;
+    return html
+      .replace('</body>', pdfScripts + '\n</body>')
+      .replace(/img-src data:/, 'img-src blob: data:');
+  }
+
   protected _onPanelCreated(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
@@ -142,6 +157,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._sendRequest(webview, msg.request, collection, folderDefaults);
         return true;
       }
+      case 'cancelRequest': {
+        this._httpClient.cancelAll();
+        return true;
+      }
       case 'editVariable':
         // Handled by addVariable in basePanel — kept for backwards compat
         return true;
@@ -151,8 +170,54 @@ export class RequestEditorProvider extends BaseEditorProvider {
       }
       case 'methodChanged':
         return true;
+      case 'saveBinaryResponse': {
+        await this._saveBinaryResponse(msg.bodyBase64, msg.contentType);
+        return true;
+      }
+      case 'openInBrowser': {
+        await this._openInBrowser(msg.bodyBase64, msg.contentType);
+        return true;
+      }
+      case 'refreshOAuthAndRetry': {
+        const collection = this._findCollection(filePath);
+        if (!collection) {
+          webview.postMessage({ type: 'error', message: 'Collection not found' });
+          return true;
+        }
+        const folderDefaults = await this._getFolderDefaults(filePath, collection);
+        // Clear the existing OAuth2 token before retrying
+        let effectiveAuth = msg.request?.http?.auth;
+        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+        if (effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2') {
+          const auth = effectiveAuth as any;
+          if (auth.accessTokenUrl) {
+            const variables = await this._environmentService.resolveVariables(collection);
+            const url = this._environmentService.interpolate(auth.accessTokenUrl, variables);
+            const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+            await this._oauth2Service.clearToken(collection.id, envName, url, auth.credentialsId);
+          }
+        }
+        await this._sendRequest(webview, msg.request, collection, folderDefaults);
+        return true;
+      }
       case 'saveExample': {
         await this._saveExample(webview, msg, ctx);
+        return true;
+      }
+      case 'unresolvedVarsResponse': {
+        if (this._unresolvedVarsResolver) {
+          if (msg.cancelled) {
+            this._unresolvedVarsResolver(undefined);
+          } else {
+            const map = new Map<string, string>();
+            for (const [k, v] of Object.entries(msg.values as Record<string, string>)) {
+              map.set(k, v);
+            }
+            this._unresolvedVarsResolver(map);
+          }
+          this._unresolvedVarsResolver = null;
+        }
         return true;
       }
     }
@@ -163,12 +228,29 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
-    const _t0 = Date.now();
     const _rlog = (msg: string) => {
       const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
       requestLog.appendLine(`[${ts}] ${msg}`);
     };
+
+    // Detect unresolved variables and prompt via webview modal
+    const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+    let extraVariables: Map<string, string> | undefined = new Map();
+    if (unresolved.length > 0) {
+      webview.postMessage({ type: 'promptUnresolvedVars', variables: unresolved });
+      extraVariables = await new Promise<Map<string, string> | undefined>(resolve => {
+        this._unresolvedVarsResolver = resolve;
+      });
+    }
+    if (extraVariables === undefined) {
+      webview.postMessage({ type: 'cancelled' });
+      return;
+    }
+
+    // Start timer after the modal is dismissed so dialog time isn't counted
+    const _t0 = Date.now();
     _rlog(`── _sendRequest start ──`);
+
     // Determine effective auth for progress reporting
     let effectiveAuth = requestData.http?.auth;
     if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
@@ -184,16 +266,23 @@ export class RequestEditorProvider extends BaseEditorProvider {
     try {
       // httpClient.send handles the full pipeline: variable resolution, auth
       // (including OAuth2 with $secret references), headers, body, and secrets.
-      const response = await this._httpClient.send(requestData, collection, folderDefaults);
+      const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
+        webview.postMessage({ type: 'sending', message: msg });
+      }, extraVariables.size > 0 ? extraVariables : undefined);
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];
-      webview.postMessage({ type: 'response', response, timing });
+      webview.postMessage({ type: 'response', response, timing, usedOAuth2: !!isOAuth2 });
     } catch (e: any) {
-      webview.postMessage({
-        type: 'response',
-        response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
-      });
+      if (e.message === 'Request cancelled') {
+        webview.postMessage({ type: 'cancelled' });
+        return;
+      } else {
+        webview.postMessage({
+          type: 'response',
+          response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
+        });
+      }
     }
   }
 
@@ -238,6 +327,33 @@ export class RequestEditorProvider extends BaseEditorProvider {
     } catch (e: any) {
       vscode.window.showErrorMessage(`Failed to save example: ${e.message}`);
     }
+  }
+
+  private async _openInBrowser(bodyBase64: string, contentType: string): Promise<void> {
+    const ext = contentType.includes('pdf') ? 'pdf' : 'bin';
+    const fs = await import('fs');
+    const os = await import('os');
+    const tmpPath = path.join(os.tmpdir(), `missio-preview-${Date.now()}.${ext}`);
+    fs.writeFileSync(tmpPath, Buffer.from(bodyBase64, 'base64'));
+    await vscode.env.openExternal(vscode.Uri.file(tmpPath));
+  }
+
+  private async _saveBinaryResponse(bodyBase64: string, contentType: string): Promise<void> {
+    const ext = contentType.includes('pdf') ? 'pdf'
+      : contentType.includes('png') ? 'png'
+      : contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg'
+      : contentType.includes('gif') ? 'gif'
+      : contentType.includes('svg') ? 'svg'
+      : contentType.includes('webp') ? 'webp'
+      : 'bin';
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(`response.${ext}`),
+      filters: { [ext.toUpperCase()]: [ext], 'All Files': ['*'] },
+    });
+    if (!uri) return;
+    const buffer = Buffer.from(bodyBase64, 'base64');
+    await vscode.workspace.fs.writeFile(uri, buffer);
+    vscode.window.showInformationMessage(`Saved to ${uri.fsPath}`);
   }
 
   protected _getBodyHtml(_webview: vscode.Webview): string {
@@ -369,19 +485,27 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <span class="status-badge" id="statusBadge"></span>
         <span class="meta" id="responseMeta"></span>
         <span class="example-indicator" id="exampleIndicator"></span>
+        <button class="save-example-btn" id="refreshOAuthRetryBtn" style="display:none;" title="Clear OAuth2 token and retry">Refresh OAuth &amp; Retry</button>
         <button class="save-example-btn" id="saveExampleBtn" title="Save as example">Save as Example</button>
       </div>
       <div class="tabs" id="respTabs" style="display:none;">
         <div class="tab active" data-tab="resp-body">Body</div>
         <div class="tab" data-tab="resp-headers">Headers</div>
+        <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
       <div class="response-body">
         <div class="loading-overlay" id="respLoading" style="display:none;">
           <div class="spinner"></div>
           <span>Sending request…</span>
+          <span class="loading-timer" id="loadingTimer">0.0s</span>
         </div>
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
+          <div id="respBinaryOverlay" style="display:none;padding:32px;text-align:center;color:var(--vscode-foreground);font-family:var(--vscode-font-family,system-ui);">
+            <div style="font-size:14px;margin-bottom:8px;">Response body contains binary data</div>
+            <div style="font-size:12px;opacity:.7;margin-bottom:16px;" id="respBinaryInfo"></div>
+            <button class="save-example-btn" id="showRawBtn">Show Raw</button>
+          </div>
           <div id="respBodyWrap" class="resp-body-wrap" style="display:none;">
             <button class="copy-btn" id="copyRespBtn" title="Copy to clipboard">Copy</button>
             <div class="code-wrap resp-code-wrap">
@@ -392,6 +516,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
         </div>
         <div class="tab-panel" id="panel-resp-headers">
           <table class="resp-headers-table" id="respHeadersTable"><tbody id="respHeadersBody"></tbody></table>
+        </div>
+        <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;position:relative;">
+          <iframe id="respPreviewFrame" sandbox="allow-same-origin" style="border:none;width:100%;height:100%;background:#fff;display:none;"></iframe>
+          <div id="previewOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></div>
+          <div id="respPdfContainer" style="display:none;background:var(--vscode-editor-background);padding:16px 0;text-align:center;"></div>
         </div>
       </div>
     </div>

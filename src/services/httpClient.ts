@@ -37,6 +37,8 @@ export class HttpClient implements vscode.Disposable {
     request: HttpRequest,
     collection: MissioCollection,
     folderDefaults?: import('../models/types').RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
@@ -44,6 +46,10 @@ export class HttpClient implements vscode.Disposable {
     _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
     let tPhase = Date.now();
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    // Merge ephemeral extra variables (e.g. user-prompted values for unresolved vars)
+    if (extraVariables) {
+      for (const [k, v] of extraVariables) variables.set(k, v);
+    }
     _mark('Resolve Variables', tPhase);
     _log(`  resolveVariables: ${Date.now() - t0}ms`);
     const details = request.http;
@@ -56,6 +62,11 @@ export class HttpClient implements vscode.Disposable {
 
     // Interpolate URL
     let url = this._environmentService.interpolate(details.url, variables);
+
+    // Auto-prepend http:// if no scheme provided (matches Postman behaviour)
+    if (url && !/^https?:\/\//i.test(url)) {
+      url = 'http://' + url;
+    }
 
     // Apply query params — params array is the source of truth, so strip any
     // query string baked into the URL (common Postman import artifact)
@@ -132,6 +143,7 @@ export class HttpClient implements vscode.Disposable {
 
     _mark('Auth', tPhase);
     _log(`  auth: ${Date.now() - t0}ms`);
+    onProgress?.('Sending request…');
     tPhase = Date.now();
     // Body
     let body: string | Buffer | undefined;
@@ -200,11 +212,17 @@ export class HttpClient implements vscode.Disposable {
           }
 
           _mark('HTTP', tPhase);
+
+          // Detect binary content types for preview support
+          const ct = (responseHeaders['content-type'] ?? '').toLowerCase();
+          const isBinary = /^(image\/|application\/pdf|application\/octet-stream)/.test(ct);
+
           resolve({
             status: res.statusCode ?? 0,
             statusText: res.statusMessage ?? '',
             headers: responseHeaders,
             body: buffer.toString('utf-8'),
+            bodyBase64: isBinary ? buffer.toString('base64') : undefined,
             duration,
             size: buffer.length,
             timing: _timing,
@@ -223,9 +241,11 @@ export class HttpClient implements vscode.Disposable {
 
       this._activeRequests.set(requestId, req);
 
-      // Handle redirects manually if needed
       if (body) {
-        req.write(body);
+        const bodyBuffer = typeof body === 'string' ? Buffer.from(body, 'utf-8') : body;
+        req.setHeader('Content-Length', bodyBuffer.length);
+        _log(`  body: ${bodyBuffer.length} bytes`);
+        req.write(bodyBuffer);
       }
       req.end();
     });
@@ -353,7 +373,6 @@ export class HttpClient implements vscode.Disposable {
       accessTokenUrl: await resolve(auth.accessTokenUrl),
       refreshTokenUrl: await resolve(auth.refreshTokenUrl),
       authorizationUrl: await resolve(auth.authorizationUrl),
-      callbackUrl: await resolve(auth.callbackUrl),
       clientId: await resolve(auth.clientId),
       clientSecret: await resolve(auth.clientSecret),
       username: await resolve(auth.username),

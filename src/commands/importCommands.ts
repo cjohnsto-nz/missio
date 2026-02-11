@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import { importers, PostmanImporter } from '../importers';
+import { importers, PostmanImporter, detectRequestFormat, requestImporters } from '../importers';
+import { stringifyYaml } from '../services/yamlParser';
+import { RequestEditorProvider } from '../panels/requestPanel';
 
 export function registerImportCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService } = ctx;
@@ -219,5 +221,93 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
         collectionService.refresh();
       }
     }),
+
+    vscode.commands.registerCommand('missio.importRequest', async (node?: any) => {
+      // Read clipboard
+      const clipboard = await vscode.env.clipboard.readText();
+
+      // Show input box pre-filled with clipboard content
+      const text = await vscode.window.showInputBox({
+        prompt: `Paste a request to import (${requestImporters.map(i => i.label).join(', ')})`,
+        value: clipboard.trim().startsWith('curl') ? clipboard.trim() : '',
+        ignoreFocusOut: true,
+      });
+      if (!text?.trim()) return;
+
+      // Auto-detect format
+      const importer = detectRequestFormat(text.trim());
+      if (!importer) {
+        vscode.window.showWarningMessage(
+          `Could not detect format. Supported: ${requestImporters.map(i => i.label).join(', ')}`,
+        );
+        return;
+      }
+
+      // Parse
+      let request;
+      try {
+        request = importer.parse(text.trim());
+      } catch (e: any) {
+        vscode.window.showErrorMessage(`Failed to parse ${importer.label}: ${e.message}`);
+        return;
+      }
+
+      // Determine target directory
+      let targetDir: string | undefined;
+      if (node?.dirPath) {
+        targetDir = node.dirPath;
+      } else if (node?.collection?.rootDir) {
+        targetDir = node.collection.rootDir;
+      } else {
+        const collections = collectionService.getCollections();
+        if (collections.length === 0) {
+          vscode.window.showWarningMessage('No collections found. Create one first.');
+          return;
+        }
+        const collection = collections.length === 1
+          ? collections[0]
+          : await vscode.window.showQuickPick(
+              collections.map(c => ({
+                label: c.data.info?.name ?? path.basename(c.rootDir),
+                collection: c,
+              })),
+              { placeHolder: 'Select a collection' },
+            ).then(r => r?.collection);
+        if (!collection) return;
+        targetDir = collection.rootDir;
+      }
+      if (!targetDir) return;
+
+      // Generate file name from request name
+      const name = request.info?.name ?? 'imported-request';
+      let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'request';
+      let filePath = path.join(targetDir, `${slug}.yml`);
+
+      // Avoid overwriting existing files
+      let counter = 1;
+      while (await fileExists(filePath)) {
+        filePath = path.join(targetDir, `${slug}-${counter}.yml`);
+        counter++;
+      }
+
+      const content = stringifyYaml(request, { lineWidth: 120 });
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf-8'));
+
+      collectionService.refresh();
+      await RequestEditorProvider.open(filePath);
+
+      vscode.window.showInformationMessage(
+        `Imported ${importer.label} request as "${path.basename(filePath)}".`,
+      );
+    }),
   ];
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+    return true;
+  } catch {
+    return false;
+  }
 }

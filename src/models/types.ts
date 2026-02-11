@@ -373,6 +373,8 @@ export interface HttpResponse {
   statusText: string;
   headers: Record<string, string>;
   body: string;
+  /** Base64-encoded body for binary content types (images, PDF, etc.) */
+  bodyBase64?: string;
   duration: number;
   size: number;
 }

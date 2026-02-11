@@ -121,6 +121,99 @@ async function listKeyVaultSecretNames(vaultUrl: string): Promise<string[]> {
   });
 }
 
+// ── Set/Create Key Vault secret ───────────────────────────────────────
+
+async function setKeyVaultSecret(vaultUrl: string, secretName: string, value: string): Promise<void> {
+  const token = await getAzAccessToken();
+  const url = `${vaultUrl.replace(/\/+$/, '')}/secrets/${secretName}?api-version=7.4`;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ value }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    if (response.status === 403) {
+      throw new Error('Access denied — you need the Key Vault Secrets Officer role (or equivalent) to create/update secrets.');
+    }
+    let detail = '';
+    try { detail = JSON.parse(body)?.error?.message || body; } catch { detail = body; }
+    throw new Error(`Key Vault ${response.status}: ${detail}`);
+  }
+
+  // Update the secret cache with the new value
+  const cacheKey = `${vaultUrl}|${secretName}`;
+  _secretCache.set(cacheKey, { value, fetchedAt: Date.now() });
+}
+
+// ── Write access check via az cli ─────────────────────────────────────
+
+// Role priority: higher index = more powerful
+const ROLE_PRIORITY: string[] = [
+  'Key Vault Secrets User',
+  'Key Vault Secrets Officer',
+  'Key Vault Administrator',
+];
+
+const WRITE_ROLES = new Set([
+  'Key Vault Secrets Officer',
+  'Key Vault Administrator',
+]);
+
+/** Returns the most powerful Key Vault role the current user holds, or undefined. */
+async function checkKeyVaultRole(vaultUrl: string): Promise<string | undefined> {
+  try {
+    // Get the current user's object ID
+    const { stdout: meOut } = await execFileAsync('az', [
+      'ad', 'signed-in-user', 'show', '--query', 'id', '-o', 'tsv',
+    ], { shell: true, timeout: 15_000 });
+    const userId = meOut.trim();
+    if (!userId) return undefined;
+
+    // Extract vault name from URL (e.g. "https://myvault.vault.azure.net" → "myvault")
+    const vaultMatch = /https:\/\/([^.]+)\.vault\.azure\.net/i.exec(vaultUrl);
+    if (!vaultMatch) return undefined;
+    const vaultName = vaultMatch[1];
+
+    // Get vault resource ID
+    const { stdout: kvOut } = await execFileAsync('az', [
+      'keyvault', 'show', '-n', vaultName, '--query', 'id', '-o', 'tsv',
+    ], { shell: true, timeout: 15_000 });
+    const kvId = kvOut.trim();
+    if (!kvId) return undefined;
+
+    // Check role assignments
+    const { stdout: rolesOut } = await execFileAsync('az', [
+      'role', 'assignment', 'list',
+      '--assignee', userId,
+      '--scope', kvId,
+      '-o', 'json',
+    ], { shell: true, timeout: 15_000 });
+
+    const assignments = JSON.parse(rolesOut) as { roleDefinitionName: string }[];
+    // Return the most powerful role
+    let bestIdx = -1;
+    for (const a of assignments) {
+      const idx = ROLE_PRIORITY.indexOf(a.roleDefinitionName);
+      if (idx > bestIdx) bestIdx = idx;
+    }
+    return bestIdx >= 0 ? ROLE_PRIORITY[bestIdx] : undefined;
+  } catch (e: any) {
+    _log.appendLine(`[checkKeyVaultRole] Failed: ${e.message}`);
+    return undefined;
+  }
+}
+
+// ── Write access cache (per vault URL) ────────────────────────────────
+
+const _roleCache = new Map<string, { role: string | undefined; fetchedAt: number }>();
+const WRITE_ACCESS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // ── Secret names cache (per provider) ─────────────────────────────────
 
 const _secretNamesCache = new Map<string, { names: string[]; fetchedAt: number }>();
@@ -210,7 +303,7 @@ export class SecretService implements vscode.Disposable {
   /**
    * Test connection to a vault. Returns secret count on success, throws on failure.
    */
-  async testConnection(provider: SecretProvider, variables: Map<string, string>): Promise<{ secretCount: number }> {
+  async testConnection(provider: SecretProvider, variables: Map<string, string>): Promise<{ secretCount: number; canWrite: boolean; role?: string }> {
     if (!provider.name) {
       throw new Error('Provider name is required.');
     }
@@ -231,7 +324,19 @@ export class SecretService implements vscode.Disposable {
 
     if (provider.type === 'azure-keyvault') {
       const names = await listKeyVaultSecretNames(vaultUrl);
-      return { secretCount: names.length };
+
+      // Check role (cached)
+      let role: string | undefined;
+      const rCached = _roleCache.get(vaultUrl);
+      if (rCached && Date.now() - rCached.fetchedAt < WRITE_ACCESS_CACHE_TTL) {
+        role = rCached.role;
+      } else {
+        role = await checkKeyVaultRole(vaultUrl);
+        _roleCache.set(vaultUrl, { role, fetchedAt: Date.now() });
+      }
+      const canWrite = !!role && WRITE_ROLES.has(role);
+
+      return { secretCount: names.length, canWrite, role };
     }
 
     throw new Error(`Unknown provider type: ${provider.type}`);
@@ -290,6 +395,56 @@ export class SecretService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Create or update a secret in the vault.
+   */
+  async setSecret(
+    providerName: string,
+    secretName: string,
+    value: string,
+    providers: SecretProvider[],
+    variables: Map<string, string>,
+  ): Promise<void> {
+    const provider = providers.find(p => p.name === providerName && !p.disabled);
+    if (!provider) {
+      throw new Error(`Provider "${providerName}" not found or disabled.`);
+    }
+
+    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
+      const key = name.trim();
+      return variables.has(key) ? variables.get(key)! : _match;
+    });
+
+    _log.appendLine(`[setSecret] ${providerName}.${secretName} → vault=${vaultUrl}`);
+
+    if (provider.type === 'azure-keyvault') {
+      await setKeyVaultSecret(vaultUrl, secretName, value);
+      _log.appendLine(`[setSecret] ${providerName}.${secretName} → saved`);
+      return;
+    }
+
+    throw new Error(`Unknown provider type: ${provider.type}`);
+  }
+
+  /**
+   * Check if the current user has write access to a vault (cached).
+   */
+  async checkWriteAccess(provider: SecretProvider, variables: Map<string, string>): Promise<boolean> {
+    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
+      const key = name.trim();
+      return variables.has(key) ? variables.get(key)! : _match;
+    });
+
+    const cached = _roleCache.get(vaultUrl);
+    if (cached && Date.now() - cached.fetchedAt < WRITE_ACCESS_CACHE_TTL) {
+      return !!cached.role && WRITE_ROLES.has(cached.role);
+    }
+
+    const role = await checkKeyVaultRole(vaultUrl);
+    _roleCache.set(vaultUrl, { role, fetchedAt: Date.now() });
+    return !!role && WRITE_ROLES.has(role);
+  }
+
   /** Clear only the secret names cache (e.g. on environment change). */
   clearSecretNamesCache(): void {
     _secretNamesCache.clear();
@@ -299,6 +454,7 @@ export class SecretService implements vscode.Disposable {
     _azTokenCache = undefined;
     _secretCache.clear();
     _secretNamesCache.clear();
+    _roleCache.clear();
   }
 
   dispose(): void {

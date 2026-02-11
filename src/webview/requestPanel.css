@@ -232,6 +232,7 @@ body {
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
+.btn-primary.btn-cancel { background: var(--vscode-errorForeground, #f14c4c); animation: none; }
 .btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--input-border); }
 .btn-secondary:hover { border-color: var(--btn-bg); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
@@ -337,6 +338,7 @@ body {
   flex: 1;
   overflow: auto;
   padding: 12px 16px;
+  position: relative;
 }
 .response-body pre {
   font-family: var(--vscode-editor-font-family, monospace);
@@ -423,6 +425,21 @@ body {
   border-radius: 3px;
 }
 .kv-table .row-delete:hover { color: var(--badge-error); background: rgba(239,68,68,0.1); }
+
+/* ── Auto-generated header row ── */
+.kv-table tr.auto-header td {
+  opacity: 0.5;
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+  border-bottom: 1px dashed var(--border);
+}
+.kv-table tr.auto-header .auto-label {
+  font-size: 11px;
+  color: var(--m-fg-dim);
+  padding: 4px 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
 
 /* ── Expandable value cells (contenteditable) ── */
 .kv-table td.val-cell {
@@ -571,10 +588,6 @@ body {
 td.var-cell .var-overlay {
   top: 4px; left: 8px; right: 8px; bottom: 4px;
 }
-/* Inside an auth-row, no extra offset needed */
-.auth-row .var-cell .var-overlay {
-  top: 0; left: 0; right: 0; bottom: 0;
-}
 .add-row-btn {
   background: transparent;
   color: var(--btn-bg);
@@ -709,10 +722,12 @@ td.var-cell .var-overlay {
   cursor: pointer;
   white-space: nowrap;
   line-height: 1;
-  width: 40px;
+  width: 44px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 .btn-test-vault:hover:not(:disabled) { background: rgba(0,120,212,0.1); }
 .btn-test-vault:disabled { opacity: 0.7; cursor: default; }
@@ -769,9 +784,9 @@ td.var-cell .var-overlay {
 .auth-select:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
 
 /* ── Auth Section ────────────────────────── */
-.auth-section { display: flex; flex-direction: column; gap: 12px; }
+.auth-section { display: flex; flex-direction: column; }
 .auth-section label { font-size: 12px; color: var(--m-fg-muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-.auth-section .form-field { display: flex; flex-direction: column; gap: 2px; }
+.auth-section > .form-field { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .auth-section .form-field label { font-size: 11px; }
 .auth-section input {
   background: var(--input-bg);
@@ -780,6 +795,44 @@ td.var-cell .var-overlay {
   padding: 6px 8px;
   border-radius: 4px;
   font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.auth-section input:focus {
+  border-color: var(--btn-bg);
+  outline: none;
+  background: var(--input-bg);
+}
+/* Contenteditable value fields in auth rows — matches val-ce table styling */
+.auth-val-ce {
+  flex: 1;
+  display: block;
+  background: transparent;
+  color: var(--fg);
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: 0;
+  outline: none;
+  cursor: text;
+  box-sizing: border-box;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-val-ce:focus {
+  border-color: var(--btn-bg);
+  background: var(--input-bg);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: visible;
+  text-overflow: clip;
+}
+.auth-val-ce:empty::before {
+  content: attr(data-placeholder);
+  color: var(--m-input-placeholder);
+  pointer-events: none;
 }
 .auth-section input[type="checkbox"] {
   width: 14px;
@@ -808,30 +861,47 @@ td.var-cell .var-overlay {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-.auth-section input:focus { outline: 1px solid var(--btn-bg); border-color: var(--btn-bg); }
-.auth-row { display: flex; gap: 10px; align-items: center; }
+.auth-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .auth-row label { min-width: 130px; flex-shrink: 0; }
 .auth-row input { flex: 1; }
 .auth-input-wrap { flex: 1; position: relative; display: block; }
 .auth-input-wrap input { width: 100%; }
 
+/* ── Auth Token Actions ────────────────────── */
+.auth-token-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.auth-btn {
+  padding: 7px 0;
+  width: 90px;
+  font-size: 12px;
+  background: none;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.auth-btn-get { color: var(--fg); border-color: var(--badge-success, #22c55e); }
+.auth-btn-get:hover { background: rgba(34,197,94,0.08); }
+.auth-btn-refresh { color: var(--fg); border-color: var(--btn-bg, #0078d4); }
+.auth-btn-refresh:hover { background: rgba(0,120,212,0.08); }
+.auth-btn-delete { color: var(--fg); border-color: var(--badge-error, #ef4444); }
+.auth-btn-delete:hover { background: rgba(239,68,68,0.08); }
+
 /* ── OAuth2 Token Status ─────────────────── */
-.oauth2-token-status { margin-top: 4px; }
-.token-status {
+.oauth2-token-status { margin-top: 8px; }
+.token-status-text {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 4px;
+  gap: 6px;
   font-size: 12px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
+  color: var(--m-fg-muted);
 }
-.token-valid { border-color: var(--m-token-valid-border); }
-.token-expired { border-color: var(--m-token-expired-border); }
-.token-none { border-color: var(--input-border); }
-.token-error { border-color: var(--m-token-expired-border); color: var(--m-token-error-color); }
-.token-progress { border-color: var(--m-token-progress-border); color: var(--m-token-progress-color); }
+.token-error { color: var(--m-token-error-color, var(--badge-error, #ef4444)); }
+.token-progress { color: var(--m-token-progress-color, var(--btn-bg)); }
 .token-dot {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -841,18 +911,6 @@ td.var-cell .var-overlay {
 .dot-expired { background: var(--m-dot-expired); }
 .dot-none { background: var(--m-dot-none); }
 .token-expiry-time { color: var(--m-fg-muted); font-size: 11px; }
-.token-btn {
-  margin-left: auto;
-  padding: 3px 10px;
-  font-size: 11px;
-  background: var(--btn-bg);
-  color: var(--btn-fg);
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.token-btn:hover { opacity: 0.85; }
 .token-spinner {
   width: 12px; height: 12px;
   border: 2px solid rgba(55,148,255,0.3);
@@ -873,6 +931,11 @@ td.var-cell .var-overlay {
   padding: 40px;
   color: var(--m-fg-muted);
   font-size: 13px;
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: var(--vscode-editor-background, rgba(30,30,30,0.85));
+  opacity: 0.9;
 }
 .loading-overlay .spinner {
   width: 28px;
@@ -882,6 +945,7 @@ td.var-cell .var-overlay {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+.loading-timer { font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Example Indicator ──────────────────── */
@@ -1318,6 +1382,28 @@ td.var-cell .var-overlay {
 .var-tooltip-save-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 1px var(--m-focus-border);
+
+/* ── Tooltip Save-to-Vault Button ────────── */
+.var-tooltip-save-vault {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--btn-bg);
+  color: var(--btn-fg, #fff);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.var-tooltip-save-vault:hover { opacity: 0.9; }
+.var-tooltip-save-vault:disabled { opacity: 0.5; cursor: default; }
+.var-tooltip-feedback {
+  font-size: 11px;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* ── Tooltip hint link ───────────────────── */
@@ -1374,3 +1460,103 @@ td.var-cell .var-overlay {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Unresolved Variables Modal ─────────── */
+.uv-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.uv-modal-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  width: 420px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.uv-modal-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.uv-modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 4px;
+}
+.uv-modal-subtitle {
+  font-size: 11px;
+  color: var(--m-fg-muted);
+  line-height: 1.4;
+}
+.uv-modal-fields {
+  padding: 12px 20px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.uv-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.uv-modal-label {
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--m-tk-var, #e06c75);
+  font-weight: 500;
+}
+.uv-modal-input {
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  outline: none;
+}
+.uv-modal-input:focus {
+  border-color: var(--btn-bg);
+  outline: 1px solid var(--btn-bg);
+}
+.uv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.uv-modal-cancel {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.uv-modal-cancel:hover { background: rgba(255,255,255,0.05); }
+.uv-modal-send {
+  background: var(--btn-bg);
+  color: var(--btn-fg, #fff);
+  border: none;
+  padding: 6px 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.uv-modal-send:hover { opacity: 0.9; }
