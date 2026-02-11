@@ -9,3 +9,7 @@ media/*.map
 
 # code workspace
 *.code-workspace
+
+# macOS
+.DS_Store
+._*
