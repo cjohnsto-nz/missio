@@ -88,6 +88,7 @@ We aim to support these in the coming weeks.
 - **Visual collection editor** — overview, auth, headers, variables, and environments tabs
 - **Environment editor** — add, remove, rename environments with variable key-value editing
 - **Collection-level defaults** — set default auth and headers for all requests
+- **Validate collection** — right-click a collection to validate all files against the OpenCollection JSON schema
 
 ### Secret Providers
 - **Azure Key Vault** — fetch secrets at runtime via `az cli` (no SDK required)
@@ -112,17 +113,28 @@ config:
   secretProviders:
     - name: my-vault
       type: azure-keyvault
-      url: "https://my-vault.vault.azure.net"
+      namespace: my-vault
 ```
 
-The vault URL supports variables — useful for per-environment vaults:
+The namespace supports variables — useful for per-environment vaults:
 
 ```yaml
 config:
   secretProviders:
     - name: kv
       type: azure-keyvault
-      url: "https://{{vault_name}}.vault.azure.net"
+      namespace: "{{vault_name}}"
+```
+
+For cross-subscription vaults, specify the subscription:
+
+```yaml
+config:
+  secretProviders:
+    - name: kv
+      type: azure-keyvault
+      namespace: "{{vault_name}}"
+      subscription: "{{subscription_id}}"
 ```
 
 Then reference secrets anywhere you'd use a variable:
@@ -153,6 +165,7 @@ Secrets are resolved at send time and during OAuth2 token acquisition. The colle
 | `Missio: Configure Folder` | Open the folder editor |
 | `Missio: Refresh Collections` | Re-scan the workspace |
 | `Missio: Configure Secret Provider` | Set up secret providers in collection |
+| `Missio: Validate Collection` | Validate collection files against the OpenCollection schema |
 | `Missio: Cancel Request` | Cancel all in-flight requests |
 
 ## Keyboard Shortcuts
