@@ -9,6 +9,7 @@ import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
 import { readFolderFile } from '../services/yamlParser';
 import { detectUnresolvedVars } from '../services/unresolvedVars';
+import { migrateRequest } from '../services/migrations';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -89,6 +90,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
   protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
     try {
       const request = parseYaml(document.getText()) as HttpRequest;
+      migrateRequest(request);
       webview.postMessage({ type: 'requestLoaded', request, filePath: document.uri.fsPath });
     } catch { /* Invalid YAML, don't update webview */ }
   }

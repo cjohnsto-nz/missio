@@ -382,6 +382,7 @@ export interface HttpResponse {
 export interface SecretProvider {
   name: string;
   type: 'azure-keyvault';
-  url: string;  // supports {{var}} interpolation, e.g. "https://{{vault-name}}.vault.azure.net"
+  namespace: string;  // vault name, supports {{var}} interpolation, e.g. "{{vault-name}}" or "my-vault"
+  subscription?: string;  // Azure subscription ID or name (for cross-subscription vaults)
   disabled?: boolean;
 }
