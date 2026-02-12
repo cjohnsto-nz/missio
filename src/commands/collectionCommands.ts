@@ -4,6 +4,7 @@ import type { CommandContext } from './types';
 import type { MissioCollection, OpenCollection } from '../models/types';
 import { CollectionEditorProvider } from '../panels/collectionPanel';
 import { stringifyYaml } from '../services/yamlParser';
+import { validateCollection, formatReport } from '../services/validationService';
 
 export function registerCollectionCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService, collectionTreeProvider } = ctx;
@@ -142,5 +143,31 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     vscode.commands.registerCommand('missio.expandFirstLevelFolders', expandFirstLevelFolders),
     vscode.commands.registerCommand('missio.collapseFirstLevelFolders', collapseFirstLevelFolders),
     vscode.commands.registerCommand('missio.deleteCollection', deleteCollection),
+
+    vscode.commands.registerCommand('missio.validateCollection', async (nodeOrId?: any) => {
+      const collection = await resolveCollection(nodeOrId, 'Select a collection to validate');
+      if (!collection) return;
+
+      const schemaPath = path.join(ctx.extensionContext.extensionPath, 'opencollectionschema.json');
+      const name = collection.data.info?.name ?? path.basename(collection.rootDir);
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Validating "${name}"...`, cancellable: false },
+        async () => {
+          const report = await validateCollection(collection.rootDir, schemaPath);
+
+          if (report.issues.length === 0) {
+            vscode.window.showInformationMessage(
+              `Collection "${name}" is valid — ${report.passCount} file${report.passCount === 1 ? '' : 's'} checked.`,
+            );
+            return;
+          }
+
+          const markdown = formatReport(report);
+          const doc = await vscode.workspace.openTextDocument({ content: markdown, language: 'markdown' });
+          await vscode.window.showTextDocument(doc, { preview: true });
+        },
+      );
+    }),
   ];
 }

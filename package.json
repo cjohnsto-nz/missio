@@ -305,6 +305,12 @@
         "title": "Delete Collection",
         "category": "Missio",
         "icon": "$(trash)"
+      },
+      {
+        "command": "missio.validateCollection",
+        "title": "Validate Collection",
+        "category": "Missio",
+        "icon": "$(check-all)"
       }
     ],
     "menus": {
@@ -380,6 +386,11 @@
           "command": "missio.collapseFirstLevelFolders",
           "when": "view == missio.collections && viewItem == collection",
           "group": "1_open@3"
+        },
+        {
+          "command": "missio.validateCollection",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "1_open@4"
         },
         {
           "command": "missio.deleteCollection",
