@@ -144,8 +144,48 @@
           "items": {
             "$ref": "#/$defs/ClientCertificate"
           }
+        },
+        "secretProviders": {
+          "type": "array",
+          "description": "Array of secret providers for resolving secret variables",
+          "items": {
+            "$ref": "#/$defs/SecretProvider"
+          }
         }
       },
+      "additionalProperties": false
+    },
+    "SecretProvider": {
+      "type": "object",
+      "description": "A secret provider for resolving secret variables at runtime",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the secret provider"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["azure-keyvault"],
+          "description": "The type of secret provider"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace identifier (e.g. vault name for Azure Key Vault), supports {{var}} interpolation"
+        },
+        "subscription": {
+          "type": "string",
+          "description": "Azure subscription ID or name (for cross-subscription vaults)"
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the secret provider is disabled"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "namespace"
+      ],
       "additionalProperties": false
     },
     "Protobuf": {

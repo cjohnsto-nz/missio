@@ -777,38 +777,42 @@ window.addEventListener('message', (event) => {
 function renderSecretProviders(providers: any[]) {
   const tbody = $('secretProvidersBody');
   tbody.innerHTML = '';
-  (providers || []).forEach(p => addSecretProviderRow(p.name, p.type, p.url, p.disabled));
+  (providers || []).forEach(p => addSecretProviderRow(p.name, p.type, p.namespace, p.subscription, p.disabled));
   $('secretsBadge').textContent = String((providers || []).length);
 }
 
-function addSecretProviderRow(name?: string, providerType?: string, url?: string, disabled?: boolean) {
+function addSecretProviderRow(name?: string, providerType?: string, namespace?: string, subscription?: string, disabled?: boolean) {
   const tbody = $('secretProvidersBody');
   const tr = document.createElement('tr');
   const t = providerType || 'azure-keyvault';
   tr.innerHTML =
     `<td><input type="text" value="${esc(name || '')}" placeholder="my-vault" class="sp-name" /></td>` +
     `<td><select class="type-select select-borderless sp-type"><option value="azure-keyvault"${t === 'azure-keyvault' ? ' selected' : ''}>Azure Key Vault</option></select></td>` +
-    `<td class="val-cell"><div class="val-ce sp-url" contenteditable="true" data-placeholder="https://{{vault-name}}.vault.azure.net"></div></td>` +
+    `<td class="val-cell"><div class="val-ce sp-ns" contenteditable="true" data-placeholder="{{vault-name}}"></div></td>` +
+    `<td class="val-cell"><div class="val-ce sp-sub" contenteditable="true" data-placeholder="subscription name or ID (optional)"></div></td>` +
     `<td class="sp-role-cell"></td>` +
     `<td><button class="btn-test-vault" title="Test connection">Test</button></td>` +
     `<td><button class="row-delete">\u00d7</button></td>`;
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); $('secretsBadge').textContent = String(tbody.children.length); scheduleUpdate(); });
   tr.querySelector<HTMLInputElement>('.sp-name')!.addEventListener('input', scheduleUpdate);
   tr.querySelector<HTMLSelectElement>('.sp-type')!.addEventListener('change', scheduleUpdate);
-  enableContentEditableValue(tr.querySelector('.sp-url') as HTMLElement, url || '', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.sp-ns') as HTMLElement, namespace || '', scheduleUpdate);
+  enableContentEditableValue(tr.querySelector('.sp-sub') as HTMLElement, subscription || '', scheduleUpdate);
   const testBtn = tr.querySelector('.btn-test-vault') as HTMLButtonElement;
   testBtn.addEventListener('click', () => {
     const providerName = (tr.querySelector('.sp-name') as HTMLInputElement).value;
     const selectedType = (tr.querySelector('.sp-type') as HTMLSelectElement).value;
-    const valEl = tr.querySelector('.sp-url') as any;
-    const providerUrl = valEl._getRawText ? valEl._getRawText() : (valEl.textContent || '');
+    const nsEl = tr.querySelector('.sp-ns') as any;
+    const providerNs = nsEl._getRawText ? nsEl._getRawText() : (nsEl.textContent || '');
+    const subEl = tr.querySelector('.sp-sub') as any;
+    const providerSub = subEl?._getRawText ? subEl._getRawText() : (subEl?.textContent || '');
     // Show spinner
     testBtn.disabled = true;
     testBtn.innerHTML = '<span class="spinner"></span>';
     // Clear any previous result
     const existingResult = tr.querySelector('.sp-test-result');
     if (existingResult) existingResult.remove();
-    vscode.postMessage({ type: 'testSecretProvider', providerIdx: Array.from(tbody.children).indexOf(tr), provider: { name: providerName, type: selectedType, url: providerUrl } });
+    vscode.postMessage({ type: 'testSecretProvider', providerIdx: Array.from(tbody.children).indexOf(tr), provider: { name: providerName, type: selectedType, namespace: providerNs, subscription: providerSub || undefined } });
   });
   tbody.appendChild(tr);
 }
@@ -818,13 +822,17 @@ function buildSecretProviders(): any[] {
   document.querySelectorAll('#secretProvidersBody tr').forEach(tr => {
     const nameInput = tr.querySelector<HTMLInputElement>('.sp-name');
     const typeSelect = tr.querySelector<HTMLSelectElement>('.sp-type');
-    const valEl = tr.querySelector('.sp-url') as any;
+    const nsEl = tr.querySelector('.sp-ns') as any;
     if (nameInput?.value) {
-      providers.push({
+      const subEl = tr.querySelector('.sp-sub') as any;
+      const sub = subEl?._getRawText ? subEl._getRawText() : (subEl?.textContent || '');
+      const entry: any = {
         name: nameInput.value,
         type: typeSelect?.value || 'azure-keyvault',
-        url: valEl?._getRawText ? valEl._getRawText() : (valEl?.textContent || ''),
-      });
+        namespace: nsEl?._getRawText ? nsEl._getRawText() : (nsEl?.textContent || ''),
+      };
+      if (sub) entry.subscription = sub;
+      providers.push(entry);
     }
   });
   return providers;

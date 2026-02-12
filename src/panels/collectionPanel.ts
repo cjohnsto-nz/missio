@@ -5,6 +5,7 @@ import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
 import type { SecretService } from '../services/secretService';
+import { migrateCollection } from '../services/migrations';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -76,6 +77,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
     } catch {
       collection = {} as OpenCollection;
     }
+    migrateCollection(collection);
     const collectionRoot = require('path').dirname(document.uri.fsPath);
     webview.postMessage({ type: 'collectionLoaded', collection, filePath: document.uri.fsPath, collectionRoot });
   }
@@ -250,8 +252,8 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Secrets -->
       <div class="tab-panel" id="panel-secrets">
         <table class="kv-table" id="secretProvidersTable">
-          <colgroup><col style="width:20%"><col style="width:120px"><col><col style="width:160px"><col style="width:70px"><col style="width:32px"></colgroup>
-          <thead><tr><th>Name</th><th>Type</th><th>URL</th><th>Role</th><th></th><th></th></tr></thead>
+          <colgroup><col style="width:18%"><col style="width:120px"><col><col style="width:22%"><col style="width:140px"><col style="width:70px"><col style="width:32px"></colgroup>
+          <thead><tr><th>Name</th><th>Type</th><th>Namespace</th><th>Subscription</th><th>Role</th><th></th><th></th></tr></thead>
           <tbody id="secretProvidersBody"></tbody>
         </table>
         <button class="add-row-btn" id="addSecretProviderBtn">+ Add Secret Provider</button>

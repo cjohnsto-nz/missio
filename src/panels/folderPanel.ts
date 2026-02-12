@@ -3,6 +3,7 @@ import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { Folder, MissioCollection } from '../models/types';
 import { stringifyYaml } from '../services/yamlParser';
+import { migrateFolder } from '../services/migrations';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -72,6 +73,7 @@ export class FolderEditorProvider extends BaseEditorProvider {
     } catch {
       folder = {} as Folder;
     }
+    migrateFolder(folder);
     webview.postMessage({ type: 'folderLoaded', folder, filePath: document.uri.fsPath });
   }
 
