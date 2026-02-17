@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -565,6 +565,11 @@
           "type": "number",
           "default": 30000,
           "description": "Default request timeout in milliseconds."
+        },
+        "missio.disableResponseRendering": {
+          "type": "boolean",
+          "default": false,
+          "description": "Do not render response bodies in the webview (avoids crashes on very large responses). The response is still downloaded so status/headers/size are available."
         },
         "missio.followRedirects": {
           "type": "boolean",

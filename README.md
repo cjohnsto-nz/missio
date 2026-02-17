@@ -62,6 +62,20 @@ We aim to support these in the coming weeks.
 - **Unresolved variable prompts** — if any `{{variables}}` remain unresolved after interpolation, a modal prompts you to fill them in before sending
 - **Save examples** — save response snapshots and load them later
 
+#### Large Response Handling
+
+Very large responses (for example, large OData `$metadata` payloads) can be expensive to syntax-highlight and render in a webview.
+
+Missio includes safeguards to keep the editor responsive:
+
+- **Automatic virtualization** — large text responses are rendered using a windowed/virtualized view instead of creating DOM nodes for every line.
+- **Header notice** — when virtualization is active, the response bar shows: `Large response was virtualized`.
+- **Timing waterfall** — the timing tooltip includes virtualization phases such as `Split Lines` and `Virtualize`.
+
+If you still need a hard escape hatch, you can disable response rendering entirely:
+
+- **Setting**: `missio.disableResponseRendering` — when enabled, the response body is downloaded but not rendered (status/headers/timing/size still show).
+
 ### Variables & Environments
 - **Environment management** — switch between dev/staging/prod with `{{variable}}` interpolation
 - **Variable inheritance** — Collection > Folder > Environment (each layer overrides the previous)

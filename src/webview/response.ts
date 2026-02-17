@@ -10,6 +10,26 @@ let lastBlobUrl: string | undefined;
 let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let loadingStartTime = 0;
 
+// Virtualized response rendering (for very large text responses)
+let virtLines: string[] | null = null;
+let virtLang = 'text';
+let virtLineHeight = 18;
+let virtLastStart = -1;
+let virtLastEnd = -1;
+let virtScrollerEl: HTMLElement | null = null;
+let virtScrollHandler: (() => void) | null = null;
+let virtRafPending = false;
+let virtViewportHeight = 0;
+let virtHighlightCache: Map<number, string> | null = null;
+let virtHighlightCacheOrder: number[] | null = null;
+
+const VIRT_MIN_CHARS = 1_000_000;
+const VIRT_MIN_LINES = 20_000;
+const VIRT_WINDOW_LINES = 1200;
+const VIRT_OVERSCAN_LINES = 200;
+const VIRT_CHECKPOINT_LINES = 100;
+const VIRT_MAX_HIGHLIGHT_CACHE = 5000;
+
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 export function getLastContentType(): string { return lastContentType; }
@@ -64,6 +84,141 @@ export function clearResponse(): void {
   $('respEmpty').style.display = 'block';
   lastResponse = null;
   lastResponseBody = '';
+
+  // Clear virtualization state
+  teardownVirtualization();
+}
+
+function teardownVirtualization(): void {
+  virtLines = null;
+  virtLang = 'text';
+  virtLastStart = -1;
+  virtLastEnd = -1;
+  virtRafPending = false;
+  virtHighlightCache = null;
+  virtHighlightCacheOrder = null;
+  if (virtScrollerEl && virtScrollHandler) {
+    virtScrollerEl.removeEventListener('scroll', virtScrollHandler);
+  }
+  virtScrollerEl = null;
+  virtScrollHandler = null;
+  const pre = document.getElementById('respBodyPre');
+  if (pre) pre.classList.remove('virtualized');
+}
+
+function measureLineHeight(lang: string): number {
+  const pre = document.getElementById('respBodyPre');
+  if (!pre) return 18;
+
+  const probe = document.createElement('div');
+  probe.className = 'code-line';
+  probe.style.visibility = 'hidden';
+  probe.style.position = 'absolute';
+  probe.style.top = '0';
+  probe.style.left = '0';
+  probe.innerHTML = highlightResponse('X', lang);
+  pre.appendChild(probe);
+  const h = Math.max(14, Math.round(probe.getBoundingClientRect().height));
+  probe.remove();
+  return h;
+}
+
+function getVirtHighlightedLine(idx: number, line: string): string {
+  if (!virtHighlightCache || !virtHighlightCacheOrder) {
+    return highlightResponse(line, virtLang);
+  }
+
+  const cached = virtHighlightCache.get(idx);
+  if (cached !== undefined) return cached;
+
+  const v = highlightResponse(line, virtLang);
+  virtHighlightCache.set(idx, v);
+  virtHighlightCacheOrder.push(idx);
+  if (virtHighlightCacheOrder.length > VIRT_MAX_HIGHLIGHT_CACHE) {
+    const evict = virtHighlightCacheOrder.shift();
+    if (evict !== undefined) virtHighlightCache.delete(evict);
+  }
+  return v;
+}
+
+function renderVirtualized(scrollTop: number): void {
+  if (!virtLines) return;
+
+  const pre = document.getElementById('respBodyPre') as HTMLElement | null;
+  if (!pre) return;
+
+  const total = virtLines.length;
+  // Use cached viewport height — never read clientHeight in the hot path
+  const viewportLines = Math.max(1, Math.floor(virtViewportHeight / virtLineHeight));
+  const firstVisible = Math.floor(scrollTop / virtLineHeight);
+
+  // Checkpointed/quantized virtualization:
+  // Don't shift the virtual window for every scroll tick. Instead, move it in
+  // larger jumps so scroll remains smooth even with highlighting enabled.
+  const firstVisibleCheckpoint = Math.floor(firstVisible / VIRT_CHECKPOINT_LINES) * VIRT_CHECKPOINT_LINES;
+  const start = Math.max(0, firstVisibleCheckpoint - VIRT_OVERSCAN_LINES);
+  const end = Math.min(total, start + Math.max(VIRT_WINDOW_LINES, viewportLines + (VIRT_OVERSCAN_LINES * 2)));
+
+  if (start === virtLastStart && end === virtLastEnd) return;
+  virtLastStart = start;
+  virtLastEnd = end;
+
+  const slice = virtLines.slice(start, end);
+  const topOffsetPx = start * virtLineHeight;
+  const canvasHeightPx = total * virtLineHeight;
+
+  const linesHtml = slice.map((line: string, idx: number) => {
+    const absIdx = start + idx;
+    return `<span class="code-line" data-line="${absIdx + 1}">` + getVirtHighlightedLine(absIdx, line) + `\n</span>`;
+  }).join('');
+
+  // Use a fixed-height canvas to ensure correct scroll range, and position
+  // the visible line window at the correct offset.
+  pre.innerHTML =
+    `<span class="resp-virt-canvas" style="height:${canvasHeightPx}px">` +
+    `<span class="resp-virt-lines" style="transform: translateY(${topOffsetPx}px)">` +
+    linesHtml +
+    `</span>` +
+    `</span>`;
+}
+
+function setupVirtualization(lines: string[], lang: string): void {
+  teardownVirtualization();
+  virtLines = lines;
+  virtLang = lang;
+  virtHighlightCache = new Map();
+  virtHighlightCacheOrder = [];
+  const pre = document.getElementById('respBodyPre');
+  if (pre) pre.classList.add('virtualized');
+
+  virtLineHeight = measureLineHeight(lang);
+
+  // .response-body is the actual scroll container (not .resp-code-wrap which
+  // grows to full content height due to unconstrained flex ancestors).
+  const scroller = document.querySelector('.response-body') as HTMLElement | null;
+  if (!scroller) {
+    console.warn('[Missio] .response-body not found!');
+    return;
+  }
+  virtScrollerEl = scroller;
+  // Cache viewport height BEFORE setting tall innerHTML (cheap reflow on empty element)
+  virtViewportHeight = scroller.clientHeight;
+
+  // Initial render
+  renderVirtualized(0);
+
+  // Scroll event → schedule one rAF → render. Only reads scrollTop (no reflow).
+  virtScrollHandler = () => {
+    if (virtRafPending) return;
+    virtRafPending = true;
+    requestAnimationFrame(() => {
+      virtRafPending = false;
+      if (virtLines && virtScrollerEl) {
+        renderVirtualized(virtScrollerEl.scrollTop);
+      }
+    });
+  };
+  scroller.addEventListener('scroll', virtScrollHandler, { passive: true });
 }
 
 function updateRespLineNumbers(): void {
@@ -89,6 +244,8 @@ type TimingEntry = { label: string; start: number; end: number };
 export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEntry[], usedOAuth2?: boolean): void {
   const renderStart = Date.now();
   hideLoading();
+  // Reset virtualization for new response
+  teardownVirtualization();
   // Invalidate previous preview content
   const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
   if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
@@ -168,31 +325,44 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
 
   const renderTiming: TimingEntry[] = [];
   const rBase = timing && timing.length > 0 ? timing[timing.length - 1].end : 0;
+  const lastRenderEnd = (): number => (renderTiming.length > 0 ? renderTiming[renderTiming.length - 1].end : rBase);
 
   let rPhase = Date.now();
-  if (!isBinary) {
-    console.time('resp:highlight');
-  }
   const lines = isBinary ? [] : bodyText.split('\n');
-  const html = lines.map((line: string) =>
-    '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
-  ).join('');
+  const splitEnd = Date.now();
   if (!isBinary) {
-    console.timeEnd('resp:highlight');
+    renderTiming.push({ label: 'Split Lines', start: rBase, end: rBase + (splitEnd - rPhase) });
   }
-  renderTiming.push({ label: 'Highlight', start: rBase, end: rBase + (Date.now() - rPhase) });
+
+  rPhase = splitEnd;
+
+  const useVirtual = !isBinary && (bodyText.length >= VIRT_MIN_CHARS || lines.length >= VIRT_MIN_LINES);
+  if (useVirtual) {
+    const vStart = Date.now();
+    setupVirtualization(lines, lang);
+    const vEnd = Date.now();
+    const lastEnd = lastRenderEnd();
+    renderTiming.push({ label: 'Virtualize', start: lastEnd, end: lastEnd + (vEnd - vStart) });
+  } else {
+    const html = lines.map((line: string) =>
+      '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
+    ).join('');
+    {
+      const lastEnd = lastRenderEnd();
+      renderTiming.push({ label: 'Highlight', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });
+    }
+
+    rPhase = Date.now();
+    $('respBodyPre').innerHTML = html;
+    {
+      const lastEnd = lastRenderEnd();
+      renderTiming.push({ label: 'DOM Update', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });
+    }
+  }
 
   rPhase = Date.now();
-  console.time('resp:innerHTML');
-  $('respBodyPre').innerHTML = html;
-  console.timeEnd('resp:innerHTML');
-  renderTiming.push({ label: 'DOM Update', start: renderTiming[renderTiming.length - 1].end, end: rBase + (Date.now() - renderStart) });
-
-  rPhase = Date.now();
-  console.time('resp:lineNumbers');
   updateRespLineNumbers();
-  console.timeEnd('resp:lineNumbers');
-  renderTiming.push({ label: 'Line Numbers', start: renderTiming[renderTiming.length - 1].end, end: rBase + (Date.now() - renderStart) });
+  renderTiming.push({ label: 'Line Numbers', start: lastRenderEnd(), end: rBase + (Date.now() - renderStart) });
 
   // Headers
   rPhase = Date.now();
@@ -205,7 +375,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
       tbody.appendChild(tr);
     });
   }
-  renderTiming.push({ label: 'Headers', start: renderTiming[renderTiming.length - 1].end, end: rBase + (Date.now() - renderStart) });
+  renderTiming.push({ label: 'Headers', start: lastRenderEnd(), end: rBase + (Date.now() - renderStart) });
 
   // Timing display
   const renderMs = Date.now() - renderStart;
@@ -214,7 +384,8 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     meta = preRequestMs + 'ms pre \u2022 ' + resp.duration + 'ms response \u2022 ' + renderMs + 'ms render';
   }
   const metaEl = $('responseMeta');
-  metaEl.textContent = meta + ' \u2022 ' + formatSize(resp.size);
+  const metaText = meta + ' \u2022 ' + formatSize(resp.size);
+  metaEl.innerHTML = esc(metaText) + (useVirtual ? ' <span class="resp-virt-notice">Large response was virtualized</span>' : '');
 
   // Remove old tooltip
   const old = document.getElementById('timingTooltip');
@@ -239,7 +410,9 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
       'Body': '#56b6c2',
       'Secrets': '#d19a66',
       'HTTP': '#61afef',
+      'Split Lines': '#8a8a8a',
       'Highlight': '#98c379',
+      'Virtualize': '#e06c75',
       'DOM Update': '#e06c75',
       'Line Numbers': '#c678dd',
       'Headers': '#56b6c2',
