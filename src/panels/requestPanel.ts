@@ -271,6 +271,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
         webview.postMessage({ type: 'sending', message: msg });
       }, extraVariables.size > 0 ? extraVariables : undefined);
+
+      const disableRendering = vscode.workspace.getConfiguration('missio').get<boolean>('disableResponseRendering', false);
+      if (disableRendering) {
+        const size = (response as any).size ?? 0;
+        (response as any).body = `Response downloaded: ${size} bytes (rendering disabled)`;
+        delete (response as any).bodyBase64;
+      }
+
       const totalMs = Date.now() - _t0;
       _rlog(`  httpClient.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];
