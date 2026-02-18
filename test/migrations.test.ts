@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { migrateCollection, migrateRequest, migrateFolder } from '../src/services/migrations';
 
+type MigrationTestData = {
+  config: {
+    secretProviders: Array<{
+      name: string;
+      type: string;
+      url?: string;
+      namespace?: string;
+      disabled?: boolean;
+      subscription?: string;
+    }>;
+  };
+};
+
 describe('migrations', () => {
 
   describe('migrateCollection', () => {
@@ -8,7 +21,7 @@ describe('migrations', () => {
     describe('001-secret-provider-url-to-namespace', () => {
 
       it('converts full URL to namespace', () => {
-        const data = {
+        const data: MigrationTestData = {
           config: {
             secretProviders: [
               { name: 'my-vault', type: 'azure-keyvault', url: 'https://my-vault.vault.azure.net' },
@@ -23,7 +36,7 @@ describe('migrations', () => {
       });
 
       it('converts URL with trailing slash', () => {
-        const data = {
+        const data: MigrationTestData = {
           config: {
             secretProviders: [
               { name: 'v', type: 'azure-keyvault', url: 'https://kv-toner-dev.vault.azure.net/' },
@@ -36,7 +49,7 @@ describe('migrations', () => {
       });
 
       it('converts URL with variable references', () => {
-        const data = {
+        const data: MigrationTestData = {
           config: {
             secretProviders: [
               { name: 'v', type: 'azure-keyvault', url: 'https://{{vault-name}}.vault.azure.net' },
@@ -48,7 +61,7 @@ describe('migrations', () => {
       });
 
       it('falls back to raw url value if not a standard vault URL', () => {
-        const data = {
+        const data: MigrationTestData = {
           config: {
             secretProviders: [
               { name: 'v', type: 'azure-keyvault', url: 'some-custom-value' },
