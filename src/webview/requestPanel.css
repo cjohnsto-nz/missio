@@ -335,6 +335,11 @@ body {
 .status-badge.s0xx { background: var(--badge-error); color: var(--m-status-badge-text); }
 .meta { font-size: 12px; color: var(--m-fg-muted); }
 
+ .resp-virt-notice {
+  font-size: 11px;
+  opacity: 0.75;
+ }
+
 .response-body {
   flex: 1;
   overflow: auto;
@@ -1007,9 +1012,33 @@ td.var-cell .var-overlay {
   min-height: 0;
   counter-reset: resp-line;
 }
+.resp-code-wrap .code-highlight.virtualized {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.resp-virt-spacer {
+  height: 0px;
+}
+.resp-virt-lines {
+  display: block;
+}
+.resp-virt-canvas {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+.resp-virt-lines {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: block;
+}
 .resp-code-wrap .code-highlight .code-line {
   padding-left: 40px;
   position: relative;
+  display: block;
 }
 .resp-code-wrap .code-highlight .code-line::before {
   counter-increment: resp-line;
@@ -1023,6 +1052,10 @@ td.var-cell .var-overlay {
   font-family: var(--vscode-editor-font-family, monospace);
   user-select: none;
   pointer-events: none;
+}
+.resp-code-wrap .code-highlight.virtualized .code-line::before {
+  counter-increment: none;
+  content: attr(data-line);
 }
 .copy-btn {
   position: absolute;

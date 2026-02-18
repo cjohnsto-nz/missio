@@ -165,8 +165,27 @@ const WRITE_ROLES = new Set([
   'Key Vault Administrator',
 ]);
 
+/** Resolve {{var}} references in a provider's namespace field. */
+function resolveNamespace(provider: SecretProvider, variables: Map<string, string>): string {
+  return (provider.namespace || '').replace(varPatternGlobal(), (_match: string, name: string) => {
+    const key = name.trim();
+    return variables.has(key) ? variables.get(key)! : _match;
+  });
+}
+
+/** Resolve {{var}} references in a provider's subscription field. Returns undefined if empty. */
+function resolveSubscription(provider: SecretProvider, variables: Map<string, string>): string | undefined {
+  const raw = provider.subscription;
+  if (!raw) return undefined;
+  const resolved = raw.replace(varPatternGlobal(), (_match: string, name: string) => {
+    const key = name.trim();
+    return variables.has(key) ? variables.get(key)! : _match;
+  }).trim();
+  return resolved || undefined;
+}
+
 /** Returns the most powerful Key Vault role the current user holds, or undefined. */
-async function checkKeyVaultRole(vaultUrl: string): Promise<string | undefined> {
+async function checkKeyVaultRole(vaultName: string, subscription?: string): Promise<string | undefined> {
   try {
     // Get the current user's object ID
     const { stdout: meOut } = await execFileAsync('az', [
@@ -175,25 +194,23 @@ async function checkKeyVaultRole(vaultUrl: string): Promise<string | undefined> 
     const userId = meOut.trim();
     if (!userId) return undefined;
 
-    // Extract vault name from URL (e.g. "https://myvault.vault.azure.net" → "myvault")
-    const vaultMatch = /https:\/\/([^.]+)\.vault\.azure\.net/i.exec(vaultUrl);
-    if (!vaultMatch) return undefined;
-    const vaultName = vaultMatch[1];
-
-    // Get vault resource ID
-    const { stdout: kvOut } = await execFileAsync('az', [
-      'keyvault', 'show', '-n', vaultName, '--query', 'id', '-o', 'tsv',
-    ], { shell: true, timeout: 15_000 });
+    // Get vault resource ID (use --subscription if provided for cross-subscription vaults)
+    const kvArgs = ['keyvault', 'show', '-n', vaultName, '--query', 'id', '-o', 'tsv'];
+    if (subscription) kvArgs.push('--subscription', subscription);
+    const { stdout: kvOut } = await execFileAsync('az', kvArgs, { shell: true, timeout: 15_000 });
     const kvId = kvOut.trim();
     if (!kvId) return undefined;
 
-    // Check role assignments
-    const { stdout: rolesOut } = await execFileAsync('az', [
+    // Check role assignments (--include-inherited to catch roles from parent scopes)
+    const roleArgs = [
       'role', 'assignment', 'list',
       '--assignee', userId,
       '--scope', kvId,
+      '--include-inherited',
       '-o', 'json',
-    ], { shell: true, timeout: 15_000 });
+    ];
+    if (subscription) roleArgs.push('--subscription', subscription);
+    const { stdout: rolesOut } = await execFileAsync('az', roleArgs, { shell: true, timeout: 15_000 });
 
     const assignments = JSON.parse(rolesOut) as { roleDefinitionName: string }[];
     // Return the most powerful role
@@ -249,11 +266,9 @@ export class SecretService implements vscode.Disposable {
       return undefined;
     }
 
-    // Interpolate {{var}} in the vault URL using current environment variables
-    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
-      const key = name.trim();
-      return variables.has(key) ? variables.get(key)! : _match;
-    });
+    // Interpolate {{var}} in the namespace using current environment variables
+    const vaultName = resolveNamespace(provider, variables);
+    const vaultUrl = `https://${vaultName}.vault.azure.net`;
 
     _log.appendLine(`[resolveSecret] ${providerName}.${secretName} → vault=${vaultUrl}`);
 
@@ -307,32 +322,34 @@ export class SecretService implements vscode.Disposable {
     if (!provider.name) {
       throw new Error('Provider name is required.');
     }
-    if (!provider.url) {
-      throw new Error('Vault URL is required.');
+    if (!provider.namespace) {
+      throw new Error('Vault namespace is required.');
     }
 
-    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
-      const key = name.trim();
-      return variables.has(key) ? variables.get(key)! : _match;
-    });
+    const vaultName = resolveNamespace(provider, variables);
 
-    // Check for unresolved variables in the URL
-    const unresolvedMatch = /\{\{(\s*[\w.$-]+\s*)\}\}/.exec(vaultUrl);
+    // Check for unresolved variables in the namespace
+    const unresolvedMatch = /\{\{(\s*[\w.$-]+\s*)\}\}/.exec(vaultName);
     if (unresolvedMatch) {
-      throw new Error(`Vault URL contains unresolved variable: {{${unresolvedMatch[1].trim()}}}. Select an environment that defines this variable.`);
+      throw new Error(`Vault namespace contains unresolved variable: {{${unresolvedMatch[1].trim()}}}. Select an environment that defines this variable.`);
     }
+
+    const vaultUrl = `https://${vaultName}.vault.azure.net`;
 
     if (provider.type === 'azure-keyvault') {
       const names = await listKeyVaultSecretNames(vaultUrl);
 
+      // Resolve subscription (may contain {{var}} references)
+      const subscription = resolveSubscription(provider, variables);
+
       // Check role (cached)
       let role: string | undefined;
-      const rCached = _roleCache.get(vaultUrl);
+      const rCached = _roleCache.get(vaultName);
       if (rCached && Date.now() - rCached.fetchedAt < WRITE_ACCESS_CACHE_TTL) {
         role = rCached.role;
       } else {
-        role = await checkKeyVaultRole(vaultUrl);
-        _roleCache.set(vaultUrl, { role, fetchedAt: Date.now() });
+        role = await checkKeyVaultRole(vaultName, subscription);
+        _roleCache.set(vaultName, { role, fetchedAt: Date.now() });
       }
       const canWrite = !!role && WRITE_ROLES.has(role);
 
@@ -346,12 +363,10 @@ export class SecretService implements vscode.Disposable {
    * List secret names from a vault (for intellisense). Caches results.
    */
   async listSecretNames(provider: SecretProvider, variables: Map<string, string>): Promise<string[]> {
-    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
-      const key = name.trim();
-      return variables.has(key) ? variables.get(key)! : _match;
-    });
+    const vaultName = resolveNamespace(provider, variables);
+    const vaultUrl = `https://${vaultName}.vault.azure.net`;
 
-    const cacheKey = `${provider.name}|${vaultUrl}`;
+    const cacheKey = `${provider.name}|${vaultName}`;
     const cached = _secretNamesCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < SECRET_NAMES_CACHE_TTL) {
       return cached.names;
@@ -410,10 +425,8 @@ export class SecretService implements vscode.Disposable {
       throw new Error(`Provider "${providerName}" not found or disabled.`);
     }
 
-    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
-      const key = name.trim();
-      return variables.has(key) ? variables.get(key)! : _match;
-    });
+    const vaultName = resolveNamespace(provider, variables);
+    const vaultUrl = `https://${vaultName}.vault.azure.net`;
 
     _log.appendLine(`[setSecret] ${providerName}.${secretName} → vault=${vaultUrl}`);
 
@@ -430,18 +443,17 @@ export class SecretService implements vscode.Disposable {
    * Check if the current user has write access to a vault (cached).
    */
   async checkWriteAccess(provider: SecretProvider, variables: Map<string, string>): Promise<boolean> {
-    const vaultUrl = provider.url.replace(varPatternGlobal(), (_match, name) => {
-      const key = name.trim();
-      return variables.has(key) ? variables.get(key)! : _match;
-    });
+    const vaultName = resolveNamespace(provider, variables);
 
-    const cached = _roleCache.get(vaultUrl);
+    const cached = _roleCache.get(vaultName);
     if (cached && Date.now() - cached.fetchedAt < WRITE_ACCESS_CACHE_TTL) {
       return !!cached.role && WRITE_ROLES.has(cached.role);
     }
 
-    const role = await checkKeyVaultRole(vaultUrl);
-    _roleCache.set(vaultUrl, { role, fetchedAt: Date.now() });
+    const subscription = resolveSubscription(provider, variables);
+
+    const role = await checkKeyVaultRole(vaultName, subscription);
+    _roleCache.set(vaultName, { role, fetchedAt: Date.now() });
     return !!role && WRITE_ROLES.has(role);
   }
 

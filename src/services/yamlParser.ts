@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { OpenCollection, OpenCollectionWorkspace, HttpRequest, Folder } from '../models/types';
+import { migrateCollection, migrateRequest, migrateFolder } from './migrations';
 
 export async function readYamlFile<T>(filePath: string): Promise<T> {
   const content = await fs.promises.readFile(filePath, 'utf-8');
@@ -13,7 +14,9 @@ export async function writeYamlFile<T>(filePath: string, data: T): Promise<void>
 }
 
 export async function readCollectionFile(filePath: string): Promise<OpenCollection> {
-  return readYamlFile<OpenCollection>(filePath);
+  const data = await readYamlFile<OpenCollection>(filePath);
+  migrateCollection(data);
+  return data;
 }
 
 export async function readWorkspaceFile(filePath: string): Promise<OpenCollectionWorkspace> {
@@ -21,11 +24,15 @@ export async function readWorkspaceFile(filePath: string): Promise<OpenCollectio
 }
 
 export async function readRequestFile(filePath: string): Promise<HttpRequest> {
-  return readYamlFile<HttpRequest>(filePath);
+  const data = await readYamlFile<HttpRequest>(filePath);
+  migrateRequest(data);
+  return data;
 }
 
 export async function readFolderFile(filePath: string): Promise<Folder> {
-  return readYamlFile<Folder>(filePath);
+  const data = await readYamlFile<Folder>(filePath);
+  migrateFolder(data);
+  return data;
 }
 
 export function isFolderFile(fileName: string): boolean {
