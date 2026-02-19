@@ -490,6 +490,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
     <!-- Response Section -->
     <div class="response-section" id="responseSection">
+      <div class="loading-overlay" id="respLoading" style="display:none;">
+        <div class="spinner"></div>
+        <span>Sending request…</span>
+        <span class="loading-timer" id="loadingTimer">0.0s</span>
+      </div>
       <div class="response-bar" id="responseBar" style="display:none;">
         <span class="label">Response</span>
         <span class="status-badge" id="statusBadge"></span>
@@ -504,11 +509,6 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
       <div class="response-body">
-        <div class="loading-overlay" id="respLoading" style="display:none;">
-          <div class="spinner"></div>
-          <span>Sending request…</span>
-          <span class="loading-timer" id="loadingTimer">0.0s</span>
-        </div>
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
           <div id="respBinaryOverlay" style="display:none;padding:32px;text-align:center;color:var(--vscode-foreground);font-family:var(--vscode-font-family,system-ui);">

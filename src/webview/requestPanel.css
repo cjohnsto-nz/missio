@@ -312,6 +312,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 .response-bar {
   display: flex;
@@ -939,7 +940,7 @@ td.var-cell .var-overlay {
   font-size: 13px;
   position: absolute;
   inset: 0;
-  z-index: 10;
+  z-index: 50;
   background: var(--vscode-editor-background, rgba(30,30,30,0.85));
   opacity: 0.9;
 }
