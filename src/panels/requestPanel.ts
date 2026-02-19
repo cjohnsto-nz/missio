@@ -235,6 +235,64 @@ export class RequestEditorProvider extends BaseEditorProvider {
       requestLog.appendLine(`[${ts}] ${msg}`);
     };
 
+    const _buildErrorResponse = (e: any, durationMs: number) => {
+      const errCode = typeof e?.code === 'string' ? e.code : undefined;
+      const errName = typeof e?.name === 'string' ? e.name : undefined;
+      const errMessage = typeof e?.message === 'string' ? e.message : String(e);
+
+      const _hintForCode = (code: string | undefined): string | undefined => {
+        if (!code) return undefined;
+        const hints: Record<string, string> = {
+          ENOTFOUND: 'DNS lookup failed (host not found). Check the hostname and your network/VPN.',
+          ECONNREFUSED: 'Connection refused. The host is reachable but nothing is listening on the target port.',
+          ETIMEDOUT: 'Connection timed out. The host may be down, blocked by firewall, or too slow to respond.',
+          EAI_AGAIN: 'DNS lookup temporarily failed (EAI_AGAIN). Try again, or check DNS/VPN/network connectivity.',
+          ECONNRESET: 'Connection was reset by the peer. This can be caused by proxies, TLS issues, or server-side resets.',
+          EHOSTUNREACH: 'Host unreachable. A routing/firewall/VPN issue is preventing reaching the host.',
+          ENETUNREACH: 'Network unreachable. Check your network connection, VPN, or routing.',
+        };
+        return hints[code];
+      };
+
+      const statusText = errCode ?? errName ?? 'Error';
+
+      const headers: Record<string, string> = {
+        'x-missio-error': 'true',
+        'x-missio-error-message': errMessage,
+      };
+      if (errCode) headers['x-missio-error-code'] = errCode;
+      if (errName) headers['x-missio-error-name'] = errName;
+      if (typeof e?.syscall === 'string') headers['x-missio-error-syscall'] = e.syscall;
+      if (typeof e?.hostname === 'string') headers['x-missio-error-hostname'] = e.hostname;
+      if (typeof e?.address === 'string') headers['x-missio-error-address'] = e.address;
+      if (typeof e?.port === 'number') headers['x-missio-error-port'] = String(e.port);
+
+      const details = {
+        message: errMessage,
+        code: errCode,
+        name: errName,
+        syscall: e?.syscall,
+        hostname: e?.hostname,
+        address: e?.address,
+        port: e?.port,
+        stack: typeof e?.stack === 'string' ? e.stack : undefined,
+      };
+
+      const body = JSON.stringify({
+        error: details,
+        hint: _hintForCode(errCode),
+      }, null, 2);
+
+      return {
+        status: 0,
+        statusText,
+        headers,
+        body,
+        duration: durationMs,
+        size: Buffer.byteLength(body, 'utf-8'),
+      };
+    };
+
     // Detect unresolved variables and prompt via webview modal
     const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
     let extraVariables: Map<string, string> | undefined = new Map();
@@ -288,9 +346,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         webview.postMessage({ type: 'cancelled' });
         return;
       } else {
+        const durationMs = Date.now() - _t0;
         webview.postMessage({
           type: 'response',
-          response: { status: 0, statusText: 'Error', headers: {}, body: e.message, duration: 0, size: 0 },
+          response: _buildErrorResponse(e, durationMs),
         });
       }
     }
