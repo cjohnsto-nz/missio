@@ -27,7 +27,6 @@ const SECRET_SCOPE: ScopeDef = { key: 'secret', label: 'Secret Provider', badge:
 
 // SVG eye icon that works in both light and dark themes
 const EYE_SVG = "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/><circle cx='12' cy='12' r='3'/></svg>";
-const ENTER_KEY_SVG = "<svg width='14' height='14' viewBox='0 0 16 16' fill='none' aria-hidden='true'><rect x='1.1' y='1.1' width='13.8' height='13.8' rx='2.8' stroke='currentColor' stroke-width='1.2'/><path d='M10.6 5.4v4H5.4m0 0l2-2m-2 2l2 2' stroke='currentColor' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
 
 function scopeDefForSource(source: string): ScopeDef {
   if (source === 'environment' || source === 'dotenv') return SCOPES[0];
@@ -44,6 +43,7 @@ let _pendingSetRef: string | null = null;
 let _dismissTimer: ReturnType<typeof setTimeout> | null = null;
 let _hoverTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastMousePos: { x: number; y: number } | null = null;
+let _activeTooltipSave: (() => void) | null = null;
 const DISMISS_DELAY = 150; // ms before tooltip disappears after mouse leaves
 const HOVER_DELAY = 250; // ms before tooltip appears on hover
 const DISMISS_PROXIMITY_PX = 16; // keep open while cursor is near tooltip edge
@@ -76,10 +76,22 @@ function isCursorNearTooltip(): boolean {
     && _lastMousePos.y <= rect.bottom + DISMISS_PROXIMITY_PX;
 }
 
+function isFocusInsideTooltip(): boolean {
+  if (!activeTooltip) return false;
+  const ae = document.activeElement;
+  if (!ae) return false;
+  return activeTooltip.contains(ae);
+}
+
 export function scheduleDismiss(e?: MouseEvent): void {
   if (e) trackMousePosition(e);
   cancelDismiss();
   _dismissTimer = setTimeout(() => {
+    // If the user is actively editing inside the tooltip, keep it open.
+    if (isFocusInsideTooltip()) {
+      scheduleDismiss();
+      return;
+    }
     if (isCursorNearTooltip()) {
       scheduleDismiss();
       return;
@@ -90,13 +102,16 @@ export function scheduleDismiss(e?: MouseEvent): void {
 
 // ── Public API ──
 
-export function hideVarTooltip(): void {
+export function hideVarTooltip(options?: { save?: boolean }): void {
+  const save = options?.save ?? true;
   cancelDismiss();
   document.removeEventListener('mousemove', trackMousePosition, true);
   if (activeTooltip) {
+    if (save) _activeTooltipSave?.();
     activeTooltip.remove();
     activeTooltip = null;
   }
+  _activeTooltipSave = null;
   _lastMousePos = null;
   _pendingSecretRef = null;
 }
@@ -113,20 +128,25 @@ export function handleSecretValueResolved(msg: { secretRef: string; value?: stri
     return;
   }
   valueInput.value = msg.value ?? '';
+  valueInput.dataset.baselineValue = msg.value ?? '';
 }
 
 /** Called when the extension host responds to a setSecretValue request. */
 export function handleSetSecretValueResult(msg: { secretRef: string; success: boolean; error?: string }): void {
-  if (!activeTooltip || msg.secretRef !== _pendingSetRef) return;
+  if (msg.secretRef !== _pendingSetRef) return;
+  if (!activeTooltip) {
+    _pendingSetRef = null;
+    return;
+  }
   const feedback = activeTooltip.querySelector('.var-tooltip-feedback') as HTMLElement;
   _pendingSetRef = null;
 
   if (msg.success) {
     if (feedback) {
       feedback.innerHTML = "<span style='color:var(--badge-success, #22c55e);'>\u2713 Saved</span>";
-      setTimeout(() => hideVarTooltip(), 1200);
+      setTimeout(() => hideVarTooltip({ save: false }), 1200);
     } else {
-      hideVarTooltip();
+      hideVarTooltip({ save: false });
     }
   } else {
     if (feedback) {
@@ -146,8 +166,9 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   const resolved = varName in vars;
   const isProviderSecret = secretKeys.has(varName);
   const isEnvSecret = secretVarNames.has(varName);
-  const isAnySecret = isProviderSecret || isEnvSecret;
   const source = sources[varName] || (isProviderSecret ? 'secret' : '');
+  const isTaintedSecret = source === 'secret';
+  const isAnySecret = isProviderSecret || isEnvSecret || isTaintedSecret;
 
   const tooltip = document.createElement('div');
   tooltip.className = 'var-tooltip';
@@ -187,7 +208,6 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
         ).join('') +
       "</div>" +
     "</div>" +
-    "<button class='var-tooltip-save-btn' title='Save'>" + ENTER_KEY_SVG + "</button>" +
   "</div>";
 
   tooltip.innerHTML = inputHtml + scopeHtml;
@@ -202,6 +222,9 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   // Keep tooltip open while mouse is over it
   tooltip.addEventListener('mouseenter', cancelDismiss);
   tooltip.addEventListener('mouseleave', (e) => scheduleDismiss(e));
+  // Keep tooltip open while focused (e.g. user clicked into the input)
+  tooltip.addEventListener('focusin', cancelDismiss);
+  tooltip.addEventListener('focusout', () => scheduleDismiss());
 
   // ── Wire interactions ──
 
@@ -231,6 +254,8 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   // Reveal toggle for secrets
   const revealBtn = tooltip.querySelector('.var-tooltip-reveal') as HTMLElement;
   const valueInput = tooltip.querySelector('.var-tooltip-value-input') as HTMLInputElement;
+  const originalScopeKey = selectedScope.key;
+  valueInput.dataset.baselineValue = currentValue;
   if (revealBtn && valueInput) {
     revealBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -247,42 +272,31 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   const saveValue = (): void => {
     if (!valueInput) return;
     const value = valueInput.value ?? '';
+    const baselineValue = valueInput.dataset.baselineValue ?? '';
+    if (value === baselineValue && selectedScopeKey === originalScopeKey) return;
+
+    if (selectedScopeKey === 'secret') {
+      if (!value) return;
+      _pendingSetRef = varName;
+      ctx.postMessage?.({ type: 'setSecretValue', secretRef: varName, value });
+      return;
+    }
+
     if (ctx.postMessage) {
       ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
     }
-    hideVarTooltip();
   };
-
-  const saveBtn = tooltip.querySelector('.var-tooltip-save-btn') as HTMLButtonElement | null;
-  if (saveBtn) {
-    saveBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      saveValue();
-    });
-  }
+  _activeTooltipSave = saveValue;
 
   // Value input — Enter to save, Escape to close
   if (valueInput) {
     valueInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        const value = valueInput.value ?? '';
-        if (selectedScopeKey === 'secret') {
-          // Save to secret provider vault
-          if (!value) return;
-          _pendingSetRef = varName;
-          const fb = tooltip.querySelector('.var-tooltip-feedback') as HTMLElement;
-          if (fb) fb.innerHTML = "<span style='color:var(--m-fg-muted);'>Saving\u2026</span>";
-          ctx.postMessage?.({ type: 'setSecretValue', secretRef: varName, value });
-        } else {
-          if (ctx.postMessage) {
-            ctx.postMessage({ type: 'updateVariable', varName, value, scope: selectedScopeKey });
-          }
-          hideVarTooltip();
-        }
+        hideVarTooltip();
       }
       if (e.key === 'Escape') {
+        e.preventDefault();
         hideVarTooltip();
       }
     });

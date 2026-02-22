@@ -1311,7 +1311,7 @@ td.var-cell .var-overlay {
 .var-tooltip-scope-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px;
   margin-top: 2px;
 }
@@ -1389,34 +1389,6 @@ td.var-cell .var-overlay {
 }
 .var-scope-option:hover {
   background: var(--m-suggest-highlight);
-}
-
-/* ── Tooltip Save Button ─────────────────── */
-.var-tooltip-save-btn {
-  width: 28px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: color-mix(in srgb, var(--m-status-success) 20%, transparent);
-  color: var(--m-status-success);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-}
-.var-tooltip-save-btn svg {
-  width: 14px;
-  height: 14px;
-  display: block;
-}
-.var-tooltip-save-btn:hover {
-  background: color-mix(in srgb, var(--m-status-success) 30%, transparent);
-}
-.var-tooltip-save-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 1px var(--m-focus-border);
 }
 
 /* ── Tooltip Save-to-Vault Button ────────── */
