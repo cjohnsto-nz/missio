@@ -195,7 +195,12 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
             if (scope === 'global') {
               const globals = this._environmentService.getGlobalVariables();
               const existing = globals.find(g => g.name === varName);
-              if (existing) { existing.value = value ?? ''; } else { globals.push({ name: varName, value: value ?? '' }); }
+              if (existing) {
+                existing.value = value ?? '';
+                if ((existing as any).disabled) { (existing as any).disabled = false; }
+              } else {
+                globals.push({ name: varName, value: value ?? '' });
+              }
               await this._environmentService.setGlobalVariables(globals);
             } else {
               // collection or environment — edit the collection.yml file (not the current document)
@@ -210,7 +215,12 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
                 if (!data.request) data.request = {};
                 if (!data.request.variables) data.request.variables = [];
                 const existing = data.request.variables.find((v: any) => v.name === varName);
-                if (existing) { existing.value = value ?? ''; } else { data.request.variables.push({ name: varName, value: value ?? '' }); }
+                if (existing) {
+                  existing.value = value ?? '';
+                  if (existing.disabled) existing.disabled = false;
+                } else {
+                  data.request.variables.push({ name: varName, value: value ?? '' });
+                }
               } else if (scope === 'environment') {
                 const envName = this._environmentService.getActiveEnvironmentName(collection.id);
                 if (envName && data.config?.environments) {
@@ -222,8 +232,10 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
                       // Secret env var — store value in SecretStorage, don't write to YAML
                       const collRoot = path.dirname(collection.filePath);
                       await this._environmentService.storeSecretValue(collRoot, envName, varName, value ?? '');
+                      if (existing.disabled) existing.disabled = false;
                     } else if (existing) {
                       existing.value = value ?? '';
+                      if (existing.disabled) existing.disabled = false;
                     } else {
                       env.variables.push({ name: varName, value: value ?? '' });
                     }
