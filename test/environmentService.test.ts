@@ -25,8 +25,8 @@ function mockContext(): any {
 
 function mockSecretService(): any {
   return {
-    resolveSecret: async (name: string) => {
-      if (name === 'testSecret') return 'secret-value-123';
+    resolveSecret: async (_providerName: string, secretName: string) => {
+      if (secretName === 'testSecret') return 'secret-value-123';
       return undefined;
     },
   };
@@ -448,6 +448,63 @@ describe('EnvironmentService', () => {
       const coll = makeCollection();
       delete (coll.data as any).config;
       expect(service.getCollectionEnvironments(coll)).toEqual([]);
+    });
+
+    it('resolves secret provider refs written as {{ $secret.x.y }} inside variable values (no leftover braces)', async () => {
+      const coll = makeCollection({
+        data: {
+          config: {
+            secretProviders: [{ name: 'kv', type: 'azure-keyvault', namespace: 'test' }],
+            environments: [{
+              name: 'dev',
+              variables: [
+                { name: 'apiKey', value: '{{ $secret.kv.testSecret }}' },
+              ],
+            }],
+          },
+          request: {
+            variables: [
+              { name: 'headerValue', value: '{{apiKey}}' },
+            ],
+          },
+        } as any,
+      });
+
+      await service.setActiveEnvironment('test-collection', 'dev');
+      const vars = await service.resolveVariables(coll);
+      expect(vars.get('apiKey')).toBe('secret-value-123');
+      expect(vars.get('headerValue')).toBe('secret-value-123');
+    });
+
+    it('propagates secret source through interpolation hops in resolveVariablesWithSource', async () => {
+      const coll = makeCollection({
+        data: {
+          config: {
+            secretProviders: [{ name: 'kv', type: 'azure-keyvault', namespace: 'test' }],
+            environments: [{
+              name: 'dev',
+              variables: [
+                { name: 'apiKey', value: '{{ $secret.kv.testSecret }}' },
+              ],
+            }],
+          },
+          request: {
+            variables: [
+              { name: 'headerValue', value: '{{apiKey}}' },
+              { name: 'doubleHop', value: '{{headerValue}}' },
+            ],
+          },
+        } as any,
+      });
+
+      await service.setActiveEnvironment('test-collection', 'dev');
+      const vars = await service.resolveVariablesWithSource(coll);
+      expect(vars.get('apiKey')?.value).toBe('secret-value-123');
+      expect(vars.get('apiKey')?.source).toBe('secret');
+      expect(vars.get('headerValue')?.value).toBe('secret-value-123');
+      expect(vars.get('headerValue')?.source).toBe('secret');
+      expect(vars.get('doubleHop')?.value).toBe('secret-value-123');
+      expect(vars.get('doubleHop')?.source).toBe('secret');
     });
   });
 

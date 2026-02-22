@@ -146,8 +146,9 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   const resolved = varName in vars;
   const isProviderSecret = secretKeys.has(varName);
   const isEnvSecret = secretVarNames.has(varName);
-  const isAnySecret = isProviderSecret || isEnvSecret;
   const source = sources[varName] || (isProviderSecret ? 'secret' : '');
+  const isTaintedSecret = source === 'secret';
+  const isAnySecret = isProviderSecret || isEnvSecret || isTaintedSecret;
 
   const tooltip = document.createElement('div');
   tooltip.className = 'var-tooltip';
