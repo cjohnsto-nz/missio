@@ -76,10 +76,22 @@ function isCursorNearTooltip(): boolean {
     && _lastMousePos.y <= rect.bottom + DISMISS_PROXIMITY_PX;
 }
 
+function isFocusInsideTooltip(): boolean {
+  if (!activeTooltip) return false;
+  const ae = document.activeElement;
+  if (!ae) return false;
+  return activeTooltip.contains(ae);
+}
+
 export function scheduleDismiss(e?: MouseEvent): void {
   if (e) trackMousePosition(e);
   cancelDismiss();
   _dismissTimer = setTimeout(() => {
+    // If the user is actively editing inside the tooltip, keep it open.
+    if (isFocusInsideTooltip()) {
+      scheduleDismiss();
+      return;
+    }
     if (isCursorNearTooltip()) {
       scheduleDismiss();
       return;
@@ -210,6 +222,9 @@ export function showVarTooltipAt(anchorEl: HTMLElement, varName: string, ctx: Va
   // Keep tooltip open while mouse is over it
   tooltip.addEventListener('mouseenter', cancelDismiss);
   tooltip.addEventListener('mouseleave', (e) => scheduleDismiss(e));
+  // Keep tooltip open while focused (e.g. user clicked into the input)
+  tooltip.addEventListener('focusin', cancelDismiss);
+  tooltip.addEventListener('focusout', () => scheduleDismiss());
 
   // ── Wire interactions ──
 
