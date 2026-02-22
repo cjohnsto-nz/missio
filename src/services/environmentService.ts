@@ -302,15 +302,21 @@ export class EnvironmentService implements vscode.Disposable {
     for (let pass = 0; pass < 10; pass++) {
       let changed = false;
       for (const [key, entry] of vars) {
+        let taintedBySecret = false;
         const resolved = entry.value.replace(varPatternGlobal(), (match, name) => {
           const ref = name.trim();
           if (ref === key) return match; // avoid self-reference
           const builtin = this._resolveBuiltin(ref);
           if (builtin !== undefined) return builtin;
-          return vars.has(ref) ? vars.get(ref)!.value : match;
+          if (!vars.has(ref)) return match;
+          const refEntry = vars.get(ref)!;
+          if (refEntry.source === 'secret') {
+            taintedBySecret = true;
+          }
+          return refEntry.value;
         });
         if (resolved !== entry.value) {
-          vars.set(key, { value: resolved, source: entry.source });
+          vars.set(key, { value: resolved, source: taintedBySecret ? 'secret' : entry.source });
           changed = true;
         }
       }
@@ -333,9 +339,12 @@ export class EnvironmentService implements vscode.Disposable {
   private async _resolveSecretRefs(vars: Map<string, string>, providers: SecretProvider[]): Promise<void> {
     const pattern = /\$secret\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)/g;
     for (const [key, val] of vars) {
-      const matches = [...val.matchAll(pattern)];
+      // Allow $secret refs to be written as {{ $secret.x.y }} inside variable values.
+      // If we don't strip the braces first, resolving leaves "{{secretValue}}" behind.
+      const unwrappedVal = val.replace(/\{\{\s*(\$secret\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)\s*\}\}/g, '$1');
+      const matches = [...unwrappedVal.matchAll(pattern)];
       if (matches.length === 0) continue;
-      let resolved = val;
+      let resolved = unwrappedVal;
       for (const match of matches) {
         const [fullMatch, providerName, secretName] = match;
         try {
@@ -357,9 +366,12 @@ export class EnvironmentService implements vscode.Disposable {
     const plainVars = new Map<string, string>();
     for (const [k, v] of vars) { plainVars.set(k, v.value); }
     for (const [key, entry] of vars) {
-      const matches = [...entry.value.matchAll(pattern)];
+      // Allow $secret refs to be written as {{ $secret.x.y }} inside variable values.
+      // If we don't strip the braces first, resolving leaves "{{secretValue}}" behind.
+      const unwrappedVal = entry.value.replace(/\{\{\s*(\$secret\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)\s*\}\}/g, '$1');
+      const matches = [...unwrappedVal.matchAll(pattern)];
       if (matches.length === 0) continue;
-      let resolved = entry.value;
+      let resolved = unwrappedVal;
       for (const match of matches) {
         const [fullMatch, providerName, secretName] = match;
         try {
@@ -489,7 +501,7 @@ export class EnvironmentService implements vscode.Disposable {
     for (const v of env.variables ?? []) {
       if ('secret' in v && (v as SecretVariable).secret && v.name && !v.disabled) {
         const val = await this.getSecretValue(collection.rootDir, envName, v.name!);
-        vars.set(v.name!, { value: val ?? '', source: 'environment' });
+        vars.set(v.name!, { value: val ?? '', source: 'secret' });
       }
     }
   }

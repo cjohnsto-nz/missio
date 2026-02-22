@@ -33,7 +33,7 @@ export function highlightVariables(html: string, state: VarState): string {
     const source = state.sources[key] || (isSecret ? 'secret' : isBuiltin ? 'dynamic' : 'unknown');
 
     if (state.showResolved && isResolved) {
-      const isMaskedSecret = state.secretVarNames?.has(key) ?? false;
+      const isMaskedSecret = source === 'secret' || (state.secretVarNames?.has(key) ?? false);
       const displayValue = isMaskedSecret ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : escHtml(state.resolved[key]);
       const cls = 'tk-var-resolved tk-src-' + source;
       return "<span class='" + cls + "' data-var='" + escHtml(key) + "' title='{{" + escHtml(key) + "}} (" + source + ")'>"
