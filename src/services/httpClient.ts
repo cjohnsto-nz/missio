@@ -76,9 +76,11 @@ export class HttpClient implements vscode.Disposable {
       urlObj.search = '';
       for (const p of allQueryParams) {
         if (p.disabled) continue;
+        const resolvedValue = this._environmentService.interpolate(p.value, variables);
+        if (resolvedValue === '') continue; // Skip empty-value params
         urlObj.searchParams.set(
           this._environmentService.interpolate(p.name, variables),
-          this._environmentService.interpolate(p.value, variables),
+          resolvedValue,
         );
       }
       url = urlObj.toString();
@@ -127,9 +129,18 @@ export class HttpClient implements vscode.Disposable {
     tPhase = Date.now();
     // Auth: request -> folder -> collection (first non-inherit wins)
     // forceAuthInherit: skip request/folder auth, go straight to collection
+    // If the inherited auth is incomplete, fall back to the normal chain
     let auth: Auth | undefined;
     if (collection.data.config?.forceAuthInherit) {
-      auth = collection.data.request?.auth;
+      const collectionAuth = collection.data.request?.auth;
+      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
+        auth = collectionAuth;
+      } else {
+        // Fall back to normal chain when collection auth is incomplete
+        auth = request.runtime?.auth;
+        if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+        if (!auth || auth === 'inherit') auth = collectionAuth;
+      }
     } else {
       auth = request.runtime?.auth;
       if (!auth || auth === 'inherit') {
@@ -414,6 +425,21 @@ export class HttpClient implements vscode.Disposable {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
+    switch (auth.type) {
+      case 'basic':
+        return !!(auth.username || auth.password);
+      case 'bearer':
+        return !!auth.token;
+      case 'apikey':
+        return !!auth.key;
+      case 'oauth2':
+        return true; // OAuth2 has its own validation path
+      default:
+        return true;
     }
   }
 
