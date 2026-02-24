@@ -32,6 +32,7 @@ import {
   ResolveVariablesTool,
   SendRequestTool,
   ValidateCollectionTool,
+  SendRawRequestTool,
 } from './copilot/tools';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -237,5 +238,6 @@ function registerLanguageModelTools(
     vscode.lm.registerTool('missio_resolve_variables', new ResolveVariablesTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, httpClient)),
     vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
+    vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, environmentService)),
   );
 }

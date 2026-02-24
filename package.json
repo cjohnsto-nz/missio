@@ -853,6 +853,60 @@
             }
           }
         }
+      },
+      {
+        "name": "missio_send_raw_request",
+        "displayName": "Send Raw HTTP Request",
+        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL supports {{variable}} interpolation from the active collection/environment. Body can be a JSON object (sent as application/json) or a string. Auth is inherited from the collection if one is loaded. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
+        "userDescription": "Send an ad-hoc HTTP request without a collection file.",
+        "toolReferenceName": "missio_send_raw_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(zap)",
+        "tags": ["api", "rest", "http", "send", "raw", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "description": "HTTP method (GET, POST, PUT, PATCH, DELETE, etc.)."
+            },
+            "url": {
+              "type": "string",
+              "description": "Request URL. Supports {{variable}} interpolation if a collection is loaded (e.g. {{baseUrl}}/api/items)."
+            },
+            "headers": {
+              "type": "object",
+              "description": "Optional HTTP headers as key-value pairs. Values support {{variable}} interpolation."
+            },
+            "body": {
+              "description": "Optional request body. Pass a JSON object (auto-serialized, Content-Type set to application/json) or a string (interpolated with {{variables}}). For JSON APIs, pass the object directly — no string escaping needed."
+            },
+            "collectionId": {
+              "type": "string",
+              "description": "Optional collection ID for variable resolution and auth inheritance. Auto-selected when only one collection is loaded."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name for variable resolution. Does not change the active environment."
+            },
+            "variables": {
+              "type": "object",
+              "description": "Optional variable overrides. Highest priority — merged after all other sources."
+            },
+            "responseOutputPath": {
+              "type": "string",
+              "description": "Optional absolute file path to write the response body to."
+            },
+            "extract": {
+              "type": "object",
+              "description": "Optional dot-path extraction from JSON response body. Keys are your chosen names, values are dot-path expressions (e.g. {\"id\": \"data[0].id\"}).",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["method", "url"]
+        }
       }
     ],
     "yamlValidation": [

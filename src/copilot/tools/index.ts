@@ -8,3 +8,4 @@ export { SetEnvironmentTool } from './setEnvironmentTool';
 export { ResolveVariablesTool } from './resolveVariablesTool';
 export { SendRequestTool } from './sendRequestTool';
 export { ValidateCollectionTool } from './validateCollectionTool';
+export { SendRawRequestTool } from './sendRawRequestTool';
