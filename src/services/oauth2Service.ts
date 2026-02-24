@@ -48,8 +48,8 @@ export class OAuth2Service implements vscode.Disposable {
     }
 
     const credentialsId = auth.credentialsId ?? 'default';
-    const autoFetchToken = auth.autoFetchToken !== false; // default true
-    const autoRefreshToken = auth.autoRefreshToken !== false; // default true
+    const autoFetchToken = auth.settings?.autoFetchToken !== false; // default true
+    const autoRefreshToken = auth.settings?.autoRefreshToken !== false; // default true
     const storageKey = this._buildKey(collectionId, envName, accessTokenUrl, credentialsId);
 
     // 1. Check for stored token
@@ -86,11 +86,11 @@ export class OAuth2Service implements vscode.Disposable {
       case 'client_credentials':
         tokenData = await this._fetchClientCredentials(auth);
         break;
-      case 'password':
-        tokenData = await this._fetchPassword(auth);
+      case 'resource_owner_password_credentials':
+        tokenData = await this._fetchPassword(auth as any);
         break;
       case 'authorization_code':
-        tokenData = await this._fetchAuthorizationCode(auth);
+        tokenData = await this._fetchAuthorizationCode(auth as any);
         break;
       default:
         throw new Error(`OAuth2: Unsupported flow: ${flow}`);
@@ -181,7 +181,8 @@ export class OAuth2Service implements vscode.Disposable {
   // ── Private: Token Fetch ────────────────────────────────────────────
 
   private async _fetchClientCredentials(auth: AuthOAuth2): Promise<OAuth2TokenData> {
-    if (!auth.clientId) {
+    const creds = auth.credentials;
+    if (!creds?.clientId) {
       throw new Error('OAuth2: Client ID is required for client_credentials flow');
     }
 
@@ -197,24 +198,17 @@ export class OAuth2Service implements vscode.Disposable {
       params.set('scope', auth.scope);
     }
 
-    const placement = auth.credentialsPlacement ?? 'basic_auth_header';
-    if (placement === 'basic_auth_header') {
-      const secret = auth.clientSecret ?? '';
-      headers['Authorization'] = `Basic ${Buffer.from(`${auth.clientId}:${secret}`).toString('base64')}`;
-    } else {
-      params.set('client_id', auth.clientId);
-      if (auth.clientSecret) {
-        params.set('client_secret', auth.clientSecret);
-      }
-    }
+    this._applyCredentials(creds, headers, params);
 
     return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
   }
 
-  private async _fetchPassword(auth: AuthOAuth2): Promise<OAuth2TokenData> {
-    if (!auth.clientId) throw new Error('OAuth2: Client ID is required for password flow');
-    if (!auth.username) throw new Error('OAuth2: Username is required for password flow');
-    if (!auth.password) throw new Error('OAuth2: Password is required for password flow');
+  private async _fetchPassword(auth: import('../models/types').AuthOAuth2ResourceOwnerPassword): Promise<OAuth2TokenData> {
+    const creds = auth.credentials;
+    const owner = auth.resourceOwner;
+    if (!creds?.clientId) throw new Error('OAuth2: Client ID is required for password flow');
+    if (!owner?.username) throw new Error('OAuth2: Username is required for password flow');
+    if (!owner?.password) throw new Error('OAuth2: Password is required for password flow');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -223,32 +217,24 @@ export class OAuth2Service implements vscode.Disposable {
 
     const params = new URLSearchParams();
     params.set('grant_type', 'password');
-    params.set('username', auth.username);
-    params.set('password', auth.password);
+    params.set('username', owner.username);
+    params.set('password', owner.password);
 
     if (auth.scope) {
       params.set('scope', auth.scope);
     }
 
-    const placement = auth.credentialsPlacement ?? 'basic_auth_header';
-    if (placement === 'basic_auth_header') {
-      const secret = auth.clientSecret ?? '';
-      headers['Authorization'] = `Basic ${Buffer.from(`${auth.clientId}:${secret}`).toString('base64')}`;
-    } else {
-      params.set('client_id', auth.clientId);
-      if (auth.clientSecret) {
-        params.set('client_secret', auth.clientSecret);
-      }
-    }
+    this._applyCredentials(creds, headers, params);
 
     return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
   }
 
-  private async _fetchAuthorizationCode(auth: AuthOAuth2): Promise<OAuth2TokenData> {
-    if (!auth.clientId) throw new Error('OAuth2: Client ID is required for authorization_code flow');
+  private async _fetchAuthorizationCode(auth: import('../models/types').AuthOAuth2AuthorizationCode): Promise<OAuth2TokenData> {
+    const creds = auth.credentials;
+    if (!creds?.clientId) throw new Error('OAuth2: Client ID is required for authorization_code flow');
     if (!auth.authorizationUrl) throw new Error('OAuth2: Authorization URL is required for authorization_code flow');
 
-    const usePkce = auth.pkce !== false; // default true for auth code flow
+    const usePkce = auth.pkce?.enabled !== false; // default true for auth code flow
     let codeVerifier: string | undefined;
     let codeChallenge: string | undefined;
 
@@ -286,16 +272,7 @@ export class OAuth2Service implements vscode.Disposable {
       params.set('code_verifier', codeVerifier);
     }
 
-    const placement = auth.credentialsPlacement ?? 'basic_auth_header';
-    if (placement === 'basic_auth_header') {
-      const secret = auth.clientSecret ?? '';
-      headers['Authorization'] = `Basic ${Buffer.from(`${auth.clientId}:${secret}`).toString('base64')}`;
-    } else {
-      params.set('client_id', auth.clientId);
-      if (auth.clientSecret) {
-        params.set('client_secret', auth.clientSecret);
-      }
-    }
+    this._applyCredentials(creds, headers, params);
 
     return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
   }
@@ -305,7 +282,7 @@ export class OAuth2Service implements vscode.Disposable {
    * authorization URL, and wait for the redirect callback with the code.
    */
   private _waitForAuthorizationCode(
-    auth: AuthOAuth2,
+    auth: import('../models/types').AuthOAuth2AuthorizationCode,
     state: string,
     codeChallenge?: string,
     cancelToken?: vscode.CancellationToken,
@@ -334,7 +311,7 @@ export class OAuth2Service implements vscode.Disposable {
         // Build authorization URL
         const authUrl = new URL(auth.authorizationUrl!);
         authUrl.searchParams.set('response_type', 'code');
-        authUrl.searchParams.set('client_id', auth.clientId!);
+        authUrl.searchParams.set('client_id', auth.credentials?.clientId ?? '');
         authUrl.searchParams.set('redirect_uri', callbackUrl);
         authUrl.searchParams.set('state', state);
         if (auth.scope) authUrl.searchParams.set('scope', auth.scope);
@@ -407,6 +384,24 @@ export class OAuth2Service implements vscode.Disposable {
 <body><div class="card"><div class="logo">${logo}</div><div class="brand">MISSIO</div><div class="status">${statusIcon}</div><p class="msg">${message}</p></div></body></html>`;
   }
 
+  /** Apply client credentials to headers/params based on placement setting. */
+  private _applyCredentials(
+    creds: import('../models/types').OAuth2Credentials,
+    headers: Record<string, string>,
+    params: URLSearchParams,
+  ): void {
+    const placement = creds.placement ?? 'basic_auth_header';
+    if (placement === 'basic_auth_header') {
+      const secret = creds.clientSecret ?? '';
+      headers['Authorization'] = `Basic ${Buffer.from(`${creds.clientId}:${secret}`).toString('base64')}`;
+    } else {
+      params.set('client_id', creds.clientId ?? '');
+      if (creds.clientSecret) {
+        params.set('client_secret', creds.clientSecret);
+      }
+    }
+  }
+
   private async _refreshToken(auth: AuthOAuth2, refreshToken: string): Promise<OAuth2TokenData> {
     const url = auth.refreshTokenUrl ?? auth.accessTokenUrl;
     if (!url) throw new Error('OAuth2: No URL available for token refresh');
@@ -420,17 +415,9 @@ export class OAuth2Service implements vscode.Disposable {
     params.set('grant_type', 'refresh_token');
     params.set('refresh_token', refreshToken);
 
-    if (auth.clientId) {
-      const placement = auth.credentialsPlacement ?? 'basic_auth_header';
-      if (placement === 'basic_auth_header') {
-        const secret = auth.clientSecret ?? '';
-        headers['Authorization'] = `Basic ${Buffer.from(`${auth.clientId}:${secret}`).toString('base64')}`;
-      } else {
-        params.set('client_id', auth.clientId);
-        if (auth.clientSecret) {
-          params.set('client_secret', auth.clientSecret);
-        }
-      }
+    const creds = auth.credentials;
+    if (creds?.clientId) {
+      this._applyCredentials(creds, headers, params);
     }
 
     return this._postTokenRequest(url, headers, params.toString());

@@ -568,7 +568,7 @@ export class OpenApiImporter implements CollectionImporter {
           auth.accessTokenUrl = flows.authorizationCode.tokenUrl || '';
           auth.scope = Object.keys(flows.authorizationCode.scopes || {}).join(' ');
         } else if (flows.password) {
-          auth.flow = 'password';
+          auth.flow = 'resource_owner_password_credentials';
           auth.accessTokenUrl = flows.password.tokenUrl || '';
           auth.scope = Object.keys(flows.password.scopes || {}).join(' ');
         }

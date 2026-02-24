@@ -373,23 +373,41 @@ export class HttpClient implements vscode.Disposable {
       return result;
     };
 
-    const interpolated: AuthOAuth2 = {
+    const creds = auth.credentials;
+    const interpolatedCreds = creds ? {
+      clientId: await resolve(creds.clientId),
+      clientSecret: await resolve(creds.clientSecret),
+      placement: creds.placement,
+    } : undefined;
+
+    const base: any = {
       type: 'oauth2',
       flow: auth.flow,
       accessTokenUrl: await resolve(auth.accessTokenUrl),
       refreshTokenUrl: await resolve(auth.refreshTokenUrl),
-      authorizationUrl: await resolve(auth.authorizationUrl),
-      clientId: await resolve(auth.clientId),
-      clientSecret: await resolve(auth.clientSecret),
-      username: await resolve(auth.username),
-      password: await resolve(auth.password),
       scope: await resolve(auth.scope),
-      credentialsPlacement: auth.credentialsPlacement,
+      credentials: interpolatedCreds,
+      settings: auth.settings,
       credentialsId: auth.credentialsId,
-      autoFetchToken: auth.autoFetchToken,
-      autoRefreshToken: auth.autoRefreshToken,
-      pkce: auth.pkce,
     };
+
+    // Flow-specific fields
+    if (auth.flow === 'resource_owner_password_credentials') {
+      const owner = (auth as import('../models/types').AuthOAuth2ResourceOwnerPassword).resourceOwner;
+      if (owner) {
+        base.resourceOwner = {
+          username: await resolve(owner.username),
+          password: await resolve(owner.password),
+        };
+      }
+    } else if (auth.flow === 'authorization_code') {
+      const ac = auth as import('../models/types').AuthOAuth2AuthorizationCode;
+      base.authorizationUrl = await resolve(ac.authorizationUrl);
+      base.callbackUrl = ac.callbackUrl;
+      base.pkce = ac.pkce;
+    }
+
+    const interpolated: AuthOAuth2 = base;
 
     const envName = this._environmentService.getActiveEnvironmentName(collection.id);
     const token = await this._oauth2Service.getToken(interpolated, collection.id, envName);

@@ -25,7 +25,6 @@ export class CollectionService implements vscode.Disposable {
     this._startPolling();
     this._onDidChange.fire();
     _log.appendLine(`initialize: scanWorkspaceFolders=${(t1 - t0).toFixed(1)}ms, total=${(performance.now() - t0).toFixed(1)}ms, collections=${this._collections.size}, workspaces=${this._workspaces.size}`);
-    this._promptMigrationPersist();
   }
 
   getCollections(): MissioCollection[] {
@@ -65,7 +64,9 @@ export class CollectionService implements vscode.Disposable {
     if (collection.data.bundled) {
       return collection.data.items ?? [];
     }
-    return this._scanDirectoryForItems(collection.rootDir);
+    const items = await this._scanDirectoryForItems(collection.rootDir);
+    this._debouncedMigrationPrompt();
+    return items;
   }
 
   // ── Private ──────────────────────────────────────────────────────
@@ -291,6 +292,13 @@ export class CollectionService implements vscode.Disposable {
   }
 
   private _migrationPromptShown = false;
+  private _migrationPromptTimer: NodeJS.Timeout | undefined;
+
+  private _debouncedMigrationPrompt(): void {
+    if (this._migrationPromptShown) return;
+    if (this._migrationPromptTimer) clearTimeout(this._migrationPromptTimer);
+    this._migrationPromptTimer = setTimeout(() => this._promptMigrationPersist(), 500);
+  }
 
   private _promptMigrationPersist(): void {
     const pending = getPendingMigrations();
@@ -307,8 +315,7 @@ export class CollectionService implements vscode.Disposable {
     vscode.window.showInformationMessage(msg, 'Save', 'Dismiss').then(async (choice) => {
       if (choice === 'Save') {
         const count = await persistPendingMigrations();
-        vscode.window.showInformationMessage(`Migrated ${count} file${count > 1 ? 's' : ''} saved to disk.`);
-        // Refresh to pick up the written files without re-triggering the prompt
+        vscode.window.showInformationMessage(`${count} migrated file${count !== 1 ? 's' : ''} saved to disk.`);
         this._migrationPromptShown = true;
         await this.refresh();
       } else {

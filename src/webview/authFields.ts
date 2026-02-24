@@ -183,29 +183,37 @@ export function buildAuthData(type: string, prefix: string): any {
     case 'apikey':
       return { type: 'apikey', key: ceVal(p + 'Key'), value: ceVal(p + 'Value'), placement: $sel(p + 'Placement')?.value || 'header' };
     case 'oauth2': {
-      const flow = $sel(p + 'OAuth2Flow')?.value || 'client_credentials';
+      const rawFlow = $sel(p + 'OAuth2Flow')?.value || 'client_credentials';
+      // Map UI flow names to schema flow names
+      const flow = rawFlow === 'password' ? 'resource_owner_password_credentials' : rawFlow;
+      const clientSecret = ceVal(p + 'OAuth2ClientSecret');
       const auth: any = {
         type: 'oauth2', flow,
         accessTokenUrl: ceVal(p + 'OAuth2AccessTokenUrl'),
-        clientId: ceVal(p + 'OAuth2ClientId'),
-        clientSecret: ceVal(p + 'OAuth2ClientSecret'),
         scope: ceVal(p + 'OAuth2Scope'),
         refreshTokenUrl: ceVal(p + 'OAuth2RefreshTokenUrl'),
-        credentialsPlacement: $sel(p + 'OAuth2CredentialsPlacement')?.value || 'basic_auth_header',
-        autoFetchToken: ($el(p + 'OAuth2AutoFetch') as HTMLInputElement)?.checked !== false,
-        autoRefreshToken: ($el(p + 'OAuth2AutoRefresh') as HTMLInputElement)?.checked !== false,
+        credentials: {
+          clientId: ceVal(p + 'OAuth2ClientId'),
+          ...(clientSecret ? { clientSecret } : {}),
+          placement: $sel(p + 'OAuth2CredentialsPlacement')?.value || 'basic_auth_header',
+        },
+        settings: {
+          autoFetchToken: ($el(p + 'OAuth2AutoFetch') as HTMLInputElement)?.checked !== false,
+          autoRefreshToken: ($el(p + 'OAuth2AutoRefresh') as HTMLInputElement)?.checked !== false,
+        },
       };
-      if (flow === 'password') {
-        auth.username = ceVal(p + 'OAuth2Username');
-        auth.password = $el(p + 'OAuth2Password')?.value || '';
+      if (flow === 'resource_owner_password_credentials') {
+        auth.resourceOwner = {
+          username: ceVal(p + 'OAuth2Username'),
+          password: $el(p + 'OAuth2Password')?.value || '',
+        };
       } else if (flow === 'authorization_code') {
         auth.authorizationUrl = ceVal(p + 'OAuth2AuthorizationUrl');
-        auth.pkce = ($el(p + 'OAuth2Pkce') as HTMLInputElement)?.checked !== false;
+        auth.pkce = { enabled: ($el(p + 'OAuth2Pkce') as HTMLInputElement)?.checked !== false };
       }
       // Remove empty optional fields to keep YAML clean
       if (!auth.refreshTokenUrl) delete auth.refreshTokenUrl;
       if (!auth.scope) delete auth.scope;
-      if (!auth.clientSecret) delete auth.clientSecret;
       return auth;
     }
     case 'inherit':
@@ -253,22 +261,25 @@ export function loadAuthData(auth: any, prefix: string): void {
       break;
     }
     case 'oauth2': {
+      // Map schema flow names back to UI flow names
+      const schemaFlow = auth.flow || 'client_credentials';
+      const uiFlow = schemaFlow === 'resource_owner_password_credentials' ? 'password' : schemaFlow;
       const fl = $sel(p + 'OAuth2Flow');
-      if (fl) { fl.value = auth.flow || 'client_credentials'; fl.dispatchEvent(new Event('change')); }
+      if (fl) { fl.value = uiFlow; fl.dispatchEvent(new Event('change')); }
       ceSet(p + 'OAuth2AccessTokenUrl', auth.accessTokenUrl || '');
-      ceSet(p + 'OAuth2ClientId', auth.clientId || '');
-      ceSet(p + 'OAuth2ClientSecret', auth.clientSecret || '');
+      ceSet(p + 'OAuth2ClientId', auth.credentials?.clientId || '');
+      ceSet(p + 'OAuth2ClientSecret', auth.credentials?.clientSecret || '');
       ceSet(p + 'OAuth2Scope', auth.scope || '');
       ceSet(p + 'OAuth2RefreshTokenUrl', auth.refreshTokenUrl || '');
-      const cp = $sel(p + 'OAuth2CredentialsPlacement'); if (cp) cp.value = auth.credentialsPlacement || 'basic_auth_header';
-      const af = $el(p + 'OAuth2AutoFetch') as HTMLInputElement; if (af) af.checked = auth.autoFetchToken !== false;
-      const ar = $el(p + 'OAuth2AutoRefresh') as HTMLInputElement; if (ar) ar.checked = auth.autoRefreshToken !== false;
-      if (auth.flow === 'password') {
-        ceSet(p + 'OAuth2Username', auth.username || '');
-        const pw = $el(p + 'OAuth2Password'); if (pw) pw.value = auth.password || '';
-      } else if (auth.flow === 'authorization_code') {
+      const cp = $sel(p + 'OAuth2CredentialsPlacement'); if (cp) cp.value = auth.credentials?.placement || 'basic_auth_header';
+      const af = $el(p + 'OAuth2AutoFetch') as HTMLInputElement; if (af) af.checked = auth.settings?.autoFetchToken !== false;
+      const ar = $el(p + 'OAuth2AutoRefresh') as HTMLInputElement; if (ar) ar.checked = auth.settings?.autoRefreshToken !== false;
+      if (schemaFlow === 'resource_owner_password_credentials') {
+        ceSet(p + 'OAuth2Username', auth.resourceOwner?.username || '');
+        const pw = $el(p + 'OAuth2Password'); if (pw) pw.value = auth.resourceOwner?.password || '';
+      } else if (schemaFlow === 'authorization_code') {
         ceSet(p + 'OAuth2AuthorizationUrl', auth.authorizationUrl || '');
-        const pk = $el(p + 'OAuth2Pkce') as HTMLInputElement; if (pk) pk.checked = auth.pkce !== false;
+        const pk = $el(p + 'OAuth2Pkce') as HTMLInputElement; if (pk) pk.checked = auth.pkce?.enabled !== false;
       }
       break;
     }

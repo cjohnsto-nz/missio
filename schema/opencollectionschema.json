@@ -1339,6 +1339,10 @@
         },
         "settings": {
           "$ref": "#/$defs/OAuth2Settings"
+        },
+        "credentialsId": {
+          "type": "string",
+          "description": "Identifier for distinguishing multiple credential sets for the same token URL"
         }
       },
       "required": [
@@ -1400,6 +1404,10 @@
         },
         "settings": {
           "$ref": "#/$defs/OAuth2Settings"
+        },
+        "credentialsId": {
+          "type": "string",
+          "description": "Identifier for distinguishing multiple credential sets for the same token URL"
         }
       },
       "required": [
@@ -1479,6 +1487,10 @@
         },
         "settings": {
           "$ref": "#/$defs/OAuth2Settings"
+        },
+        "credentialsId": {
+          "type": "string",
+          "description": "Identifier for distinguishing multiple credential sets for the same token URL"
         }
       },
       "required": [

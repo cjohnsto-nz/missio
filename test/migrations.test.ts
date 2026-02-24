@@ -222,10 +222,157 @@ describe('migrations', () => {
     it('returns unchanged when no http object', () => {
       expect(migrateRequest({ info: { name: 'test' } }).changed).toBe(false);
     });
+
+    describe('002-oauth2-flat-to-nested', () => {
+
+      it('migrates flat client_credentials OAuth2 to nested structure', () => {
+        const data = {
+          http: { method: 'GET', url: 'https://example.com' },
+          runtime: {
+            auth: {
+              type: 'oauth2',
+              flow: 'client_credentials',
+              accessTokenUrl: 'https://auth.example.com/token',
+              clientId: 'my-client',
+              clientSecret: 'my-secret',
+              credentialsPlacement: 'basic_auth_header',
+              autoFetchToken: true,
+              autoRefreshToken: false,
+              scope: 'read write',
+            },
+          },
+        };
+        const result = migrateRequest(data);
+        expect(result.changed).toBe(true);
+        expect(result.applied).toContain('002-oauth2-flat-to-nested');
+        const auth = (data as any).runtime.auth;
+        expect(auth.clientId).toBeUndefined();
+        expect(auth.clientSecret).toBeUndefined();
+        expect(auth.credentialsPlacement).toBeUndefined();
+        expect(auth.autoFetchToken).toBeUndefined();
+        expect(auth.autoRefreshToken).toBeUndefined();
+        expect(auth.credentials).toEqual({ clientId: 'my-client', clientSecret: 'my-secret', placement: 'basic_auth_header' });
+        expect(auth.settings).toEqual({ autoFetchToken: true, autoRefreshToken: false });
+        expect(auth.scope).toBe('read write');
+        expect(auth.accessTokenUrl).toBe('https://auth.example.com/token');
+      });
+
+      it('migrates flat password flow to nested with resourceOwner and flow rename', () => {
+        const data = {
+          runtime: {
+            auth: {
+              type: 'oauth2',
+              flow: 'password',
+              accessTokenUrl: 'https://auth.example.com/token',
+              clientId: 'cid',
+              username: 'user',
+              password: 'pass',
+            },
+          },
+        };
+        const result = migrateRequest(data);
+        expect(result.changed).toBe(true);
+        const auth = (data as any).runtime.auth;
+        expect(auth.flow).toBe('resource_owner_password_credentials');
+        expect(auth.username).toBeUndefined();
+        expect(auth.password).toBeUndefined();
+        expect(auth.resourceOwner).toEqual({ username: 'user', password: 'pass' });
+        expect(auth.credentials).toEqual({ clientId: 'cid' });
+      });
+
+      it('migrates boolean pkce to object', () => {
+        const data = {
+          runtime: {
+            auth: {
+              type: 'oauth2',
+              flow: 'authorization_code',
+              accessTokenUrl: 'https://auth.example.com/token',
+              pkce: true,
+            },
+          },
+        };
+        migrateRequest(data);
+        expect((data as any).runtime.auth.pkce).toEqual({ enabled: true });
+      });
+
+      it('is idempotent — no-op if already nested', () => {
+        const data = {
+          runtime: {
+            auth: {
+              type: 'oauth2',
+              flow: 'client_credentials',
+              accessTokenUrl: 'https://auth.example.com/token',
+              credentials: { clientId: 'cid', placement: 'body' },
+              settings: { autoFetchToken: true },
+            },
+          },
+        };
+        const result = migrateRequest(data);
+        expect(result.applied).not.toContain('002-oauth2-flat-to-nested');
+      });
+
+      it('no-op for non-oauth2 auth', () => {
+        const data = { runtime: { auth: { type: 'bearer', token: 'tok' } } };
+        const result = migrateRequest(data);
+        expect(result.applied).not.toContain('002-oauth2-flat-to-nested');
+      });
+    });
   });
 
-  describe('migrateFolder', () => {
-    it('returns unchanged for empty data (no folder migrations yet)', () => {
+  describe('migrateCollection — 002-oauth2-flat-to-nested', () => {
+
+    it('migrates flat OAuth2 in collection request.auth', () => {
+      const data = {
+        request: {
+          auth: {
+            type: 'oauth2',
+            flow: 'client_credentials',
+            clientId: 'cid',
+            clientSecret: 'secret',
+            credentialsPlacement: 'body',
+            autoFetchToken: true,
+          },
+        },
+        config: {},
+      };
+      const result = migrateCollection(data);
+      expect(result.changed).toBe(true);
+      expect(result.applied).toContain('002-oauth2-flat-to-nested');
+      expect((data.request.auth as any).credentials).toEqual({ clientId: 'cid', clientSecret: 'secret', placement: 'body' });
+      expect((data.request.auth as any).settings).toEqual({ autoFetchToken: true });
+      expect((data.request.auth as any).clientId).toBeUndefined();
+    });
+
+    it('no-op when collection has no auth', () => {
+      const data = { request: {}, config: {} };
+      const result = migrateCollection(data);
+      expect(result.applied).not.toContain('002-oauth2-flat-to-nested');
+    });
+  });
+
+  describe('migrateFolder — 001-oauth2-flat-to-nested', () => {
+
+    it('migrates flat OAuth2 in folder request.auth', () => {
+      const data = {
+        request: {
+          auth: {
+            type: 'oauth2',
+            flow: 'password',
+            clientId: 'cid',
+            username: 'user',
+            password: 'pass',
+          },
+        },
+      };
+      const result = migrateFolder(data);
+      expect(result.changed).toBe(true);
+      const auth = data.request.auth as any;
+      expect(auth.flow).toBe('resource_owner_password_credentials');
+      expect(auth.resourceOwner).toEqual({ username: 'user', password: 'pass' });
+      expect(auth.credentials).toEqual({ clientId: 'cid' });
+    });
+
+    it('no-op for empty folder data', () => {
       expect(migrateFolder({}).changed).toBe(false);
     });
   });
