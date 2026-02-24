@@ -50,7 +50,22 @@ export const collectionMigrations: Migration[] = [
 ];
 
 export const requestMigrations: Migration[] = [
-  // Future request migrations go here
+  {
+    id: '001-http-auth-to-runtime-auth',
+    description: 'Move auth from http to runtime (per OpenCollection schema, auth belongs on runtime not http)',
+    apply(data: any): boolean {
+      if (!data?.http || data.http.auth === undefined) return false;
+      data.runtime = data.runtime || {};
+      if (data.runtime.auth !== undefined) {
+        // runtime.auth already set — just clean up http.auth
+        delete data.http.auth;
+        return true;
+      }
+      data.runtime.auth = data.http.auth;
+      delete data.http.auth;
+      return true;
+    },
+  },
 ];
 
 export const folderMigrations: Migration[] = [

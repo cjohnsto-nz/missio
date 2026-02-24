@@ -148,8 +148,79 @@ describe('migrations', () => {
   });
 
   describe('migrateRequest', () => {
-    it('returns unchanged for empty data (no request migrations yet)', () => {
+
+    describe('001-http-auth-to-runtime-auth', () => {
+
+      it('moves http.auth to runtime.auth', () => {
+        const data = { http: { method: 'GET', url: 'https://example.com', auth: { type: 'bearer', token: 'tok' } } };
+        const result = migrateRequest(data);
+        expect(result.changed).toBe(true);
+        expect(result.applied).toContain('001-http-auth-to-runtime-auth');
+        expect(data.http.auth).toBeUndefined();
+        expect((data as any).runtime.auth).toEqual({ type: 'bearer', token: 'tok' });
+      });
+
+      it('moves inherit string value', () => {
+        const data = { http: { method: 'GET', url: 'https://example.com', auth: 'inherit' } };
+        migrateRequest(data);
+        expect(data.http.auth).toBeUndefined();
+        expect((data as any).runtime.auth).toBe('inherit');
+      });
+
+      it('is idempotent — no-op if http.auth is already absent', () => {
+        const data = { http: { method: 'GET', url: 'https://example.com' }, runtime: { auth: { type: 'bearer', token: 'tok' } } };
+        const result = migrateRequest(data);
+        expect(result.changed).toBe(false);
+        expect((data as any).runtime.auth).toEqual({ type: 'bearer', token: 'tok' });
+      });
+
+      it('prefers existing runtime.auth when both exist (cleans up http.auth)', () => {
+        const data = {
+          http: { method: 'GET', url: 'https://example.com', auth: { type: 'basic', username: 'old' } },
+          runtime: { auth: { type: 'bearer', token: 'correct' } },
+        };
+        const result = migrateRequest(data);
+        expect(result.changed).toBe(true);
+        expect(data.http.auth).toBeUndefined();
+        expect((data as any).runtime.auth).toEqual({ type: 'bearer', token: 'correct' });
+      });
+
+      it('creates runtime object if it does not exist', () => {
+        const data = { http: { method: 'GET', url: 'https://example.com', auth: { type: 'apikey', key: 'X-Key', value: '123' } } };
+        migrateRequest(data);
+        expect((data as any).runtime).toBeDefined();
+        expect((data as any).runtime.auth).toEqual({ type: 'apikey', key: 'X-Key', value: '123' });
+      });
+
+      it('preserves other runtime fields', () => {
+        const data = {
+          http: { method: 'GET', url: 'https://example.com', auth: 'inherit' },
+          runtime: { variables: [{ name: 'foo', value: 'bar' }] },
+        };
+        migrateRequest(data);
+        expect((data as any).runtime.variables).toEqual([{ name: 'foo', value: 'bar' }]);
+        expect((data as any).runtime.auth).toBe('inherit');
+      });
+
+      it('preserves other http fields', () => {
+        const data = {
+          http: { method: 'POST', url: 'https://example.com', auth: 'inherit', headers: [{ name: 'X-Test', value: '1' }] },
+        };
+        migrateRequest(data);
+        expect(data.http.method).toBe('POST');
+        expect(data.http.headers).toEqual([{ name: 'X-Test', value: '1' }]);
+        expect(data.http.auth).toBeUndefined();
+      });
+    });
+
+    it('returns unchanged for empty data', () => {
       expect(migrateRequest({}).changed).toBe(false);
+      expect(migrateRequest(null).changed).toBe(false);
+      expect(migrateRequest(undefined).changed).toBe(false);
+    });
+
+    it('returns unchanged when no http object', () => {
+      expect(migrateRequest({ info: { name: 'test' } }).changed).toBe(false);
     });
   });
 

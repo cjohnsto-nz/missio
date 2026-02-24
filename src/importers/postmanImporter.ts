@@ -264,14 +264,14 @@ export class PostmanImporter implements CollectionImporter {
       request.info.description = this.extractDescription(pm.description);
     }
 
-    // Auth
+    // Auth → runtime.auth per OpenCollection schema
     if (pm.auth) {
       const auth = this.convertAuth(pm.auth);
       if (auth) {
-        request.http.auth = auth;
+        request.runtime = { auth };
       }
     } else {
-      request.http.auth = 'inherit';
+      request.runtime = { auth: 'inherit' };
     }
 
     // Body

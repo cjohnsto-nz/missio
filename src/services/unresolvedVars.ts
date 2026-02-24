@@ -63,7 +63,7 @@ export async function detectUnresolvedVars(
   }
 
   // Auth — walk the effective auth chain (request → folder → collection)
-  let auth: Auth | undefined = details.auth;
+  let auth: Auth | undefined = requestData.runtime?.auth;
   if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
   if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
   if (auth && auth !== 'inherit' && typeof auth === 'object') {

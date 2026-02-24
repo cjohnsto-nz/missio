@@ -811,13 +811,14 @@ function buildRequest(): any {
     delete req.http.body;
   }
 
-  // Auth
+  // Auth → runtime.auth per OpenCollection schema
   const authType = ($('authType') as HTMLSelectElement).value;
   const authData = buildAuthData(authType, 'auth');
+  req.runtime = req.runtime || {};
   if (authData !== undefined) {
-    req.http.auth = authData;
+    req.runtime.auth = authData;
   } else {
-    delete req.http.auth;
+    delete req.runtime.auth;
   }
 
   // Settings — merge onto existing
@@ -917,8 +918,9 @@ function loadRequest(req: any): void {
     setBodyType('none');
   }
 
-  // Auth
-  const auth = http.auth;
+  // Auth — read from runtime.auth per OpenCollection schema
+  const runtime = currentRequest.runtime || {};
+  const auth = runtime.auth;
   if (auth === 'inherit') {
     ($('authType') as HTMLSelectElement).value = 'inherit';
   } else if (auth && auth.type) {

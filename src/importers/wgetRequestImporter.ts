@@ -182,8 +182,8 @@ export class WgetRequestImporter implements RequestTextImporter {
         headers,
         params: params.length > 0 ? params : [],
         ...(body ? { body } : {}),
-        ...(auth ? { auth } : {}),
       },
+      ...(auth ? { runtime: { auth } } : {}),
       settings: {
         encodeUrl: true,
         timeout: timeout ?? 30000,

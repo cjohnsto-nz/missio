@@ -46,13 +46,15 @@ function makeCollection(vars?: { name: string; value: string }[], auth?: any): M
   } as any;
 }
 
-function makeRequest(overrides: Partial<HttpRequest['http']> = {}): HttpRequest {
+function makeRequest(overrides: Partial<HttpRequest['http']> & { auth?: any } = {}): HttpRequest {
+  const { auth, ...httpOverrides } = overrides;
   return {
     http: {
       method: 'GET',
       url: 'https://example.com',
-      ...overrides,
+      ...httpOverrides,
     },
+    ...(auth !== undefined ? { runtime: { auth } } : {}),
   };
 }
 

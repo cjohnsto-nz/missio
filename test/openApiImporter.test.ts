@@ -672,7 +672,7 @@ describe('OpenApiImporter', () => {
       const file = writeSpecJson(spec);
       const result = await importer.import(file, TMP_DIR);
       const req = readYaml(path.join(result.collectionDir, 'List.yml'));
-      expect(req.http.auth).toBe('inherit');
+      expect(req.runtime.auth).toBe('inherit');
     });
   });
 

@@ -235,7 +235,7 @@ export class OpenApiImporter implements CollectionImporter {
       request.info.description = op.description;
     }
 
-    // Auth → goes on runtime, not http (per OpenCollection schema)
+    // Auth → runtime.auth per OpenCollection schema
     const opAuth = this.getOperationAuth(op, spec);
     if (opAuth) {
       request.runtime = { auth: opAuth };
