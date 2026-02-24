@@ -511,56 +511,56 @@
         "id": "missio.methodGet",
         "description": "GET method color",
         "defaults": {
-          "dark": "#89d185",
-          "light": "#388a34"
+          "dark": "#9cd8a4",
+          "light": "#2e7d32"
         }
       },
       {
         "id": "missio.methodPost",
         "description": "POST method color",
         "defaults": {
-          "dark": "#d18616",
-          "light": "#d18616"
+          "dark": "#f7e698",
+          "light": "#b8860b"
         }
       },
       {
         "id": "missio.methodPut",
         "description": "PUT method color",
         "defaults": {
-          "dark": "#3794ff",
-          "light": "#1a85ff"
+          "dark": "#8aabeb",
+          "light": "#1565c0"
         }
       },
       {
         "id": "missio.methodPatch",
         "description": "PATCH method color",
         "defaults": {
-          "dark": "#b180d7",
-          "light": "#652d90"
+          "dark": "#b9aad9",
+          "light": "#6a1b9a"
         }
       },
       {
         "id": "missio.methodDelete",
         "description": "DELETE method color",
         "defaults": {
-          "dark": "#f14c4c",
-          "light": "#e51400"
+          "dark": "#dfa195",
+          "light": "#c62828"
         }
       },
       {
         "id": "missio.methodHead",
         "description": "HEAD method color",
         "defaults": {
-          "dark": "#11a8cd",
-          "light": "#0598bc"
+          "dark": "#9cd8a4",
+          "light": "#2e7d32"
         }
       },
       {
         "id": "missio.methodOptions",
         "description": "OPTIONS method color",
         "defaults": {
-          "dark": "#bc3fbc",
-          "light": "#bc05bc"
+          "dark": "#d16faa",
+          "light": "#ad1457"
         }
       }
     ],
