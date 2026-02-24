@@ -39,13 +39,14 @@ export class HttpClient implements vscode.Disposable {
     folderDefaults?: import('../models/types').RequestDefaults,
     onProgress?: (message: string) => void,
     extraVariables?: Map<string, string>,
+    environmentName?: string,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
     const _mark = (label: string, start: number) => { _timing.push({ label, start: start - t0, end: Date.now() - t0 }); };
     _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
     let tPhase = Date.now();
-    const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     // Merge ephemeral extra variables (e.g. user-prompted values for unresolved vars)
     if (extraVariables) {
       for (const [k, v] of extraVariables) variables.set(k, v);

@@ -58,7 +58,7 @@ export class EnvironmentService implements vscode.Disposable {
    * 3. Active environment variables
    * 4. dotenv file variables (if configured)
    */
-  async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, string>> {
+  async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults, environmentName?: string): Promise<Map<string, string>> {
     const vars = new Map<string, string>();
 
     // 0. Global variables (lowest priority — overridden by everything)
@@ -88,7 +88,7 @@ export class EnvironmentService implements vscode.Disposable {
     }
 
     // 3. Active environment (overrides collection and folder)
-    const envName = this._activeEnvironments.get(collection.id);
+    const envName = environmentName ?? this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
@@ -153,7 +153,7 @@ export class EnvironmentService implements vscode.Disposable {
    * Resolve all variables with their source information.
    * Sources: 'collection', 'environment', 'dotenv', 'secret'
    */
-  async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, { value: string; source: string }>> {
+  async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults, environmentName?: string): Promise<Map<string, { value: string; source: string }>> {
     const vars = new Map<string, { value: string; source: string }>();
 
     // 0. Global variables (lowest priority — overridden by everything)
@@ -183,7 +183,7 @@ export class EnvironmentService implements vscode.Disposable {
     }
 
     // 3. Active environment (overrides collection and folder)
-    const envName = this._activeEnvironments.get(collection.id);
+    const envName = environmentName ?? this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
