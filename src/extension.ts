@@ -235,7 +235,7 @@ function registerLanguageModelTools(
     vscode.lm.registerTool('missio_list_environments', new ListEnvironmentsTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_set_environment', new SetEnvironmentTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_resolve_variables', new ResolveVariablesTool(collectionService, environmentService)),
-    vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, httpClient)),
+    vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, httpClient)),
     vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
   );
 }
