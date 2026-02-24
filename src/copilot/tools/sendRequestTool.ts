@@ -7,6 +7,7 @@ import * as path from 'path';
 
 export interface SendRequestParams {
   requestFilePath: string;
+  variables?: Record<string, string>;
 }
 
 export class SendRequestTool extends ToolBase<SendRequestParams> {
@@ -23,7 +24,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     options: vscode.LanguageModelToolInvocationOptions<SendRequestParams>,
     _token: vscode.CancellationToken,
   ): Promise<string> {
-    const { requestFilePath } = options.input;
+    const { requestFilePath, variables } = options.input;
 
     const request = await this._collectionService.loadRequestFile(requestFilePath);
     if (!request) {
@@ -38,7 +39,11 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     // Read folder defaults if a folder.yml exists alongside the request
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
 
-    const response = await this._httpClient.send(request, collection, folderDefaults);
+    const extraVariables = variables
+      ? new Map<string, string>(Object.entries(variables))
+      : undefined;
+
+    const response = await this._httpClient.send(request, collection, folderDefaults, undefined, extraVariables);
     return JSON.stringify({
       success: true,
       status: response.status,

@@ -779,7 +779,7 @@
       {
         "name": "missio_send_request",
         "displayName": "Send HTTP Request",
-        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Use the requestFilePath returned by missio_list_requests.",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Use the requestFilePath returned by missio_list_requests. Optionally pass variables to override or supplement the resolved variable map (e.g. to fill in unresolved {{placeholders}} or change the target host).",
         "userDescription": "Send an HTTP request from an API collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
@@ -791,6 +791,13 @@
             "requestFilePath": {
               "type": "string",
               "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
+            },
+            "variables": {
+              "type": "object",
+              "description": "Optional key-value pairs to override or supplement resolved variables. These take highest priority and are merged after all other variable sources (environment, collection, folder, dotenv).",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           },
           "required": ["requestFilePath"]
