@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -641,6 +641,182 @@
         }
       }
     },
+    "languageModelTools": [
+      {
+        "name": "missio_list_collections",
+        "displayName": "List API Collections",
+        "modelDescription": "List all OpenCollection API collections discovered in the workspace. Returns collection IDs, names, root directories, and environment counts. Use this first to discover what collections are available before using other Missio tools.",
+        "userDescription": "List all API collections in the workspace.",
+        "toolReferenceName": "missio_list_collections",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(folder-library)",
+        "tags": ["api", "rest", "collections", "missio"]
+      },
+      {
+        "name": "missio_get_collection",
+        "displayName": "Get Collection Details",
+        "modelDescription": "Read the full OpenCollection definition for a collection, including config, environments, request defaults, auth, headers, variables, and secret providers. Use the collectionId returned by missio_list_collections.",
+        "userDescription": "Get full details for an API collection.",
+        "toolReferenceName": "missio_get_collection",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-code)",
+        "tags": ["api", "rest", "collections", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            }
+          },
+          "required": ["collectionId"]
+        }
+      },
+      {
+        "name": "missio_list_requests",
+        "displayName": "List API Requests",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, and folder location. Use the collectionId returned by missio_list_collections.",
+        "userDescription": "List all requests in an API collection.",
+        "toolReferenceName": "missio_list_requests",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "tags": ["api", "rest", "requests", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            }
+          },
+          "required": ["collectionId"]
+        }
+      },
+      {
+        "name": "missio_get_request",
+        "displayName": "Get Request Details",
+        "modelDescription": "Read a single request .yml file and return its full definition including info, http (method, url, headers, params, body), runtime (auth, variables), settings, and examples. Use the requestFilePath returned by missio_list_requests.",
+        "userDescription": "Get full details for an API request.",
+        "toolReferenceName": "missio_get_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file)",
+        "tags": ["api", "rest", "requests", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "requestFilePath": {
+              "type": "string",
+              "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
+            }
+          },
+          "required": ["requestFilePath"]
+        }
+      },
+      {
+        "name": "missio_list_environments",
+        "displayName": "List Environments",
+        "modelDescription": "List all environments defined in a collection, with variable counts and which environment is currently active. Use the collectionId returned by missio_list_collections.",
+        "userDescription": "List environments for an API collection.",
+        "toolReferenceName": "missio_list_environments",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(server-environment)",
+        "tags": ["api", "environments", "variables", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            }
+          },
+          "required": ["collectionId"]
+        }
+      },
+      {
+        "name": "missio_set_environment",
+        "displayName": "Set Active Environment",
+        "modelDescription": "Set the active environment for a collection. This affects variable resolution and request execution. Use the collectionId from missio_list_collections and an environment name from missio_list_environments.",
+        "userDescription": "Set the active environment for an API collection.",
+        "toolReferenceName": "missio_set_environment",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(settings-gear)",
+        "tags": ["api", "environments", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            },
+            "environmentName": {
+              "type": "string",
+              "description": "Name of the environment to activate."
+            }
+          },
+          "required": ["collectionId", "environmentName"]
+        }
+      },
+      {
+        "name": "missio_resolve_variables",
+        "displayName": "Resolve Variables",
+        "modelDescription": "Resolve all variables for a collection using the active environment, returning the full variable map with source information (global, collection, folder, environment, dotenv, secret). Useful for inspecting what values will be used when sending a request.",
+        "userDescription": "Resolve all variables for an API collection.",
+        "toolReferenceName": "missio_resolve_variables",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-variable)",
+        "tags": ["api", "variables", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            }
+          },
+          "required": ["collectionId"]
+        }
+      },
+      {
+        "name": "missio_send_request",
+        "displayName": "Send HTTP Request",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Use the requestFilePath returned by missio_list_requests.",
+        "userDescription": "Send an HTTP request from an API collection.",
+        "toolReferenceName": "missio_send_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(play)",
+        "tags": ["api", "rest", "http", "send", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "requestFilePath": {
+              "type": "string",
+              "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
+            }
+          },
+          "required": ["requestFilePath"]
+        }
+      },
+      {
+        "name": "missio_validate_collection",
+        "displayName": "Validate Collection",
+        "modelDescription": "Validate an entire collection directory against the OpenCollection JSON Schema. Returns a per-file pass/fail report with error details. Use the collectionId returned by missio_list_collections.",
+        "userDescription": "Validate an API collection against the OpenCollection schema.",
+        "toolReferenceName": "missio_validate_collection",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(check-all)",
+        "tags": ["api", "validation", "schema", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "The collection ID returned by missio_list_collections."
+            }
+          },
+          "required": ["collectionId"]
+        }
+      }
+    ],
     "yamlValidation": [
       {
         "fileMatch": "opencollection.yml",
