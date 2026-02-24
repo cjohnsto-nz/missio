@@ -76,8 +76,8 @@ export class PostmanImporter implements CollectionImporter {
     requestCount = counts.requests;
     folderCount = counts.folders;
 
-    // Write collection.yml
-    const collFile = path.join(collDir, 'collection.yml');
+    // Write opencollection.yml
+    const collFile = path.join(collDir, 'opencollection.yml');
     const yaml = stringifyYaml(collection, { lineWidth: 120 });
     fs.writeFileSync(collFile, yaml, 'utf-8');
 

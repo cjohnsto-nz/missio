@@ -121,7 +121,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       if (!parentFolder) { return; }
 
       const collDir = vscode.Uri.joinPath(parentFolder, name);
-      const collFile = vscode.Uri.joinPath(collDir, 'collection.yml');
+      const collFile = vscode.Uri.joinPath(collDir, 'opencollection.yml');
 
       const template: OpenCollection = {
         opencollection: '1.0.0',

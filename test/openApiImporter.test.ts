@@ -103,7 +103,7 @@ describe('OpenApiImporter', () => {
   // ── Collection structure ──────────────────────────────────────────
 
   describe('collection structure', () => {
-    it('creates collection.yml with correct info', async () => {
+    it('creates opencollection.yml with correct info', async () => {
       const spec = makeSpec({ title: 'My Cool API', version: '2.0.0' });
       spec.info.description = 'A test API';
       const file = writeSpecJson(spec);

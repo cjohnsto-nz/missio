@@ -48,7 +48,8 @@ const validateFolder = ajv.compile(buildSubSchema('Folder'));
 
 function isCollectionFile(name) {
   const lower = name.toLowerCase();
-  return lower === 'collection.yml' || lower === 'collection.yaml';
+  return lower === 'opencollection.yml' || lower === 'opencollection.yaml'
+    || lower === 'collection.yml' || lower === 'collection.yaml';
 }
 
 function isFolderFile(name) {
@@ -172,12 +173,12 @@ if (!fs.existsSync(resolvedDir)) {
   process.exit(1);
 }
 
-// Check for collection.yml at root
-const hasCollection = ['collection.yml', 'collection.yaml'].some(
+// Check for opencollection.yml (or legacy collection.yml) at root
+const hasCollection = ['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml'].some(
   f => fs.existsSync(path.join(resolvedDir, f))
 );
 if (!hasCollection) {
-  console.error(`No collection.yml found in: ${resolvedDir}`);
+  console.error(`No opencollection.yml found in: ${resolvedDir}`);
   console.error('Are you pointing at the right directory?');
   process.exit(1);
 }

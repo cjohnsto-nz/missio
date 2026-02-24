@@ -74,7 +74,7 @@ export class CollectionService implements vscode.Disposable {
   private async _scanWorkspaceFolders(): Promise<void> {
     const t0 = performance.now();
     const config = vscode.workspace.getConfiguration('missio');
-    const collectionPatterns = config.get<string[]>('collectionFilePatterns', ['**/collection.yml', '**/collection.yaml']);
+    const collectionPatterns = config.get<string[]>('collectionFilePatterns', ['**/opencollection.yml', '**/opencollection.yaml', '**/collection.yml', '**/collection.yaml']);
     const workspacePatterns = config.get<string[]>('workspaceFilePatterns', ['**/workspace.yml', '**/workspace.yaml']);
 
     // Find workspace files first (they may reference collections)
@@ -99,12 +99,17 @@ export class CollectionService implements vscode.Disposable {
     for (const [wsPath, ws] of this._workspaces) {
       const wsDir = path.dirname(wsPath);
       for (const ref of ws.collections) {
-        const collPath = path.resolve(wsDir, ref.path, 'collection.yml');
-        const collPathAlt = path.resolve(wsDir, ref.path, 'collection.yaml');
-        if (!this._collections.has(collPath) && !this._collections.has(collPathAlt)) {
-          await this._loadCollectionFile(collPath).catch(() =>
-            this._loadCollectionFile(collPathAlt).catch(() => { /* not found */ })
-          );
+        const candidates = [
+          path.resolve(wsDir, ref.path, 'opencollection.yml'),
+          path.resolve(wsDir, ref.path, 'opencollection.yaml'),
+          path.resolve(wsDir, ref.path, 'collection.yml'),
+          path.resolve(wsDir, ref.path, 'collection.yaml'),
+        ];
+        const alreadyLoaded = candidates.some(c => this._collections.has(c));
+        if (!alreadyLoaded) {
+          for (const candidate of candidates) {
+            try { await this._loadCollectionFile(candidate); break; } catch { /* try next */ }
+          }
         }
       }
     }

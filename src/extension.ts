@@ -143,6 +143,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   function isMissioRequestFile(filePath: string): boolean {
     const fileName = path.basename(filePath).toLowerCase();
     return (fileName.endsWith('.yml') || fileName.endsWith('.yaml'))
+      && fileName !== 'opencollection.yml' && fileName !== 'opencollection.yaml'
       && fileName !== 'collection.yml' && fileName !== 'collection.yaml'
       && fileName !== 'workspace.yml' && fileName !== 'workspace.yaml';
   }

@@ -7,7 +7,8 @@ import { parse as parseYaml } from 'yaml';
 
 function isCollectionFile(name: string): boolean {
   const lower = name.toLowerCase();
-  return lower === 'collection.yml' || lower === 'collection.yaml';
+  return lower === 'opencollection.yml' || lower === 'opencollection.yaml'
+    || lower === 'collection.yml' || lower === 'collection.yaml';
 }
 
 function isFolderFile(name: string): boolean {

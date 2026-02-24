@@ -66,8 +66,8 @@ export class OpenApiImporter implements CollectionImporter {
     // Process paths into folders and requests
     const counts = this.processPaths(spec, collDir);
 
-    // Write collection.yml
-    const collFile = path.join(collDir, 'collection.yml');
+    // Write opencollection.yml
+    const collFile = path.join(collDir, 'opencollection.yml');
     fs.writeFileSync(collFile, stringifyYaml(collection, { lineWidth: 120 }), 'utf-8');
 
     return {

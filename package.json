@@ -68,6 +68,12 @@
         "displayName": "Missio Collection Editor",
         "selector": [
           {
+            "filenamePattern": "**/opencollection.yml"
+          },
+          {
+            "filenamePattern": "**/opencollection.yaml"
+          },
+          {
             "filenamePattern": "**/collection.yml"
           },
           {
@@ -618,6 +624,8 @@
         "missio.collectionFilePatterns": {
           "type": "array",
           "default": [
+            "**/opencollection.yml",
+            "**/opencollection.yaml",
             "**/collection.yml",
             "**/collection.yaml"
           ],
@@ -634,6 +642,14 @@
       }
     },
     "yamlValidation": [
+      {
+        "fileMatch": "opencollection.yml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0"
+      },
+      {
+        "fileMatch": "opencollection.yaml",
+        "url": "https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0"
+      },
       {
         "fileMatch": "collection.yml",
         "url": "https://schema.opencollection.com/json/draft-07/opencollection/v1.0.0"
