@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as https from 'https';
+import * as http from 'http';
 import type { CommandContext } from './types';
 import { importers, PostmanImporter, detectRequestFormat, requestImporters } from '../importers';
 import { stringifyYaml } from '../services/yamlParser';
@@ -24,17 +28,64 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
 
       if (!formatPick) return;
 
-      // Pick source file
-      const files = await vscode.window.showOpenDialog({
-        canSelectFiles: true,
-        canSelectFolders: false,
-        canSelectMany: false,
-        openLabel: `Select ${formatPick.label} file`,
-        filters: { [`${formatPick.label} files`]: formatPick.fileExtensions },
-      });
+      // Determine source: file or URL
+      let sourceFile: string = '';
+      let tempFile: string | undefined;
 
-      if (!files || files.length === 0) return;
-      const sourceFile = files[0].fsPath;
+      if (formatPick.supportsUrl) {
+        const sourcePick = await vscode.window.showQuickPick(
+          [
+            { label: 'From File', description: 'Select a local file', mode: 'file' as const },
+            { label: 'From URL', description: 'Download from a URL', mode: 'url' as const },
+          ],
+          { placeHolder: `Import ${formatPick.label} specification` },
+        );
+        if (!sourcePick) return;
+
+        if (sourcePick.mode === 'url') {
+          const url = await vscode.window.showInputBox({
+            prompt: `Enter the URL of the ${formatPick.label} specification`,
+            placeHolder: 'https://example.com/openapi.json',
+            validateInput: v => {
+              if (!v.trim()) return 'URL is required';
+              if (!v.startsWith('http://') && !v.startsWith('https://')) return 'Must be an HTTP or HTTPS URL';
+              return null;
+            },
+          });
+          if (!url) return;
+
+          try {
+            tempFile = await vscode.window.withProgress(
+              { location: vscode.ProgressLocation.Notification, title: `Downloading ${formatPick.label} specification...` },
+              () => downloadToTempFile(url.trim()),
+            );
+            sourceFile = tempFile;
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`Download failed: ${e.message}`);
+            return;
+          }
+        } else {
+          const files = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: `Select ${formatPick.label} file`,
+            filters: { [`${formatPick.label} files`]: formatPick.fileExtensions },
+          });
+          if (!files || files.length === 0) return;
+          sourceFile = files[0].fsPath;
+        }
+      } else {
+        const files = await vscode.window.showOpenDialog({
+          canSelectFiles: true,
+          canSelectFolders: false,
+          canSelectMany: false,
+          openLabel: `Select ${formatPick.label} file`,
+          filters: { [`${formatPick.label} files`]: formatPick.fileExtensions },
+        });
+        if (!files || files.length === 0) return;
+        sourceFile = files[0].fsPath;
+      }
 
       // Pick target directory
       const folders = vscode.workspace.workspaceFolders;
@@ -60,7 +111,16 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
             location: vscode.ProgressLocation.Notification,
             title: `Importing ${formatPick.label} collection...`,
           },
-          async () => formatPick.import(sourceFile, targetDir),
+          async () => {
+            try {
+              return await formatPick.import(sourceFile, targetDir);
+            } finally {
+              // Clean up temp file if we downloaded from URL
+              if (tempFile) {
+                try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
+              }
+            }
+          },
         );
 
         // Refresh collections tree
@@ -310,4 +370,47 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function downloadToTempFile(url: string, maxRedirects = 5): Promise<string> {
+  const tmpDir = path.join(os.tmpdir(), 'missio-import');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const ext = /\.ya?ml(\?|$)/i.test(url) ? '.yaml' : '.json';
+  const tmpFile = path.join(tmpDir, `openapi-${Date.now()}${ext}`);
+
+  return new Promise((resolve, reject) => {
+    const doRequest = (requestUrl: string, redirectsLeft: number) => {
+      const mod = requestUrl.startsWith('https') ? https : http;
+      const req = mod.get(requestUrl, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (redirectsLeft <= 0) {
+            reject(new Error('Too many redirects'));
+            return;
+          }
+          const location = res.headers.location.startsWith('http')
+            ? res.headers.location
+            : new URL(res.headers.location, requestUrl).href;
+          doRequest(location, redirectsLeft - 1);
+          return;
+        }
+        if (!res.statusCode || res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          fs.writeFileSync(tmpFile, Buffer.concat(chunks));
+          resolve(tmpFile);
+        });
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.setTimeout(30000, () => {
+        req.destroy();
+        reject(new Error('Download timed out'));
+      });
+    };
+    doRequest(url, maxRedirects);
+  });
 }

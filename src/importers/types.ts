@@ -18,6 +18,8 @@ export interface CollectionImporter {
   readonly description: string;
   /** File extensions accepted by this importer (without dot) */
   readonly fileExtensions: string[];
+  /** Whether this importer supports importing from a URL */
+  readonly supportsUrl?: boolean;
 
   /**
    * Import a collection from the given source file into the target directory.
