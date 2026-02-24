@@ -666,20 +666,19 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             },
             "summary": {
               "type": "boolean",
               "description": "If true, return a lightweight summary (name, environments, request count) instead of the full definition. Recommended as a first call for large collections."
             }
-          },
-          "required": ["collectionId"]
+          }
         }
       },
       {
         "name": "missio_list_requests",
         "displayName": "List API Requests",
-        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and requiredVariables ({{placeholder}} names found in the URL). Use the collectionId returned by missio_list_collections. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and requiredVariables ({{placeholder}} names found in the URL). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
         "userDescription": "List all requests in an API collection.",
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
@@ -690,14 +689,13 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             },
             "folder": {
               "type": "string",
               "description": "Optional folder path prefix to filter requests (e.g. 'Diagrams'). Case-insensitive prefix match."
             }
-          },
-          "required": ["collectionId"]
+          }
         }
       },
       {
@@ -723,7 +721,7 @@
       {
         "name": "missio_list_environments",
         "displayName": "List Environments",
-        "modelDescription": "List all environments defined in a collection, with variable counts and which environment is currently active. Use the collectionId returned by missio_list_collections.",
+        "modelDescription": "List all environments defined in a collection, with variable counts and which environment is currently active. collectionId is optional when only one collection is loaded.",
         "userDescription": "List environments for an API collection.",
         "toolReferenceName": "missio_list_environments",
         "canBeReferencedInPrompt": true,
@@ -734,16 +732,15 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             }
-          },
-          "required": ["collectionId"]
+          }
         }
       },
       {
         "name": "missio_set_environment",
         "displayName": "Set Active Environment",
-        "modelDescription": "Set the active environment for a collection. This affects variable resolution and request execution. Use the collectionId from missio_list_collections and an environment name from missio_list_environments.",
+        "modelDescription": "Set the active environment for a collection. This affects variable resolution and request execution. collectionId is optional when only one collection is loaded.",
         "userDescription": "Set the active environment for an API collection.",
         "toolReferenceName": "missio_set_environment",
         "canBeReferencedInPrompt": true,
@@ -754,14 +751,14 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             },
             "environmentName": {
               "type": "string",
               "description": "Name of the environment to activate."
             }
           },
-          "required": ["collectionId", "environmentName"]
+          "required": ["environmentName"]
         }
       },
       {
@@ -778,7 +775,7 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             },
             "environment": {
               "type": "string",
@@ -788,8 +785,7 @@
               "type": "string",
               "description": "Optional path to a request file. If provided, folder-level variables from the request's parent directory are included in resolution. Can be absolute or relative to collection root."
             }
-          },
-          "required": ["collectionId"]
+          }
         }
       },
       {
@@ -845,7 +841,7 @@
       {
         "name": "missio_validate_collection",
         "displayName": "Validate Collection",
-        "modelDescription": "Validate an entire collection directory against the OpenCollection JSON Schema. Returns a per-file pass/fail report with error details. Use the collectionId returned by missio_list_collections.",
+        "modelDescription": "Validate an entire collection directory against the OpenCollection JSON Schema. Returns a per-file pass/fail report with error details. collectionId is optional when only one collection is loaded.",
         "userDescription": "Validate an API collection against the OpenCollection schema.",
         "toolReferenceName": "missio_validate_collection",
         "canBeReferencedInPrompt": true,
@@ -856,10 +852,9 @@
           "properties": {
             "collectionId": {
               "type": "string",
-              "description": "The collection ID returned by missio_list_collections."
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
             }
-          },
-          "required": ["collectionId"]
+          }
         }
       }
     ],
