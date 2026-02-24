@@ -5,7 +5,7 @@ import { CollectionService } from '../../services/collectionService';
 import { validateCollection, formatReport } from '../../services/validationService';
 
 export interface ValidateCollectionParams {
-  collectionId: string;
+  collectionId?: string;
 }
 
 export class ValidateCollectionTool extends ToolBase<ValidateCollectionParams> {
@@ -23,9 +23,12 @@ export class ValidateCollectionTool extends ToolBase<ValidateCollectionParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     const report = await validateCollection(collection.rootDir, this._schemaPath);

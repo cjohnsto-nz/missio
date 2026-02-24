@@ -4,7 +4,7 @@ import { CollectionService } from '../../services/collectionService';
 import type { Item, Folder, HttpRequest } from '../../models/types';
 
 export interface ListRequestsParams {
-  collectionId: string;
+  collectionId?: string;
   folder?: string;
 }
 
@@ -29,9 +29,12 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId, folder: folderFilter } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     const items = await this._collectionService.resolveItems(collection);

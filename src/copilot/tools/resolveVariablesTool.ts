@@ -6,7 +6,7 @@ import { readFolderFile } from '../../services/yamlParser';
 import * as path from 'path';
 
 export interface ResolveVariablesParams {
-  collectionId: string;
+  collectionId?: string;
   environment?: string;
   requestFilePath?: string;
 }
@@ -26,9 +26,12 @@ export class ResolveVariablesTool extends ToolBase<ResolveVariablesParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId, environment, requestFilePath } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     // If requestFilePath is provided, read folder defaults for folder-scoped resolution
@@ -40,7 +43,7 @@ export class ResolveVariablesTool extends ToolBase<ResolveVariablesParams> {
       folderDefaults = await this._readFolderDefaults(absPath, collection.rootDir);
     }
 
-    const activeEnv = this._environmentService.getActiveEnvironmentName(collectionId);
+    const activeEnv = this._environmentService.getActiveEnvironmentName(collection.id);
     const effectiveEnv = environment ?? activeEnv;
     const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults, environment);
     const variables: Record<string, { value: string; source: string }> = {};

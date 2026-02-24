@@ -4,7 +4,7 @@ import { CollectionService } from '../../services/collectionService';
 import { EnvironmentService } from '../../services/environmentService';
 
 export interface ListEnvironmentsParams {
-  collectionId: string;
+  collectionId?: string;
 }
 
 export class ListEnvironmentsTool extends ToolBase<ListEnvironmentsParams> {
@@ -22,13 +22,16 @@ export class ListEnvironmentsTool extends ToolBase<ListEnvironmentsParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     const envs = this._environmentService.getCollectionEnvironments(collection);
-    const active = this._environmentService.getActiveEnvironmentName(collectionId);
+    const active = this._environmentService.getActiveEnvironmentName(collection.id);
     const result = envs.map(e => ({
       name: e.name,
       color: e.color,

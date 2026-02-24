@@ -4,7 +4,7 @@ import { CollectionService } from '../../services/collectionService';
 import { EnvironmentService } from '../../services/environmentService';
 
 export interface SetEnvironmentParams {
-  collectionId: string;
+  collectionId?: string;
   environmentName: string;
 }
 
@@ -23,9 +23,12 @@ export class SetEnvironmentTool extends ToolBase<SetEnvironmentParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId, environmentName } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     const envs = this._environmentService.getCollectionEnvironments(collection);
@@ -36,7 +39,7 @@ export class SetEnvironmentTool extends ToolBase<SetEnvironmentParams> {
       });
     }
 
-    await this._environmentService.setActiveEnvironment(collectionId, environmentName);
+    await this._environmentService.setActiveEnvironment(collection.id, environmentName);
     return JSON.stringify({ success: true, message: `Active environment set to "${environmentName}"` });
   }
 }

@@ -3,7 +3,7 @@ import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
 
 export interface GetCollectionParams {
-  collectionId: string;
+  collectionId?: string;
   summary?: boolean;
 }
 
@@ -19,9 +19,12 @@ export class GetCollectionTool extends ToolBase<GetCollectionParams> {
     _token: vscode.CancellationToken,
   ): Promise<string> {
     const { collectionId, summary } = options.input;
-    const collection = this._collectionService.getCollection(collectionId);
+    const collection = this._collectionService.resolveCollection(collectionId);
     if (!collection) {
-      return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
+      const hint = collectionId
+        ? `Collection not found: ${collectionId}`
+        : 'Multiple collections loaded — specify collectionId (use missio_list_collections to find it).';
+      return JSON.stringify({ success: false, message: hint });
     }
 
     if (summary) {
