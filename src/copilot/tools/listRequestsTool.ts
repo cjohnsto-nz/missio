@@ -14,6 +14,7 @@ interface RequestEntry {
   url: string;
   filePath: string | undefined;
   folder: string;
+  requiredVariables?: string[];
 }
 
 export class ListRequestsTool extends ToolBase<ListRequestsParams> {
@@ -54,14 +55,29 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
         if (f.items) this._extract(f.items, subPath, out);
       } else {
         const req = item as HttpRequest;
-        out.push({
+        const url = req.http?.url ?? '';
+        const vars = this._extractPlaceholders(url);
+        const entry: RequestEntry = {
           name: req.info?.name ?? 'Unnamed',
           method: req.http?.method ?? 'GET',
-          url: req.http?.url ?? '',
+          url,
           filePath: (req as any)._filePath,
           folder,
-        });
+        };
+        if (vars.length > 0) entry.requiredVariables = vars;
+        out.push(entry);
       }
     }
+  }
+
+  private _extractPlaceholders(s: string): string[] {
+    const names: string[] = [];
+    const re = /\{\{\s*([^}]+?)\s*\}\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(s)) !== null) {
+      const name = m[1].trim();
+      if (!names.includes(name)) names.push(name);
+    }
+    return names;
   }
 }
