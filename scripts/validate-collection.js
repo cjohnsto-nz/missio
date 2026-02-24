@@ -22,7 +22,7 @@ const { parse: parseYaml } = require('yaml');
 
 // ── Load schema ─────────────────────────────────────────────────────
 
-const SCHEMA_PATH = path.resolve(__dirname, '..', 'opencollectionschema.json');
+const SCHEMA_PATH = path.resolve(__dirname, '..', 'schema', 'opencollectionschema.json');
 const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf-8'));
 
 // ── Build sub-schemas from $defs ────────────────────────────────────

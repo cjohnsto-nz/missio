@@ -1,0 +1,59 @@
+{
+  "$comment": "Missio-specific schema extensions. Merged into opencollectionschema-source.json at build time to produce opencollectionschema.json. Each entry describes a JSON Schema patch: where to inject properties and what $defs to add.",
+  "definitions": {
+    "SecretProvider": {
+      "type": "object",
+      "description": "A secret provider for resolving secret variables at runtime",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the secret provider"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["azure-keyvault"],
+          "description": "The type of secret provider"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "The namespace identifier (e.g. vault name for Azure Key Vault), supports {{var}} interpolation"
+        },
+        "subscription": {
+          "type": "string",
+          "description": "Azure subscription ID or name (for cross-subscription vaults)"
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the secret provider is disabled"
+        }
+      },
+      "required": ["name", "type", "namespace"],
+      "additionalProperties": false
+    }
+  },
+  "patches": [
+    {
+      "description": "Add secretProviders array to CollectionConfig",
+      "target": "$defs/CollectionConfig/properties",
+      "properties": {
+        "secretProviders": {
+          "type": "array",
+          "description": "Array of secret providers for resolving secret variables",
+          "items": {
+            "$ref": "#/$defs/SecretProvider"
+          }
+        }
+      }
+    },
+    {
+      "description": "Add forceAuthInherit to CollectionConfig for overriding auth inheritance",
+      "target": "$defs/CollectionConfig/properties",
+      "properties": {
+        "forceAuthInherit": {
+          "type": "boolean",
+          "description": "When true, all requests in this collection use the collection-level auth, ignoring request and folder auth settings"
+        }
+      }
+    }
+  ]
+}

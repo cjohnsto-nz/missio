@@ -654,7 +654,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.js --production",
+    "build:schema": "node schema/build-schema.js",
+    "build": "npm run build:schema && node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "test": "vitest run",
     "test:watch": "vitest",
