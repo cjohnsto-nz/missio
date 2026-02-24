@@ -655,7 +655,7 @@
       {
         "name": "missio_get_collection",
         "displayName": "Get Collection Details",
-        "modelDescription": "Read the full OpenCollection definition for a collection, including config, environments, request defaults, auth, headers, variables, and secret providers. Use the collectionId returned by missio_list_collections.",
+        "modelDescription": "Read a collection definition. By default returns the full OpenCollection definition (config, environments, request defaults, auth, headers, variables, secret providers). Pass summary: true for a lightweight overview (name, root path, environment names, request count, variable count) — use this first for large collections to avoid flooding context.",
         "userDescription": "Get full details for an API collection.",
         "toolReferenceName": "missio_get_collection",
         "canBeReferencedInPrompt": true,
@@ -667,6 +667,10 @@
             "collectionId": {
               "type": "string",
               "description": "The collection ID returned by missio_list_collections."
+            },
+            "summary": {
+              "type": "boolean",
+              "description": "If true, return a lightweight summary (name, environments, request count) instead of the full definition. Recommended as a first call for large collections."
             }
           },
           "required": ["collectionId"]
@@ -675,7 +679,7 @@
       {
         "name": "missio_list_requests",
         "displayName": "List API Requests",
-        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, and folder location. Use the collectionId returned by missio_list_collections. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and requiredVariables ({{placeholder}} names found in the URL). Use the collectionId returned by missio_list_collections. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
         "userDescription": "List all requests in an API collection.",
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
@@ -763,7 +767,7 @@
       {
         "name": "missio_resolve_variables",
         "displayName": "Resolve Variables",
-        "modelDescription": "Resolve all variables for a collection using the active environment, returning the full variable map with source information (global, collection, folder, environment, dotenv, secret). Useful for inspecting what values will be used when sending a request.",
+        "modelDescription": "Resolve all variables for a collection, returning the full variable map with source information (global, collection, folder, environment, dotenv, secret). Optionally specify an environment name to preview resolution without changing the active environment. Pass a requestFilePath to include folder-scoped variables from that request's parent directory.",
         "userDescription": "Resolve all variables for an API collection.",
         "toolReferenceName": "missio_resolve_variables",
         "canBeReferencedInPrompt": true,
@@ -775,6 +779,14 @@
             "collectionId": {
               "type": "string",
               "description": "The collection ID returned by missio_list_collections."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name to use instead of the active environment. Does not change the active environment — stateless preview."
+            },
+            "requestFilePath": {
+              "type": "string",
+              "description": "Optional path to a request file. If provided, folder-level variables from the request's parent directory are included in resolution. Can be absolute or relative to collection root."
             }
           },
           "required": ["collectionId"]
@@ -783,7 +795,7 @@
       {
         "name": "missio_send_request",
         "displayName": "Send HTTP Request",
-        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Use the requestFilePath returned by missio_list_requests. Optionally pass variables to override or supplement the resolved variable map (e.g. to fill in unresolved {{placeholders}} or change the target host).",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Will warn and refuse to send if any {{placeholders}} remain unresolved — provide them via the variables parameter. Supports dry-run mode to preview the resolved request without sending. Use extract to pull values from JSON responses for use in subsequent calls.",
         "userDescription": "Send an HTTP request from an API collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
@@ -796,9 +808,32 @@
               "type": "string",
               "description": "Path to the request .yml file. Can be absolute (as returned by missio_list_requests) or relative to the collection root (e.g. 'Diagrams/List.yml')."
             },
+            "collectionId": {
+              "type": "string",
+              "description": "Optional collection ID to disambiguate when multiple collections exist. If omitted, inferred from the requestFilePath."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name for this request only. Does NOT change the active environment — stateless per-request override. Use missio_list_environments to see available names."
+            },
             "variables": {
               "type": "object",
-              "description": "Optional key-value pairs to override or supplement resolved variables. These take highest priority and are merged after all other variable sources (environment, collection, folder, dotenv).",
+              "description": "Optional key-value pairs to override or supplement resolved variables. Highest priority — merged after all other sources (environment, collection, folder, dotenv). Use this to fill unresolved {{placeholders}} or swap values like baseUrl.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "dryRun": {
+              "type": "boolean",
+              "description": "If true, resolve all variables and return the interpolated method, URL, and headers without actually sending the request. Useful for debugging variable resolution."
+            },
+            "responseOutputPath": {
+              "type": "string",
+              "description": "Optional absolute file path to write the response body to. Parent directories are created automatically."
+            },
+            "extract": {
+              "type": "object",
+              "description": "Optional dot-path extraction from JSON response body. Keys are your chosen names, values are dot-path expressions (e.g. {\"firstId\": \"data[0].id\", \"total\": \"meta.total\"}). Extracted values are returned in an 'extracted' field.",
               "additionalProperties": {
                 "type": "string"
               }
