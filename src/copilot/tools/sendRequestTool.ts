@@ -4,6 +4,7 @@ import { CollectionService } from '../../services/collectionService';
 import { HttpClient } from '../../services/httpClient';
 import { readFolderFile } from '../../services/yamlParser';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export interface SendRequestParams {
   requestFilePath: string;
@@ -24,7 +25,17 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     options: vscode.LanguageModelToolInvocationOptions<SendRequestParams>,
     _token: vscode.CancellationToken,
   ): Promise<string> {
-    const { requestFilePath, variables } = options.input;
+    const { variables } = options.input;
+    let { requestFilePath } = options.input;
+
+    // Resolve relative paths against collection roots
+    if (!path.isAbsolute(requestFilePath)) {
+      const resolved = this._resolveRelativePath(requestFilePath);
+      if (!resolved) {
+        return JSON.stringify({ success: false, message: `Cannot resolve relative path "${requestFilePath}" against any collection root.` });
+      }
+      requestFilePath = resolved;
+    }
 
     const request = await this._collectionService.loadRequestFile(requestFilePath);
     if (!request) {
@@ -69,6 +80,25 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         message: new vscode.MarkdownString(`Execute the HTTP request at \`${requestFilePath}\`?`),
       },
     };
+  }
+
+  private _resolveRelativePath(relativePath: string): string | undefined {
+    const normalized = relativePath.replace(/\//g, path.sep);
+    const collections = this._collectionService.getCollections();
+    if (collections.length === 1) {
+      return path.join(collections[0].rootDir, normalized);
+    }
+    // Multiple collections: try each, loadRequestFile will validate existence
+    for (const c of collections) {
+      const candidate = path.join(c.rootDir, normalized);
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch { /* skip */ }
+    }
+    // Fall back to first collection if none matched
+    return collections.length > 0
+      ? path.join(collections[0].rootDir, normalized)
+      : undefined;
   }
 
   private _findCollection(filePath: string) {
