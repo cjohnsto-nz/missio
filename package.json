@@ -791,7 +791,7 @@
       {
         "name": "missio_send_request",
         "displayName": "Send HTTP Request",
-        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body, duration, and size. Will warn and refuse to send if any {{placeholders}} remain unresolved — provide them via the variables parameter. Supports dry-run mode to preview the resolved request without sending. Use extract to pull values from JSON responses for use in subsequent calls.",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. Will warn and refuse to send if any {{placeholders}} remain unresolved — provide them via the variables parameter. Supports dry-run mode to preview the resolved request (including body) without sending. Use extract to pull values from JSON responses for use in subsequent calls.",
         "userDescription": "Send an HTTP request from an API collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
@@ -818,11 +818,11 @@
             },
             "dryRun": {
               "type": "boolean",
-              "description": "If true, resolve all variables and return the interpolated method, URL, and headers without actually sending the request. Useful for debugging variable resolution."
+              "description": "If true, resolve all variables and return the interpolated method, URL, headers, and body without actually sending the request. Useful for verifying variable resolution and JSON type coercion before a live send."
             },
             "responseOutputPath": {
               "type": "string",
-              "description": "Optional absolute file path to write the response body to. Parent directories are created automatically."
+              "description": "Optional absolute file path to write the full (untruncated) response body to. Use this when the response exceeds 10 000 chars. Parent directories are created automatically."
             },
             "extract": {
               "type": "object",
@@ -857,7 +857,7 @@
       {
         "name": "missio_send_raw_request",
         "displayName": "Send Raw HTTP Request",
-        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL supports {{variable}} interpolation from the active collection/environment. Body can be a JSON object (sent as application/json) or a string. Auth is inherited from the collection if one is loaded. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
+        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL supports {{variable}} interpolation from the active collection/environment. Body can be a JSON object (sent as application/json) or a string. Auth is inherited from the collection if one is loaded. Response body is truncated to 10 000 chars — use responseOutputPath for the full body. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
         "userDescription": "Send an ad-hoc HTTP request without a collection file.",
         "toolReferenceName": "missio_send_raw_request",
         "canBeReferencedInPrompt": true,
@@ -895,7 +895,7 @@
             },
             "responseOutputPath": {
               "type": "string",
-              "description": "Optional absolute file path to write the response body to."
+              "description": "Optional absolute file path to write the full (untruncated) response body to. Use this when the response exceeds 10 000 chars."
             },
             "extract": {
               "type": "object",
