@@ -178,6 +178,40 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
           this._environmentService.interpolate(h.value, variables);
       }
     }
+    // Resolve body using the same logic as httpClient._buildBody
+    let body: string | undefined;
+    const rawBody = details?.body;
+    if (rawBody) {
+      const resolvedBody = Array.isArray(rawBody)
+        ? (rawBody.find((v: any) => v.selected) ?? rawBody[0])?.body
+        : rawBody;
+      if (resolvedBody) {
+        switch (resolvedBody.type) {
+          case 'json':
+            body = this._environmentService.interpolateJson(resolvedBody.data, variables);
+            break;
+          case 'text':
+          case 'xml':
+          case 'sparql':
+            body = this._environmentService.interpolate(resolvedBody.data, variables);
+            break;
+          case 'form-urlencoded': {
+            const params = new URLSearchParams();
+            for (const entry of resolvedBody.data ?? []) {
+              if (!entry.disabled) {
+                params.set(
+                  this._environmentService.interpolate(entry.name, variables),
+                  this._environmentService.interpolate(entry.value, variables),
+                );
+              }
+            }
+            body = params.toString();
+            break;
+          }
+        }
+      }
+    }
+
     const result: Record<string, unknown> = {
       success: true,
       dryRun: true,
@@ -185,6 +219,11 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       url,
       headers,
     };
+    if (body !== undefined) {
+      result.body = body.length > 10_000
+        ? body.substring(0, 10_000) + '\n... (truncated)'
+        : body;
+    }
     if (unresolvedNames.length > 0) {
       result.unresolvedVariables = unresolvedNames;
     }
