@@ -69,6 +69,17 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       ? new Map<string, string>(Object.entries(variables).map(([k, v]) => [k, String(v)]))
       : undefined;
 
+    const warnings: string[] = [];
+    if (extraVariables && extraVariables.size > 0) {
+      const referenced = this._collectReferencedVarNames(request, collection, folderDefaults);
+      const unused = [...extraVariables.keys()].filter(k => !referenced.has(k));
+      if (unused.length > 0) {
+        warnings.push(
+          `Unused variables provided (no matching {{placeholder}} found in the request template): ${unused.map(n => `{{${n}}}`).join(', ')}`,
+        );
+      }
+    }
+
     // Detect unresolved placeholders before sending
     const unresolvedNames = await detectUnresolvedVars(request, collection, this._environmentService, folderDefaults);
     // Remove any that are covered by user-provided variable overrides
@@ -78,7 +89,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
 
     // Dry-run: resolve and preview without sending
     if (dryRun) {
-      return this._dryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved);
+      return this._dryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings);
     }
 
     // Warn on unresolved placeholders
@@ -116,6 +127,10 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       size: response.size,
     };
 
+    if (warnings.length > 0) {
+      result.warnings = warnings;
+    }
+
     if (responseOutputPath) {
       result.savedTo = responseOutputPath;
     }
@@ -135,6 +150,132 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     }
 
     return JSON.stringify(result);
+  }
+
+  private _collectReferencedVarNames(
+    request: import('../../models/types').HttpRequest,
+    collection: import('../../models/types').MissioCollection,
+    folderDefaults: import('../../models/types').RequestDefaults | undefined,
+  ): Set<string> {
+    const referenced = new Set<string>();
+    const extract = (s: string | undefined) => {
+      if (!s) return;
+      const re = varPatternGlobal();
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(s)) !== null) referenced.add(m[1].trim());
+    };
+
+    const details = request.http;
+    if (!details) return referenced;
+
+    extract(details.url);
+    for (const h of details.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+    for (const p of details.params ?? []) { if (!p.disabled) { extract(p.name); extract(p.value); } }
+
+    const body = details.body;
+    const scanBody = (b: any) => {
+      if (!b) return;
+      switch (b.type) {
+        case 'json':
+        case 'text':
+        case 'xml':
+        case 'sparql':
+          extract(b.data);
+          break;
+        case 'form-urlencoded':
+        case 'multipart-form':
+          for (const entry of b.data ?? []) {
+            if (!entry.disabled) {
+              extract(entry.name);
+              if (typeof entry.value === 'string') extract(entry.value);
+              else if (Array.isArray(entry.value)) entry.value.forEach((v: string) => extract(v));
+            }
+          }
+          break;
+      }
+    };
+    if (body) {
+      if (Array.isArray(body)) {
+        const selected = (body as any[]).find((v: any) => v.selected) ?? body[0];
+        scanBody(selected?.body);
+      } else {
+        scanBody(body as any);
+      }
+    }
+
+    // Auth strings may include variables (e.g. bearer token = "{{token}}")
+    // Use the same inheritance chain selection as httpClient / unresolvedVars.
+    const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
+    if (auth && auth !== 'inherit' && typeof auth === 'object') {
+      const scanAllStrings = (obj: unknown) => {
+        if (typeof obj === 'string') { extract(obj); return; }
+        if (Array.isArray(obj)) { for (const item of obj) scanAllStrings(item); return; }
+        if (obj && typeof obj === 'object') {
+          for (const val of Object.values(obj as Record<string, unknown>)) scanAllStrings(val);
+        }
+      };
+      scanAllStrings(auth);
+    }
+
+    return referenced;
+  }
+
+  private _selectEffectiveAuth(
+    request: import('../../models/types').HttpRequest,
+    collection: import('../../models/types').MissioCollection,
+    folderDefaults: import('../../models/types').RequestDefaults | undefined,
+  ): import('../../models/types').Auth | undefined {
+    if (collection.data.config?.forceAuthInherit) {
+      return collection.data.request?.auth;
+    }
+    let auth = request.runtime?.auth;
+    if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+    if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
+    return auth;
+  }
+
+  private _applyDryRunAuth(
+    request: import('../../models/types').HttpRequest,
+    collection: import('../../models/types').MissioCollection,
+    folderDefaults: import('../../models/types').RequestDefaults | undefined,
+    headers: Record<string, string>,
+    variables: Map<string, string>,
+  ): void {
+    const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
+    if (!auth || auth === 'inherit' || typeof auth !== 'object') return;
+
+    const maybeMaskSecret = (val: string): string => {
+      return val.includes('$secret.') ? '[secret]' : val;
+    };
+
+    switch ((auth as any).type) {
+      case 'apikey': {
+        const keyRaw = (auth as any).key;
+        const valRaw = (auth as any).value;
+        const placement = (auth as any).placement;
+        if (!keyRaw || !valRaw || placement === 'query') return;
+        const key = this._environmentService.interpolate(String(keyRaw), variables);
+        const val = this._environmentService.interpolate(String(valRaw), variables);
+        headers[key] = maybeMaskSecret(val);
+        break;
+      }
+      case 'bearer': {
+        const tokenRaw = (auth as any).token;
+        if (!tokenRaw) return;
+        const token = this._environmentService.interpolate(String(tokenRaw), variables);
+        headers['Authorization'] = `Bearer ${maybeMaskSecret(token)}`;
+        break;
+      }
+      case 'basic': {
+        const userRaw = (auth as any).username;
+        if (!userRaw) return;
+        const passRaw = (auth as any).password ?? '';
+        const user = this._environmentService.interpolate(String(userRaw), variables);
+        const pass = this._environmentService.interpolate(String(passRaw), variables);
+        headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+        break;
+      }
+    }
   }
 
   async prepareInvocation(
@@ -163,6 +304,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     extraVariables: Map<string, string> | undefined,
     environmentName: string | undefined,
     unresolvedNames: string[],
+    warnings: string[],
   ): Promise<string> {
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     if (extraVariables) {
@@ -178,6 +320,10 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
           this._environmentService.interpolate(h.value, variables);
       }
     }
+
+    // Auth — apply effective auth chain (request → folder → collection), mirroring httpClient selection.
+    // We only apply simple auth types here (apikey/basic/bearer). OAuth2 token acquisition is not performed in dryRun.
+    this._applyDryRunAuth(request, collection, folderDefaults, headers, variables);
     // Resolve body using the same logic as httpClient._buildBody
     let body: string | undefined;
     const rawBody = details?.body;
@@ -219,6 +365,9 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       url,
       headers,
     };
+    if (warnings.length > 0) {
+      result.warnings = warnings;
+    }
     if (body !== undefined) {
       result.body = body.length > 10_000
         ? body.substring(0, 10_000) + '\n... (truncated)'
