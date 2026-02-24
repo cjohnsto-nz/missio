@@ -13,7 +13,7 @@ export interface SendRequestParams {
   requestFilePath: string;
   collectionId?: string;
   environment?: string;
-  variables?: Record<string, string>;
+  variables?: Record<string, unknown>;
   dryRun?: boolean;
   responseOutputPath?: string;
   extract?: Record<string, string>;
@@ -62,8 +62,11 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     // Read folder defaults if a folder.yml exists alongside the request
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
 
+    // Convert typed variable values to strings for the resolution map.
+    // interpolateJson handles smart coercion: "{{var}}" with a value like "0" or "true"
+    // will produce unquoted JSON literals in JSON bodies.
     const extraVariables = variables
-      ? new Map<string, string>(Object.entries(variables))
+      ? new Map<string, string>(Object.entries(variables).map(([k, v]) => [k, String(v)]))
       : undefined;
 
     // Detect unresolved placeholders before sending

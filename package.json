@@ -814,9 +814,14 @@
             },
             "variables": {
               "type": "object",
-              "description": "Optional key-value pairs to override or supplement resolved variables. Highest priority — merged after all other sources (environment, collection, folder, dotenv). Use this to fill unresolved {{placeholders}} or swap values like baseUrl.",
+              "description": "Optional key-value pairs to override or supplement resolved variables. Highest priority — merged after all other sources (environment, collection, folder, dotenv). Use this to fill unresolved {{placeholders}} or swap values like baseUrl. Non-string values (numbers, booleans, null) are preserved as typed JSON literals in JSON request bodies — e.g. {\"index\": 0} produces a JSON number, not a string.",
               "additionalProperties": {
-                "type": "string"
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "number" },
+                  { "type": "boolean" },
+                  { "type": "null" }
+                ]
               }
             },
             "dryRun": {
