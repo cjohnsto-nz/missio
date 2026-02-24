@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
 import type { Item, Folder, HttpRequest } from '../../models/types';
+import { varPatternGlobal } from '../../models/varPattern';
 
 export interface ListRequestsParams {
   collectionId?: string;
@@ -14,7 +15,7 @@ interface RequestEntry {
   url: string;
   filePath: string | undefined;
   folder: string;
-  requiredVariables?: string[];
+  templateVariables?: Record<string, string[]>;
 }
 
 export class ListRequestsTool extends ToolBase<ListRequestsParams> {
@@ -59,7 +60,7 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
       } else {
         const req = item as HttpRequest;
         const url = req.http?.url ?? '';
-        const vars = this._extractPlaceholders(url);
+        const templateVariables = this._extractTemplateVariables(req);
         const entry: RequestEntry = {
           name: req.info?.name ?? 'Unnamed',
           method: req.http?.method ?? 'GET',
@@ -67,20 +68,97 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
           filePath: (req as any)._filePath,
           folder,
         };
-        if (vars.length > 0) entry.requiredVariables = vars;
+        if (Object.keys(templateVariables).length > 0) entry.templateVariables = templateVariables;
         out.push(entry);
       }
     }
   }
 
-  private _extractPlaceholders(s: string): string[] {
-    const names: string[] = [];
-    const re = /\{\{\s*([^}]+?)\s*\}\}/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(s)) !== null) {
-      const name = m[1].trim();
-      if (!names.includes(name)) names.push(name);
+  private _extractTemplateVariables(req: HttpRequest): Record<string, string[]> {
+    const result: Record<string, string[]> = {};
+    const add = (name: string, placement: string) => {
+      if (!name) return;
+      if (!result[name]) result[name] = [];
+      if (!result[name].includes(placement)) result[name].push(placement);
+    };
+    const extractFromString = (s: string | undefined, placement: string) => {
+      if (!s) return;
+      const re = varPatternGlobal();
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(s)) !== null) {
+        add(m[1].trim(), placement);
+      }
+    };
+    const scanAllStrings = (obj: unknown, placement: string) => {
+      if (typeof obj === 'string') {
+        extractFromString(obj, placement);
+        return;
+      }
+      if (Array.isArray(obj)) {
+        for (const item of obj) scanAllStrings(item, placement);
+        return;
+      }
+      if (obj && typeof obj === 'object') {
+        for (const val of Object.values(obj as Record<string, unknown>)) scanAllStrings(val, placement);
+      }
+    };
+
+    const details = req.http;
+    if (details) {
+      extractFromString(details.url, 'url');
+
+      for (const h of details.headers ?? []) {
+        if (!h.disabled) {
+          extractFromString(h.name, 'headers');
+          extractFromString(h.value, 'headers');
+        }
+      }
+
+      for (const p of details.params ?? []) {
+        if (!p.disabled) {
+          extractFromString(p.name, 'params');
+          extractFromString(p.value, 'params');
+        }
+      }
+
+      const body = details.body as any;
+      const scanBody = (b: any) => {
+        if (!b) return;
+        switch (b.type) {
+          case 'json':
+          case 'text':
+          case 'xml':
+          case 'sparql':
+            extractFromString(b.data, 'body');
+            break;
+          case 'form-urlencoded':
+          case 'multipart-form':
+            for (const entry of b.data ?? []) {
+              if (!entry.disabled) {
+                extractFromString(entry.name, 'body');
+                if (typeof entry.value === 'string') extractFromString(entry.value, 'body');
+                else if (Array.isArray(entry.value)) entry.value.forEach((v: string) => extractFromString(v, 'body'));
+              }
+            }
+            break;
+        }
+      };
+      if (body) {
+        if (Array.isArray(body)) {
+          const selected = body.find((v: any) => v.selected) ?? body[0];
+          scanBody(selected?.body);
+        } else {
+          scanBody(body);
+        }
+      }
     }
-    return names;
+
+    // Auth template variables (request-level only; no environment resolution)
+    const auth = req.runtime?.auth;
+    if (auth && auth !== 'inherit') {
+      scanAllStrings(auth, 'auth');
+    }
+
+    return result;
   }
 }

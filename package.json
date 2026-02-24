@@ -678,7 +678,7 @@
       {
         "name": "missio_list_requests",
         "displayName": "List API Requests",
-        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and requiredVariables ({{placeholder}} names found in the URL). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and templateVariables (raw {{placeholder}} names found in the request template with placement context: url/params/headers/body/auth). This is a template-only scan (no environment resolution). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
         "userDescription": "List all requests in an API collection.",
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
@@ -791,7 +791,7 @@
       {
         "name": "missio_send_request",
         "displayName": "Send HTTP Request",
-        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. Will warn and refuse to send if any {{placeholders}} remain unresolved — provide them via the variables parameter. Supports dry-run mode to preview the resolved request (including body) without sending. Use extract to pull values from JSON responses for use in subsequent calls.",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request (URL, headers, auth, and body) and returns unresolvedVariables; any listed must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom JSON body that is not templated, use missio_send_raw_request instead.",
         "userDescription": "Send an HTTP request from an API collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
