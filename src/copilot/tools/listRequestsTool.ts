@@ -5,6 +5,7 @@ import type { Item, Folder, HttpRequest } from '../../models/types';
 
 export interface ListRequestsParams {
   collectionId: string;
+  folder?: string;
 }
 
 interface RequestEntry {
@@ -26,7 +27,7 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
     options: vscode.LanguageModelToolInvocationOptions<ListRequestsParams>,
     _token: vscode.CancellationToken,
   ): Promise<string> {
-    const { collectionId } = options.input;
+    const { collectionId, folder: folderFilter } = options.input;
     const collection = this._collectionService.getCollection(collectionId);
     if (!collection) {
       return JSON.stringify({ success: false, message: `Collection not found: ${collectionId}` });
@@ -35,7 +36,13 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
     const items = await this._collectionService.resolveItems(collection);
     const requests: RequestEntry[] = [];
     this._extract(items, '', requests);
-    return JSON.stringify({ success: true, requests });
+
+    // Apply folder filter if provided (prefix match, case-insensitive)
+    const filtered = folderFilter
+      ? requests.filter(r => r.folder.toLowerCase().startsWith(folderFilter.toLowerCase()))
+      : requests;
+
+    return JSON.stringify({ success: true, requests: filtered });
   }
 
   private _extract(items: Item[], folder: string, out: RequestEntry[]): void {

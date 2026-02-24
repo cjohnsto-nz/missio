@@ -675,7 +675,7 @@
       {
         "name": "missio_list_requests",
         "displayName": "List API Requests",
-        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, and folder location. Use the collectionId returned by missio_list_collections.",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, and folder location. Use the collectionId returned by missio_list_collections. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
         "userDescription": "List all requests in an API collection.",
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
@@ -687,6 +687,10 @@
             "collectionId": {
               "type": "string",
               "description": "The collection ID returned by missio_list_collections."
+            },
+            "folder": {
+              "type": "string",
+              "description": "Optional folder path prefix to filter requests (e.g. 'Diagrams'). Case-insensitive prefix match."
             }
           },
           "required": ["collectionId"]
@@ -790,7 +794,7 @@
           "properties": {
             "requestFilePath": {
               "type": "string",
-              "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
+              "description": "Path to the request .yml file. Can be absolute (as returned by missio_list_requests) or relative to the collection root (e.g. 'Diagrams/List.yml')."
             },
             "variables": {
               "type": "object",
