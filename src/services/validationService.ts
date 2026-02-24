@@ -31,10 +31,16 @@ function isRequestFile(name: string): boolean {
 
 // ── Types ───────────────────────────────────────────────────────────
 
+export interface ValidationError {
+  path: string;
+  message: string;
+  hint?: string;
+}
+
 export interface ValidationIssue {
   file: string;
   schemaLabel: string;
-  errors: { path: string; message: string }[];
+  errors: ValidationError[];
 }
 
 export interface ValidationReport {
@@ -57,12 +63,44 @@ function buildSubSchema(schema: any, defName: string): any {
   };
 }
 
-function formatErrors(errors: ErrorObject[] | null | undefined): { path: string; message: string }[] {
+function formatErrors(errors: ErrorObject[] | null | undefined): ValidationError[] {
   if (!errors) return [];
-  return errors.map(e => ({
-    path: e.instancePath || '(root)',
-    message: e.message || 'unknown error',
-  }));
+  return errors.map(e => {
+    const result: ValidationError = {
+      path: e.instancePath || '(root)',
+      message: e.message || 'unknown error',
+    };
+    const hint = generateHint(e);
+    if (hint) result.hint = hint;
+    return result;
+  });
+}
+
+function generateHint(e: ErrorObject): string | undefined {
+  switch (e.keyword) {
+    case 'required':
+      return `Add the missing property "${e.params.missingProperty}" at this level.`;
+    case 'type':
+      return `Expected type "${e.params.type}". Check the value is not quoted/unquoted incorrectly in YAML.`;
+    case 'enum':
+      return `Must be one of: ${(e.params.allowedValues as string[]).join(', ')}`;
+    case 'additionalProperties':
+      return `Remove or rename the unknown property "${e.params.additionalProperty}". Check spelling against the OpenCollection schema.`;
+    case 'pattern':
+      return `Value must match pattern: ${e.params.pattern}`;
+    case 'oneOf':
+      return 'Value must match exactly one of the allowed schemas. Check the structure against the OpenCollection spec.';
+    case 'anyOf':
+      return 'Value must match at least one of the allowed schemas.';
+    case 'minItems':
+      return `Array must have at least ${e.params.limit} item(s).`;
+    case 'maxItems':
+      return `Array must have at most ${e.params.limit} item(s).`;
+    case 'minLength':
+      return `String must be at least ${e.params.limit} character(s) long.`;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -215,6 +253,7 @@ export function formatReport(report: ValidationReport): string {
       lines.push('');
       for (const err of issue.errors) {
         lines.push(`- **${err.path}**: ${err.message}`);
+        if (err.hint) lines.push(`  - *Fix:* ${err.hint}`);
       }
       lines.push('');
     }
