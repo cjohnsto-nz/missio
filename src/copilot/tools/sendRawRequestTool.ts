@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
 import { EnvironmentService } from '../../services/environmentService';
+import type { SecretService } from '../../services/secretService';
 
 export interface SendRawRequestParams {
   method: string;
@@ -25,6 +26,7 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
   constructor(
     private _collectionService: CollectionService,
     private _environmentService: EnvironmentService,
+    private _secretService: SecretService,
   ) {
     super();
   }
@@ -83,6 +85,20 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
         if (!headers['Content-Type'] && !headers['content-type']) {
           headers['Content-Type'] = 'application/json';
         }
+      }
+    }
+
+    // Resolve $secret.{vault}.{key} references in URL, headers, and body
+    // (same pipeline as httpClient — required for secret-backed auth like API keys)
+    const providers = collection?.data.config?.secretProviders ?? [];
+    if (providers.length > 0) {
+      url = await this._secretService.resolveSecretReferences(url, providers, varMap);
+      for (const [k, v] of Object.entries(headers)) {
+        const resolved = await this._secretService.resolveSecretReferences(v, providers, varMap);
+        if (resolved !== v) headers[k] = resolved;
+      }
+      if (bodyStr) {
+        bodyStr = await this._secretService.resolveSecretReferences(bodyStr, providers, varMap);
       }
     }
 
