@@ -299,6 +299,8 @@ export interface CollectionConfig {
   proxy?: Proxy;
   clientCertificates?: ClientCertificate[];
   secretProviders?: SecretProvider[];
+  /** When true, all requests use collection-level auth, ignoring request and folder auth. */
+  forceAuthInherit?: boolean;
 }
 
 // ── Folder ───────────────────────────────────────────────────────────

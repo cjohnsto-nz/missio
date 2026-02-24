@@ -126,12 +126,18 @@ export class HttpClient implements vscode.Disposable {
     _log(`  interpolate+params: ${Date.now() - t0}ms`);
     tPhase = Date.now();
     // Auth: request -> folder -> collection (first non-inherit wins)
-    let auth: Auth | undefined = request.runtime?.auth;
-    if (!auth || auth === 'inherit') {
-      auth = folderDefaults?.auth;
-    }
-    if (!auth || auth === 'inherit') {
+    // forceAuthInherit: skip request/folder auth, go straight to collection
+    let auth: Auth | undefined;
+    if (collection.data.config?.forceAuthInherit) {
       auth = collection.data.request?.auth;
+    } else {
+      auth = request.runtime?.auth;
+      if (!auth || auth === 'inherit') {
+        auth = folderDefaults?.auth;
+      }
+      if (!auth || auth === 'inherit') {
+        auth = collection.data.request?.auth;
+      }
     }
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
