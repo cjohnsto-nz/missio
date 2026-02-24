@@ -47,9 +47,83 @@ export const collectionMigrations: Migration[] = [
       return changed;
     },
   },
+  {
+    id: '002-oauth2-flat-to-nested',
+    description: 'Migrate flat OAuth2 auth in collection request defaults to nested schema-compliant structure',
+    apply(data: any): boolean {
+      return migrateOAuth2Shape(data?.request?.auth);
+    },
+  },
 ];
 
+/**
+ * Migrate a flat OAuth2 auth object to the nested schema-compliant structure.
+ * Handles: clientId/clientSecret/credentialsPlacement → credentials,
+ *          username/password (password flow) → resourceOwner,
+ *          autoFetchToken/autoRefreshToken → settings,
+ *          pkce (boolean) → pkce.enabled,
+ *          flow 'password' → 'resource_owner_password_credentials'.
+ * Returns true if any changes were made.
+ */
+function migrateOAuth2Shape(auth: any): boolean {
+  if (!auth || typeof auth !== 'object' || auth.type !== 'oauth2') return false;
+  let changed = false;
+
+  // Flat clientId/clientSecret/credentialsPlacement → credentials
+  if (auth.clientId !== undefined || auth.clientSecret !== undefined || auth.credentialsPlacement !== undefined) {
+    auth.credentials = auth.credentials || {};
+    if (auth.clientId !== undefined) { auth.credentials.clientId = auth.clientId; delete auth.clientId; changed = true; }
+    if (auth.clientSecret !== undefined) { auth.credentials.clientSecret = auth.clientSecret; delete auth.clientSecret; changed = true; }
+    if (auth.credentialsPlacement !== undefined) { auth.credentials.placement = auth.credentialsPlacement; delete auth.credentialsPlacement; changed = true; }
+  }
+
+  // Flat autoFetchToken/autoRefreshToken → settings
+  if (auth.autoFetchToken !== undefined || auth.autoRefreshToken !== undefined) {
+    auth.settings = auth.settings || {};
+    if (auth.autoFetchToken !== undefined) { auth.settings.autoFetchToken = auth.autoFetchToken; delete auth.autoFetchToken; changed = true; }
+    if (auth.autoRefreshToken !== undefined) { auth.settings.autoRefreshToken = auth.autoRefreshToken; delete auth.autoRefreshToken; changed = true; }
+  }
+
+  // Flat username/password (password flow) → resourceOwner
+  if (auth.flow === 'password' || auth.flow === 'resource_owner_password_credentials') {
+    if (auth.username !== undefined || auth.password !== undefined) {
+      auth.resourceOwner = auth.resourceOwner || {};
+      if (auth.username !== undefined) { auth.resourceOwner.username = auth.username; delete auth.username; changed = true; }
+      if (auth.password !== undefined) { auth.resourceOwner.password = auth.password; delete auth.password; changed = true; }
+    }
+  }
+
+  // flow 'password' → 'resource_owner_password_credentials'
+  if (auth.flow === 'password') {
+    auth.flow = 'resource_owner_password_credentials';
+    changed = true;
+  }
+
+  // pkce boolean → pkce.enabled
+  if (typeof auth.pkce === 'boolean') {
+    auth.pkce = { enabled: auth.pkce };
+    changed = true;
+  }
+
+  return changed;
+}
+
 export const requestMigrations: Migration[] = [
+  {
+    id: '003-strip-runtime-props',
+    description: 'Remove underscore-prefixed runtime properties (e.g. _filePath) that were accidentally persisted',
+    apply(data: any): boolean {
+      if (!data || typeof data !== 'object') return false;
+      let changed = false;
+      for (const key of Object.keys(data)) {
+        if (key.startsWith('_')) {
+          delete data[key];
+          changed = true;
+        }
+      }
+      return changed;
+    },
+  },
   {
     id: '001-http-auth-to-runtime-auth',
     description: 'Move auth from http to runtime (per OpenCollection schema, auth belongs on runtime not http)',
@@ -66,10 +140,23 @@ export const requestMigrations: Migration[] = [
       return true;
     },
   },
+  {
+    id: '002-oauth2-flat-to-nested',
+    description: 'Migrate flat OAuth2 auth fields to nested schema-compliant structure',
+    apply(data: any): boolean {
+      return migrateOAuth2Shape(data?.runtime?.auth);
+    },
+  },
 ];
 
 export const folderMigrations: Migration[] = [
-  // Future folder migrations go here
+  {
+    id: '001-oauth2-flat-to-nested',
+    description: 'Migrate flat OAuth2 auth in folder request defaults to nested schema-compliant structure',
+    apply(data: any): boolean {
+      return migrateOAuth2Shape(data?.request?.auth);
+    },
+  },
 ];
 
 // ── Runner ───────────────────────────────────────────────────────────

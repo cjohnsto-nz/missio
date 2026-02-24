@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile } from './yamlParser';
+import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
 import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
 const _log = vscode.window.createOutputChannel('Missio');
@@ -25,6 +25,7 @@ export class CollectionService implements vscode.Disposable {
     this._startPolling();
     this._onDidChange.fire();
     _log.appendLine(`initialize: scanWorkspaceFolders=${(t1 - t0).toFixed(1)}ms, total=${(performance.now() - t0).toFixed(1)}ms, collections=${this._collections.size}, workspaces=${this._workspaces.size}`);
+    this._promptMigrationPersist();
   }
 
   getCollections(): MissioCollection[] {
@@ -287,6 +288,34 @@ export class CollectionService implements vscode.Disposable {
       if (timer) { clearTimeout(timer); }
       timer = setTimeout(fn, ms);
     };
+  }
+
+  private _migrationPromptShown = false;
+
+  private _promptMigrationPersist(): void {
+    const pending = getPendingMigrations();
+    if (pending.size === 0 || this._migrationPromptShown) return;
+    this._migrationPromptShown = true;
+
+    const fileCount = pending.size;
+    const migrations = new Set<string>();
+    for (const { applied } of pending.values()) {
+      for (const id of applied) migrations.add(id);
+    }
+
+    const msg = `Missio applied ${migrations.size} migration${migrations.size > 1 ? 's' : ''} to ${fileCount} file${fileCount > 1 ? 's' : ''}. Save changes to disk?`;
+    vscode.window.showInformationMessage(msg, 'Save', 'Dismiss').then(async (choice) => {
+      if (choice === 'Save') {
+        const count = await persistPendingMigrations();
+        vscode.window.showInformationMessage(`Migrated ${count} file${count > 1 ? 's' : ''} saved to disk.`);
+        // Refresh to pick up the written files without re-triggering the prompt
+        this._migrationPromptShown = true;
+        await this.refresh();
+      } else {
+        clearPendingMigrations();
+      }
+      this._migrationPromptShown = false;
+    });
   }
 
   dispose(): void {
