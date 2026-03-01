@@ -81,7 +81,13 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     }
 
     // Detect unresolved placeholders before sending
-    const unresolvedNames = await detectUnresolvedVars(request, collection, this._environmentService, folderDefaults);
+    const unresolvedNames = await detectUnresolvedVars(
+      request,
+      collection,
+      this._environmentService,
+      folderDefaults,
+      environment,
+    );
     // Remove any that are covered by user-provided variable overrides
     const stillUnresolved = extraVariables
       ? unresolvedNames.filter(n => !extraVariables.has(n))
@@ -244,35 +250,21 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
     if (!auth || auth === 'inherit' || typeof auth !== 'object') return;
 
-    const maybeMaskSecret = (val: string): string => {
-      return val.includes('$secret.') ? '[secret]' : val;
-    };
-
     switch ((auth as any).type) {
       case 'apikey': {
         const keyRaw = (auth as any).key;
-        const valRaw = (auth as any).value;
         const placement = (auth as any).placement;
-        if (!keyRaw || !valRaw || placement === 'query') return;
+        if (!keyRaw || placement === 'query') return;
         const key = this._environmentService.interpolate(String(keyRaw), variables);
-        const val = this._environmentService.interpolate(String(valRaw), variables);
-        headers[key] = maybeMaskSecret(val);
+        headers[key] = '[redacted]';
         break;
       }
       case 'bearer': {
-        const tokenRaw = (auth as any).token;
-        if (!tokenRaw) return;
-        const token = this._environmentService.interpolate(String(tokenRaw), variables);
-        headers['Authorization'] = `Bearer ${maybeMaskSecret(token)}`;
+        headers['Authorization'] = 'Bearer [redacted]';
         break;
       }
       case 'basic': {
-        const userRaw = (auth as any).username;
-        if (!userRaw) return;
-        const passRaw = (auth as any).password ?? '';
-        const user = this._environmentService.interpolate(String(userRaw), variables);
-        const pass = this._environmentService.interpolate(String(passRaw), variables);
-        headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+        headers['Authorization'] = 'Basic [redacted]';
         break;
       }
     }
@@ -306,7 +298,15 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     unresolvedNames: string[],
     warnings: string[],
   ): Promise<string> {
-    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
+    const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults, environmentName);
+    const variables = new Map<string, string>();
+    const secretValues = new Set<string>();
+    for (const [k, v] of varsWithSource) {
+      variables.set(k, v.value);
+      if (v.source === 'secret' && v.value) {
+        secretValues.add(v.value);
+      }
+    }
     if (extraVariables) {
       for (const [k, v] of extraVariables) variables.set(k, v);
     }
@@ -362,13 +362,14 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       success: true,
       dryRun: true,
       method,
-      url,
-      headers,
+      url: this._redactSensitiveUrl(url, secretValues),
+      headers: this._redactSensitiveHeaders(headers, secretValues),
     };
     if (warnings.length > 0) {
       result.warnings = warnings;
     }
     if (body !== undefined) {
+      body = this._redactSecretValues(body, secretValues);
       result.body = body.length > 10_000
         ? body.substring(0, 10_000) + '\n... (truncated)'
         : body;
@@ -377,6 +378,77 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       result.unresolvedVariables = unresolvedNames;
     }
     return JSON.stringify(result);
+  }
+
+  private _redactSensitiveHeaders(
+    headers: Record<string, string>,
+    secretValues: Set<string>,
+  ): Record<string, string> {
+    const redacted: Record<string, string> = {};
+    for (const [name, value] of Object.entries(headers)) {
+      const lower = name.trim().toLowerCase();
+      if (lower === 'authorization' || lower === 'proxy-authorization') {
+        const scheme = value.match(/^([A-Za-z]+)\s+/)?.[1];
+        redacted[name] = scheme ? `${scheme} [redacted]` : '[redacted]';
+        continue;
+      }
+      if (this._isSensitiveHeaderName(lower)) {
+        redacted[name] = '[redacted]';
+        continue;
+      }
+      redacted[name] = this._redactSecretValues(value, secretValues);
+    }
+    return redacted;
+  }
+
+  private _redactSensitiveUrl(url: string, secretValues: Set<string>): string {
+    let masked = this._redactSecretValues(url, secretValues);
+    try {
+      const parsed = new URL(masked);
+      for (const [name, value] of parsed.searchParams.entries()) {
+        if (this._isSensitiveQueryName(name.toLowerCase())) {
+          parsed.searchParams.set(name, '[redacted]');
+        } else {
+          const maybeRedacted = this._redactSecretValues(value, secretValues);
+          if (maybeRedacted !== value) {
+            parsed.searchParams.set(name, maybeRedacted);
+          }
+        }
+      }
+      masked = parsed.toString();
+    } catch {
+      // leave as-is when URL parsing fails
+    }
+    return masked;
+  }
+
+  private _isSensitiveHeaderName(lowerHeaderName: string): boolean {
+    return lowerHeaderName === 'cookie'
+      || lowerHeaderName === 'set-cookie'
+      || lowerHeaderName.includes('api-key')
+      || lowerHeaderName.includes('apikey')
+      || lowerHeaderName.includes('token')
+      || lowerHeaderName.includes('secret')
+      || lowerHeaderName.includes('auth');
+  }
+
+  private _isSensitiveQueryName(lowerQueryName: string): boolean {
+    return lowerQueryName.includes('token')
+      || lowerQueryName.includes('apikey')
+      || lowerQueryName.includes('api_key')
+      || lowerQueryName.includes('secret')
+      || lowerQueryName.includes('password')
+      || lowerQueryName.includes('auth')
+      || lowerQueryName.includes('key');
+  }
+
+  private _redactSecretValues(value: string, secretValues: Set<string>): string {
+    let masked = value;
+    for (const secret of secretValues) {
+      if (!secret) continue;
+      masked = masked.split(secret).join('[secret]');
+    }
+    return masked;
   }
 
   // ── Helpers ──

@@ -43,6 +43,7 @@ export const window = {
   showWarningMessage: async () => {},
   showErrorMessage: async () => {},
   showInputBox: async () => undefined,
+  createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
   createStatusBarItem: () => ({ show: () => {}, hide: () => {}, dispose: () => {} }),
   registerTreeDataProvider: () => ({ dispose: () => {} }),
   registerCustomEditorProvider: () => ({ dispose: () => {} }),
