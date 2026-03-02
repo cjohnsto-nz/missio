@@ -610,78 +610,7 @@ describe('OpenApiImporter', () => {
   // ── Auth / security schemes ───────────────────────────────────────
 
   describe('auth', () => {
-    it('converts bearer auth from global security', async () => {
-      const spec = makeSpec({
-        security: [{ bearerAuth: [] }],
-        components: {
-          securitySchemes: {
-            bearerAuth: { type: 'http', scheme: 'bearer' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'bearer', token: '' });
-    });
-
-    it('converts basic auth', async () => {
-      const spec = makeSpec({
-        security: [{ basicAuth: [] }],
-        components: {
-          securitySchemes: {
-            basicAuth: { type: 'http', scheme: 'basic' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'basic', username: '', password: '' });
-    });
-
-    it('converts apiKey auth', async () => {
-      const spec = makeSpec({
-        security: [{ apiKey: [] }],
-        components: {
-          securitySchemes: {
-            apiKey: { type: 'apiKey', name: 'X-API-Key', in: 'header' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'apikey', key: 'X-API-Key', value: '', placement: 'header' });
-    });
-
-    it('converts OAuth2 client_credentials', async () => {
-      const spec = makeSpec({
-        security: [{ oauth: [] }],
-        components: {
-          securitySchemes: {
-            oauth: {
-              type: 'oauth2',
-              flows: {
-                clientCredentials: {
-                  tokenUrl: 'https://auth.example.com/token',
-                  scopes: { 'read:users': 'Read users', 'write:users': 'Write users' },
-                },
-              },
-            },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth.type).toBe('oauth2');
-      expect(coll.request.auth.flow).toBe('client_credentials');
-      expect(coll.request.auth.accessTokenUrl).toBe('https://auth.example.com/token');
-      expect(coll.request.auth.scope).toBe('read:users write:users');
-    });
-
-    it('sets inherit when operation has no security override', async () => {
+    it('applies global bearer auth to operations without overrides', async () => {
       const spec = makeSpec({
         security: [{ bearerAuth: [] }],
         components: {
@@ -698,7 +627,100 @@ describe('OpenApiImporter', () => {
       const file = writeSpecJson(spec);
       const result = await importer.import(file, TMP_DIR);
       const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'bearer', token: '' });
+    });
+
+    it('applies global basic auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ basicAuth: [] }],
+        components: {
+          securitySchemes: {
+            basicAuth: { type: 'http', scheme: 'basic' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'basic', username: '', password: '' });
+    });
+
+    it('applies global apiKey auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ apiKey: [] }],
+        components: {
+          securitySchemes: {
+            apiKey: { type: 'apiKey', name: 'X-API-Key', in: 'header' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'apikey', key: 'X-API-Key', value: '', placement: 'header' });
+    });
+
+    it('applies global OAuth2 client_credentials auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ oauth: [] }],
+        components: {
+          securitySchemes: {
+            oauth: {
+              type: 'oauth2',
+              flows: {
+                clientCredentials: {
+                  tokenUrl: 'https://auth.example.com/token',
+                  scopes: { 'read:users': 'Read users', 'write:users': 'Write users' },
+                },
+              },
+            },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth.type).toBe('oauth2');
+      expect(req.runtime.auth.flow).toBe('client_credentials');
+      expect(req.runtime.auth.accessTokenUrl).toBe('https://auth.example.com/token');
+      expect(req.runtime.auth.scope).toBe('read:users write:users');
+    });
+
+    it('sets operation auth to inherit when operation security is explicitly empty', async () => {
+      const spec = makeSpec({
+        security: [{ bearerAuth: [] }],
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', security: [], responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
       expect(req.runtime.auth).toBe('inherit');
+      const coll = readYaml(result.collectionFile);
+      expect(coll.request?.auth).toBeUndefined();
     });
   });
 

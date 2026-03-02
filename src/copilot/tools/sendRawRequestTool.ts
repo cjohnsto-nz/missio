@@ -69,7 +69,7 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
     if (collection && !headers['Authorization'] && !headers['authorization']) {
       const auth = collection.data.request?.auth;
       if (auth && auth !== 'inherit') {
-        this._applyBasicAuth(auth, headers, varMap);
+        url = this._applyCollectionAuth(auth, headers, varMap, url);
       }
     }
 
@@ -207,36 +207,44 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
 
   // ── Helpers ──
 
-  private _applyBasicAuth(
+  private _applyCollectionAuth(
     auth: Exclude<import('../../models/types').Auth, 'inherit'>,
     headers: Record<string, string>,
     variables: Map<string, string>,
-  ): void {
+    url: string,
+  ): string {
     switch (auth.type) {
       case 'bearer':
         if (auth.token) {
           headers['Authorization'] = `Bearer ${this._environmentService.interpolate(auth.token, variables)}`;
         }
-        break;
+        return url;
       case 'basic':
         if (auth.username) {
           const user = this._environmentService.interpolate(auth.username, variables);
           const pass = this._environmentService.interpolate(auth.password ?? '', variables);
           headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
         }
-        break;
+        return url;
       case 'apikey':
         if (auth.key && auth.value) {
           const key = this._environmentService.interpolate(auth.key, variables);
           const val = this._environmentService.interpolate(auth.value, variables);
           if (auth.placement === 'query') {
-            // Can't easily modify URL at this point, add as header instead
-            headers[key] = val;
+            try {
+              const parsed = new URL(url);
+              parsed.searchParams.set(key, val);
+              return parsed.toString();
+            } catch {
+              headers[key] = val;
+            }
           } else {
             headers[key] = val;
           }
         }
-        break;
+        return url;
+      default:
+        return url;
     }
   }
 
