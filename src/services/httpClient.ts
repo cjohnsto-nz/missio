@@ -504,7 +504,11 @@ export class HttpClient implements vscode.Disposable {
     if (this._cliAuthApprovalService && !this._cliAuthApprovalService.isApproved(command)) {
       _log(`  CLI auth: command not approved, prompting user`);
       if (!approvalPrompt) {
-        throw new Error('CLI auth command requires approval but no approval prompt available');
+        throw new Error(
+          `CLI auth command requires user approval before execution. ` +
+          `The user must first run this request interactively in the Missio request panel to approve the command. ` +
+          `Command: ${command}`
+        );
       }
       const approved = await approvalPrompt(commandTemplate, command);
       if (!approved) {
