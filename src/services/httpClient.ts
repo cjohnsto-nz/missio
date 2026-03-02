@@ -2,9 +2,10 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { execSync } from 'child_process';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
-  Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
+  Auth, AuthOAuth2, AuthCli, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
   MissioCollection,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
@@ -18,10 +19,16 @@ function _log(msg: string): void {
 }
 export { _logChannel as requestLog };
 
+interface CliTokenCacheEntry {
+  token: string;
+  expiresAt: number; // epoch ms
+}
+
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
   private _secretService: SecretService | undefined;
+  private _cliTokenCache: Map<string, CliTokenCacheEntry> = new Map();
 
   constructor(private readonly _environmentService: EnvironmentService) {}
 
@@ -154,6 +161,8 @@ export class HttpClient implements vscode.Disposable {
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
         await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
+      } else if (auth.type === 'cli') {
+        await this._applyCliAuth(auth as AuthCli, headers, variables, collection);
       } else {
         this._applyAuth(auth, headers, variables);
       }
@@ -441,11 +450,102 @@ export class HttpClient implements vscode.Disposable {
         return !!auth.token;
       case 'apikey':
         return !!auth.key;
+      case 'cli':
+        return !!auth.command;
       case 'oauth2':
         return true; // OAuth2 has its own validation path
       default:
         return true;
     }
+  }
+
+  private async _applyCliAuth(
+    auth: AuthCli,
+    headers: Record<string, string>,
+    variables: Map<string, string>,
+    collection: MissioCollection,
+  ): Promise<void> {
+    // Interpolate command with variables
+    let command = this._environmentService.interpolate(auth.command, variables);
+
+    // Resolve $secret references in command
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0 && this._secretService) {
+      command = await this._secretService.resolveSecretReferences(command, providers, variables);
+    }
+
+    const cacheEnabled = auth.cache?.enabled !== false;
+    const cacheKey = `${collection.id}:${command}`;
+
+    // Check cache
+    if (cacheEnabled) {
+      const cached = this._cliTokenCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        _log(`  CLI auth: using cached token (expires in ${Math.round((cached.expiresAt - Date.now()) / 1000)}s)`);
+        this._setCliTokenHeader(headers, auth, cached.token);
+        return;
+      }
+    }
+
+    // Execute command
+    _log(`  CLI auth: executing command`);
+    let token: string;
+    try {
+      token = execSync(command, {
+        encoding: 'utf-8',
+        timeout: 30000,
+        windowsHide: true,
+      }).trim();
+    } catch (err: any) {
+      const msg = err.stderr?.toString() || err.message || 'Unknown error';
+      throw new Error(`CLI auth command failed: ${msg}`);
+    }
+
+    if (!token) {
+      throw new Error('CLI auth command returned empty token');
+    }
+
+    // Determine TTL
+    let ttlMs: number;
+    if (auth.cache?.ttlSeconds !== undefined) {
+      ttlMs = auth.cache.ttlSeconds * 1000;
+    } else {
+      // Try to parse JWT expiry
+      ttlMs = this._parseJwtTtl(token) ?? 3600 * 1000; // default 1 hour
+    }
+
+    // Cache token
+    if (cacheEnabled) {
+      this._cliTokenCache.set(cacheKey, {
+        token,
+        expiresAt: Date.now() + ttlMs - 60000, // expire 1 min early for safety
+      });
+      _log(`  CLI auth: cached token for ${Math.round(ttlMs / 1000)}s`);
+    }
+
+    this._setCliTokenHeader(headers, auth, token);
+  }
+
+  private _setCliTokenHeader(headers: Record<string, string>, auth: AuthCli, token: string): void {
+    const headerName = auth.tokenHeader || 'Authorization';
+    const prefix = auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer';
+    headers[headerName] = prefix ? `${prefix} ${token}` : token;
+  }
+
+  private _parseJwtTtl(token: string): number | undefined {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return undefined;
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+      if (typeof payload.exp === 'number') {
+        const expiresAt = payload.exp * 1000;
+        const ttl = expiresAt - Date.now();
+        return ttl > 0 ? ttl : undefined;
+      }
+    } catch {
+      // Not a JWT or invalid format
+    }
+    return undefined;
   }
 
   private _applyAuth(

@@ -55,9 +55,19 @@ function main() {
     if (!target || typeof target !== 'object') {
       throw new Error(`Patch target "${patch.target}" is not an object`);
     }
-    for (const [key, value] of Object.entries(patch.properties)) {
-      target[key] = value;
-      console.log(`  + ${patch.target}/${key} — ${patch.description}`);
+    // Property patches (merge into object)
+    if (patch.properties) {
+      for (const [key, value] of Object.entries(patch.properties)) {
+        target[key] = value;
+        console.log(`  + ${patch.target}/${key} — ${patch.description}`);
+      }
+    }
+    // Array item patches (append to array)
+    if (patch.items && Array.isArray(target)) {
+      for (const item of patch.items) {
+        target.push(item);
+        console.log(`  + ${patch.target}[] — ${patch.description}`);
+      }
     }
   }
 

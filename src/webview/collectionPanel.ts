@@ -1,4 +1,4 @@
-import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
+import { renderAuthFields, buildAuthData, loadAuthData, authTypeOptionsHtml, type AuthFieldsConfig } from './authFields';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 import {
   setSecretNamesForProvider,
@@ -961,6 +961,9 @@ registerFlushOnSave(() => {
   if (!isLoading && collectionData) buildAndSend();
 });
 initTabs('mainTabs');
+
+// Populate auth type dropdown from centralized options (collection has no inherit)
+(getElementByIdOrThrow('defaultAuthType') as HTMLSelectElement).innerHTML = authTypeOptionsHtml(false);
 
 getElementByIdOrThrow('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); scheduleUpdate(); });
 getElementByIdOrThrow('addDefaultVarBtn').addEventListener('click', () => { defaultVariables.push({ name: '', value: '' }); renderDefaultVars(defaultVariables); scheduleUpdate(); });
