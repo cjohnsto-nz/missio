@@ -603,4 +603,100 @@ describe('EnvironmentService', () => {
       expect(withFolder).toEqual(without);
     });
   });
+
+  // ── interpolateJson ──────────────────────────────────────────────
+
+  describe('interpolateJson', () => {
+    let service: EnvironmentService;
+
+    beforeEach(() => {
+      service = new EnvironmentService(mockContext() as any, mockSecretService() as any);
+    });
+
+    afterEach(() => { service.dispose(); });
+
+    it('substitutes numeric value without quotes', () => {
+      const vars = new Map([['index', '0']]);
+      const result = service.interpolateJson('{"index": "{{index}}"}', vars);
+      expect(result).toBe('{"index": 0}');
+    });
+
+    it('substitutes boolean true without quotes', () => {
+      const vars = new Map([['flag', 'true']]);
+      const result = service.interpolateJson('{"flag": "{{flag}}"}', vars);
+      expect(result).toBe('{"flag": true}');
+    });
+
+    it('substitutes boolean false without quotes', () => {
+      const vars = new Map([['flag', 'false']]);
+      const result = service.interpolateJson('{"flag": "{{flag}}"}', vars);
+      expect(result).toBe('{"flag": false}');
+    });
+
+    it('substitutes null without quotes', () => {
+      const vars = new Map([['val', 'null']]);
+      const result = service.interpolateJson('{"val": "{{val}}"}', vars);
+      expect(result).toBe('{"val": null}');
+    });
+
+    it('keeps string values quoted', () => {
+      const vars = new Map([['name', 'hello']]);
+      const result = service.interpolateJson('{"name": "{{name}}"}', vars);
+      expect(result).toBe('{"name": "hello"}');
+    });
+
+    it('keeps values with mixed content as strings', () => {
+      const vars = new Map([['greeting', 'world']]);
+      const result = service.interpolateJson('{"msg": "Hello {{greeting}}"}', vars);
+      expect(result).toBe('{"msg": "Hello world"}');
+    });
+
+    it('handles multiple typed substitutions', () => {
+      const vars = new Map([['a', '42'], ['b', 'true'], ['c', 'text']]);
+      const result = service.interpolateJson('{"a": "{{a}}", "b": "{{b}}", "c": "{{c}}"}', vars);
+      expect(result).toBe('{"a": 42, "b": true, "c": "text"}');
+    });
+
+    it('handles negative numbers', () => {
+      const vars = new Map([['offset', '-5']]);
+      const result = service.interpolateJson('{"offset": "{{offset}}"}', vars);
+      expect(result).toBe('{"offset": -5}');
+    });
+
+    it('handles float numbers', () => {
+      const vars = new Map([['ratio', '3.14']]);
+      const result = service.interpolateJson('{"ratio": "{{ratio}}"}', vars);
+      expect(result).toBe('{"ratio": 3.14}');
+    });
+
+    it('handles scientific notation', () => {
+      const vars = new Map([['big', '1e10']]);
+      const result = service.interpolateJson('{"big": "{{big}}"}', vars);
+      expect(result).toBe('{"big": 1e10}');
+    });
+
+    it('does not coerce strings that look numeric-ish but are not', () => {
+      const vars = new Map([['port', '8080abc']]);
+      const result = service.interpolateJson('{"port": "{{port}}"}', vars);
+      expect(result).toBe('{"port": "8080abc"}');
+    });
+
+    it('leaves unresolved placeholders as-is', () => {
+      const vars = new Map<string, string>();
+      const result = service.interpolateJson('{"x": "{{unknown}}"}', vars);
+      expect(result).toBe('{"x": "{{unknown}}"}');
+    });
+
+    it('escapes special characters in string values', () => {
+      const vars = new Map([['msg', 'say "hi"']]);
+      const result = service.interpolateJson('{"msg": "{{msg}}"}', vars);
+      expect(result).toBe('{"msg": "say \\"hi\\""}');
+    });
+
+    it('falls back to normal interpolation outside quoted context', () => {
+      const vars = new Map([['count', '5']]);
+      const result = service.interpolateJson('count is {{count}}', vars);
+      expect(result).toBe('count is 5');
+    });
+  });
 });

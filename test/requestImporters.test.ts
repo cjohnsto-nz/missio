@@ -190,7 +190,7 @@ describe('CurlRequestImporter', () => {
   describe('auth', () => {
     it('parses basic auth with -u', () => {
       const req = importer.parse('curl -u admin:secret https://example.com');
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'admin',
         password: 'secret',
@@ -199,7 +199,7 @@ describe('CurlRequestImporter', () => {
 
     it('parses basic auth without password', () => {
       const req = importer.parse('curl -u admin https://example.com');
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'admin',
         password: '',
@@ -208,7 +208,7 @@ describe('CurlRequestImporter', () => {
 
     it('parses --user long form', () => {
       const req = importer.parse('curl --user user:pass https://example.com');
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'user',
         password: 'pass',
@@ -465,7 +465,7 @@ describe('WgetRequestImporter', () => {
       const req = importer.parse(
         'wget --http-user=admin --http-password=secret https://example.com'
       );
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'admin',
         password: 'secret',
@@ -474,7 +474,7 @@ describe('WgetRequestImporter', () => {
 
     it('parses --http-user without password', () => {
       const req = importer.parse('wget --http-user=admin https://example.com');
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'admin',
         password: '',
@@ -683,7 +683,7 @@ describe('HttpRawRequestImporter', () => {
       const req = importer.parse(
         `GET /api HTTP/1.1\nHost: example.com\nAuthorization: Basic ${encoded}`
       );
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'basic',
         username: 'admin',
         password: 'secret',
@@ -696,7 +696,7 @@ describe('HttpRawRequestImporter', () => {
       const req = importer.parse(
         'GET /api HTTP/1.1\nHost: example.com\nAuthorization: Bearer mytoken123'
       );
-      expect(req.http?.auth).toEqual({
+      expect(req.runtime?.auth).toEqual({
         type: 'bearer',
         token: 'mytoken123',
       });
@@ -707,7 +707,7 @@ describe('HttpRawRequestImporter', () => {
       const req = importer.parse(
         'GET /api HTTP/1.1\nHost: example.com\nAuthorization: Digest realm="test"'
       );
-      expect(req.http?.auth).toBeUndefined();
+      expect(req.runtime?.auth).toBeUndefined();
       expect(req.http?.headers?.find(h => h.name === 'Authorization')).toBeDefined();
     });
   });
@@ -762,7 +762,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiJ9
       expect(req.http?.url).toBe('https://api.example.com/api/v1/users');
       expect(req.http?.headers).toContainEqual({ name: 'Content-Type', value: 'application/json' });
       expect(req.http?.headers).toContainEqual({ name: 'Accept', value: 'application/json' });
-      expect(req.http?.auth).toEqual({ type: 'bearer', token: 'eyJhbGciOiJIUzI1NiJ9' });
+      expect(req.runtime?.auth).toEqual({ type: 'bearer', token: 'eyJhbGciOiJIUzI1NiJ9' });
       expect((req.http?.body as any)?.type).toBe('json');
     });
 

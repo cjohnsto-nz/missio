@@ -226,6 +226,13 @@ export class CollectionEditorProvider extends BaseEditorProvider {
             <option value="oauth2">OAuth 2.0</option>
           </select></div>
           <div id="defaultAuthFields"></div>
+          <div class="form-field" style="margin-top:12px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="forceAuthInherit" />
+              Force Auth Inherit
+            </label>
+            <div class="field-hint">When enabled, all requests in this collection use the collection-level auth above, ignoring any auth set on individual requests or folders.</div>
+          </div>
         </div>
       </div>
 

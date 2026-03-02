@@ -76,8 +76,8 @@ export class PostmanImporter implements CollectionImporter {
     requestCount = counts.requests;
     folderCount = counts.folders;
 
-    // Write collection.yml
-    const collFile = path.join(collDir, 'collection.yml');
+    // Write opencollection.yml
+    const collFile = path.join(collDir, 'opencollection.yml');
     const yaml = stringifyYaml(collection, { lineWidth: 120 });
     fs.writeFileSync(collFile, yaml, 'utf-8');
 
@@ -264,14 +264,14 @@ export class PostmanImporter implements CollectionImporter {
       request.info.description = this.extractDescription(pm.description);
     }
 
-    // Auth
+    // Auth → runtime.auth per OpenCollection schema
     if (pm.auth) {
       const auth = this.convertAuth(pm.auth);
       if (auth) {
-        request.http.auth = auth;
+        request.runtime = { auth };
       }
     } else {
-      request.http.auth = 'inherit';
+      request.runtime = { auth: 'inherit' };
     }
 
     // Body

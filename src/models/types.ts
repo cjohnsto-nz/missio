@@ -123,24 +123,57 @@ export interface AuthAwsV4 {
   profileName?: string;
 }
 
-export interface AuthOAuth2 {
-  type: 'oauth2';
-  flow?: 'client_credentials' | 'password' | 'authorization_code';
-  accessTokenUrl?: string;
-  refreshTokenUrl?: string;
-  authorizationUrl?: string;
-  callbackUrl?: string;
+export interface OAuth2Credentials {
   clientId?: string;
   clientSecret?: string;
+  placement?: 'basic_auth_header' | 'body';
+}
+
+export interface OAuth2ResourceOwner {
   username?: string;
   password?: string;
-  scope?: string;
-  credentialsPlacement?: 'basic_auth_header' | 'body';
-  credentialsId?: string;
+}
+
+export interface OAuth2PKCE {
+  enabled?: boolean;
+  method?: 'S256' | 'plain';
+}
+
+export interface OAuth2Settings {
   autoFetchToken?: boolean;
   autoRefreshToken?: boolean;
-  pkce?: boolean;
 }
+
+export interface AuthOAuth2Base {
+  type: 'oauth2';
+  accessTokenUrl?: string;
+  refreshTokenUrl?: string;
+  scope?: string;
+  credentials?: OAuth2Credentials;
+  settings?: OAuth2Settings;
+  credentialsId?: string;
+}
+
+export interface AuthOAuth2ClientCredentials extends AuthOAuth2Base {
+  flow: 'client_credentials';
+}
+
+export interface AuthOAuth2ResourceOwnerPassword extends AuthOAuth2Base {
+  flow: 'resource_owner_password_credentials';
+  resourceOwner?: OAuth2ResourceOwner;
+}
+
+export interface AuthOAuth2AuthorizationCode extends AuthOAuth2Base {
+  flow: 'authorization_code';
+  authorizationUrl?: string;
+  callbackUrl?: string;
+  pkce?: OAuth2PKCE;
+}
+
+export type AuthOAuth2 =
+  | AuthOAuth2ClientCredentials
+  | AuthOAuth2ResourceOwnerPassword
+  | AuthOAuth2AuthorizationCode;
 
 export type Auth =
   | AuthBasic
@@ -211,7 +244,6 @@ export interface HttpRequestDetails {
   headers?: HttpRequestHeader[];
   params?: HttpRequestParam[];
   body?: HttpRequestBody | HttpRequestBodyVariant[];
-  auth?: Auth;
 }
 
 export interface HttpRequestRuntime {
@@ -219,6 +251,7 @@ export interface HttpRequestRuntime {
   scripts?: Scripts;
   assertions?: Assertion[];
   actions?: Action[];
+  auth?: Auth;
 }
 
 export interface HttpRequestExample {
@@ -299,6 +332,8 @@ export interface CollectionConfig {
   proxy?: Proxy;
   clientCertificates?: ClientCertificate[];
   secretProviders?: SecretProvider[];
+  /** When true, all requests use collection-level auth, ignoring request and folder auth. */
+  forceAuthInherit?: boolean;
 }
 
 // ── Folder ───────────────────────────────────────────────────────────

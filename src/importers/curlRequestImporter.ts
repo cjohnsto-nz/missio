@@ -171,14 +171,16 @@ export class CurlRequestImporter implements RequestTextImporter {
         headers,
         params: params.length > 0 ? params : [],
         ...(body ? { body } : {}),
-        ...(basicAuth ? {
+      },
+      ...(basicAuth ? {
+        runtime: {
           auth: {
             type: 'basic' as const,
             username: basicAuth.username,
             password: basicAuth.password,
           },
-        } : {}),
-      },
+        },
+      } : {}),
       settings: {
         encodeUrl: true,
         timeout: timeout ?? 30000,

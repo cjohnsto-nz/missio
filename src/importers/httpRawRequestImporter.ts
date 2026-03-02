@@ -167,8 +167,8 @@ export class HttpRawRequestImporter implements RequestTextImporter {
         headers,
         params: params.length > 0 ? params : [],
         ...(body ? { body } : {}),
-        ...(auth ? { auth } : {}),
       },
+      ...(auth ? { runtime: { auth } } : {}),
       settings: {
         encodeUrl: true,
         timeout: 30000,

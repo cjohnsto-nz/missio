@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile } from './yamlParser';
+import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
 import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
 
 const _log = vscode.window.createOutputChannel('Missio');
@@ -32,7 +32,29 @@ export class CollectionService implements vscode.Disposable {
   }
 
   getCollection(id: string): MissioCollection | undefined {
-    return this._collections.get(id);
+    // Exact match first
+    let result = this._collections.get(id);
+    if (result) return result;
+
+    // Normalize path separators and try case-insensitive match
+    // (LLMs often normalise Windows backslashes to forward slashes)
+    const norm = path.normalize(id).toLowerCase();
+    for (const [key, val] of this._collections) {
+      if (path.normalize(key).toLowerCase() === norm) return val;
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a collection by optional ID with single-collection auto-selection.
+   * If id is provided, performs a path-normalized lookup.
+   * If id is omitted and exactly one collection is loaded, returns it.
+   * Used by Copilot tools where collectionId may be omitted.
+   */
+  resolveCollection(id?: string): MissioCollection | undefined {
+    if (id) return this.getCollection(id);
+    const all = this.getCollections();
+    return all.length === 1 ? all[0] : undefined;
   }
 
   getWorkspaces(): OpenCollectionWorkspace[] {
@@ -64,7 +86,9 @@ export class CollectionService implements vscode.Disposable {
     if (collection.data.bundled) {
       return collection.data.items ?? [];
     }
-    return this._scanDirectoryForItems(collection.rootDir);
+    const items = await this._scanDirectoryForItems(collection.rootDir);
+    this._debouncedMigrationPrompt();
+    return items;
   }
 
   // ── Private ──────────────────────────────────────────────────────
@@ -72,7 +96,7 @@ export class CollectionService implements vscode.Disposable {
   private async _scanWorkspaceFolders(): Promise<void> {
     const t0 = performance.now();
     const config = vscode.workspace.getConfiguration('missio');
-    const collectionPatterns = config.get<string[]>('collectionFilePatterns', ['**/collection.yml', '**/collection.yaml']);
+    const collectionPatterns = config.get<string[]>('collectionFilePatterns', ['**/opencollection.yml', '**/opencollection.yaml', '**/collection.yml', '**/collection.yaml']);
     const workspacePatterns = config.get<string[]>('workspaceFilePatterns', ['**/workspace.yml', '**/workspace.yaml']);
 
     // Find workspace files first (they may reference collections)
@@ -97,12 +121,17 @@ export class CollectionService implements vscode.Disposable {
     for (const [wsPath, ws] of this._workspaces) {
       const wsDir = path.dirname(wsPath);
       for (const ref of ws.collections) {
-        const collPath = path.resolve(wsDir, ref.path, 'collection.yml');
-        const collPathAlt = path.resolve(wsDir, ref.path, 'collection.yaml');
-        if (!this._collections.has(collPath) && !this._collections.has(collPathAlt)) {
-          await this._loadCollectionFile(collPath).catch(() =>
-            this._loadCollectionFile(collPathAlt).catch(() => { /* not found */ })
-          );
+        const candidates = [
+          path.resolve(wsDir, ref.path, 'opencollection.yml'),
+          path.resolve(wsDir, ref.path, 'opencollection.yaml'),
+          path.resolve(wsDir, ref.path, 'collection.yml'),
+          path.resolve(wsDir, ref.path, 'collection.yaml'),
+        ];
+        const alreadyLoaded = candidates.some(c => this._collections.has(c));
+        if (!alreadyLoaded) {
+          for (const candidate of candidates) {
+            try { await this._loadCollectionFile(candidate); break; } catch { /* try next */ }
+          }
         }
       }
     }
@@ -287,6 +316,40 @@ export class CollectionService implements vscode.Disposable {
       if (timer) { clearTimeout(timer); }
       timer = setTimeout(fn, ms);
     };
+  }
+
+  private _migrationPromptShown = false;
+  private _migrationPromptTimer: NodeJS.Timeout | undefined;
+
+  private _debouncedMigrationPrompt(): void {
+    if (this._migrationPromptShown) return;
+    if (this._migrationPromptTimer) clearTimeout(this._migrationPromptTimer);
+    this._migrationPromptTimer = setTimeout(() => this._promptMigrationPersist(), 500);
+  }
+
+  private _promptMigrationPersist(): void {
+    const pending = getPendingMigrations();
+    if (pending.size === 0 || this._migrationPromptShown) return;
+    this._migrationPromptShown = true;
+
+    const fileCount = pending.size;
+    const migrations = new Set<string>();
+    for (const { applied } of pending.values()) {
+      for (const id of applied) migrations.add(id);
+    }
+
+    const msg = `Missio applied ${migrations.size} migration${migrations.size > 1 ? 's' : ''} to ${fileCount} file${fileCount > 1 ? 's' : ''}. Save changes to disk?`;
+    vscode.window.showInformationMessage(msg, 'Save', 'Dismiss').then(async (choice) => {
+      if (choice === 'Save') {
+        const count = await persistPendingMigrations();
+        vscode.window.showInformationMessage(`${count} migrated file${count !== 1 ? 's' : ''} saved to disk.`);
+        this._migrationPromptShown = true;
+        await this.refresh();
+      } else {
+        clearPendingMigrations();
+      }
+      this._migrationPromptShown = false;
+    });
   }
 
   dispose(): void {

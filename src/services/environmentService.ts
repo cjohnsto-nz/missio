@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import type { Environment, Variable, SecretVariable, MissioCollection, VariableTypedValue, VariableValueVariant, RequestDefaults, SecretProvider } from '../models/types';
-import { varPatternGlobal } from '../models/varPattern';
+import { varPatternGlobal, VAR_NAME_CHARS } from '../models/varPattern';
 import type { SecretService } from './secretService';
 
 export class EnvironmentService implements vscode.Disposable {
@@ -58,7 +58,7 @@ export class EnvironmentService implements vscode.Disposable {
    * 3. Active environment variables
    * 4. dotenv file variables (if configured)
    */
-  async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, string>> {
+  async resolveVariables(collection: MissioCollection, folderDefaults?: RequestDefaults, environmentName?: string): Promise<Map<string, string>> {
     const vars = new Map<string, string>();
 
     // 0. Global variables (lowest priority — overridden by everything)
@@ -88,7 +88,7 @@ export class EnvironmentService implements vscode.Disposable {
     }
 
     // 3. Active environment (overrides collection and folder)
-    const envName = this._activeEnvironments.get(collection.id);
+    const envName = environmentName ?? this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
@@ -153,7 +153,7 @@ export class EnvironmentService implements vscode.Disposable {
    * Resolve all variables with their source information.
    * Sources: 'collection', 'environment', 'dotenv', 'secret'
    */
-  async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<Map<string, { value: string; source: string }>> {
+  async resolveVariablesWithSource(collection: MissioCollection, folderDefaults?: RequestDefaults, environmentName?: string): Promise<Map<string, { value: string; source: string }>> {
     const vars = new Map<string, { value: string; source: string }>();
 
     // 0. Global variables (lowest priority — overridden by everything)
@@ -183,7 +183,7 @@ export class EnvironmentService implements vscode.Disposable {
     }
 
     // 3. Active environment (overrides collection and folder)
-    const envName = this._activeEnvironments.get(collection.id);
+    const envName = environmentName ?? this._activeEnvironments.get(collection.id);
     if (envName) {
       const env = this.getCollectionEnvironments(collection).find(e => e.name === envName);
       if (env) {
@@ -257,6 +257,42 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   /**
+   * JSON-aware interpolation: when `"{{var}}"` is the entire JSON string value
+   * and the resolved value is a valid JSON literal (number, boolean, null),
+   * the surrounding quotes are stripped so the output is valid typed JSON.
+   *
+   * Use this for `body.type === 'json'` bodies only.
+   */
+  interpolateJson(template: string, variables: Map<string, string>): string {
+    // Phase 1: handle "{{var}}" patterns where the entire quoted value is a single placeholder.
+    // If the resolved value is a JSON literal, emit it unquoted.
+    const phase1 = template.replace(
+      new RegExp(`"(\\{\\{\\s*${VAR_NAME_CHARS}\\s*\\}\\})"`, 'g'),
+      (match, placeholder) => {
+        // Extract variable name from {{name}}
+        const nameMatch = placeholder.match(/\{\{\s*([\w.$-]+)\s*\}\}/);
+        if (!nameMatch) return match;
+        const key = nameMatch[1];
+        const builtin = this._resolveBuiltin(key);
+        const value = builtin !== undefined ? builtin : variables.get(key);
+        if (value === undefined) return match; // leave unresolved as-is
+        if (this._isJsonLiteral(value)) return value;
+        // Escape for valid JSON string and keep quoted
+        return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      },
+    );
+
+    // Phase 2: normal interpolation for remaining {{var}} occurrences
+    // (e.g. inside longer strings like "Hello {{name}}", or in non-quoted positions)
+    return phase1.replace(varPatternGlobal(), (match, name) => {
+      const key = name.trim();
+      const builtin = this._resolveBuiltin(key);
+      if (builtin !== undefined) return builtin;
+      return variables.has(key) ? variables.get(key)! : match;
+    });
+  }
+
+  /**
    * Interpolate {{var}} placeholders AND resolve $secret.{vault}.{key} references.
    */
   async interpolateWithSecrets(
@@ -322,6 +358,12 @@ export class EnvironmentService implements vscode.Disposable {
       }
       if (!changed) break;
     }
+  }
+
+  /** Check if a string value is a valid JSON literal (number, boolean, null). */
+  private _isJsonLiteral(value: string): boolean {
+    if (value === 'true' || value === 'false' || value === 'null') return true;
+    return /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value);
   }
 
   private _resolveBuiltin(name: string): string | undefined {

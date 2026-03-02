@@ -72,13 +72,13 @@ class RequestNode extends vscode.TreeItem {
       OPTIONS: 'settings-gear',
     };
     const methodColors: Record<string, string> = {
-      GET: 'charts.green',
-      POST: 'charts.orange',
-      PUT: 'charts.blue',
-      PATCH: 'charts.purple',
-      DELETE: 'charts.red',
-      HEAD: 'terminal.ansiCyan',
-      OPTIONS: 'terminal.ansiMagenta',
+      GET: 'missio.methodGet',
+      POST: 'missio.methodPost',
+      PUT: 'missio.methodPut',
+      PATCH: 'missio.methodPatch',
+      DELETE: 'missio.methodDelete',
+      HEAD: 'missio.methodHead',
+      OPTIONS: 'missio.methodOptions',
     };
     const iconName = methodIcons[method] ?? 'globe';
     const colorToken = methodColors[method];

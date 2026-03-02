@@ -7,9 +7,10 @@ http:
   url: https://gregbenzphotography.com/wp-content/uploads/2023/09/DSC4752_1000x667_100_3x2_benz12GainMap.jpg
   headers: []
   params: []
-  auth: inherit
 settings:
   encodeUrl: true
   timeout: 30000
   followRedirects: true
   maxRedirects: 5
+runtime:
+  auth: inherit

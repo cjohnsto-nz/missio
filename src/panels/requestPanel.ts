@@ -188,9 +188,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
         }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
         // Clear the existing OAuth2 token before retrying
-        let effectiveAuth = msg.request?.http?.auth;
-        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
-        if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+        let effectiveAuth;
+        if (collection.data.config?.forceAuthInherit) {
+          effectiveAuth = collection.data.request?.auth;
+        } else {
+          effectiveAuth = msg.request?.runtime?.auth;
+          if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+          if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+        }
         if (effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2') {
           const auth = effectiveAuth as any;
           if (auth.accessTokenUrl) {
@@ -312,9 +317,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
     _rlog(`── _sendRequest start ──`);
 
     // Determine effective auth for progress reporting
-    let effectiveAuth = requestData.http?.auth;
-    if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
-    if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+    let effectiveAuth;
+    if (collection.data.config?.forceAuthInherit) {
+      effectiveAuth = collection.data.request?.auth;
+    } else {
+      effectiveAuth = requestData.runtime?.auth;
+      if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+      if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+    }
     const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
 
     if (isOAuth2) {

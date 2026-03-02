@@ -7,9 +7,10 @@ http:
   url: https://www.lpi.usra.edu/lunar/documents/NASA%20TM-X-69516.pdf
   headers: []
   params: []
-  auth: inherit
 settings:
   encodeUrl: true
   timeout: 30000
   followRedirects: true
   maxRedirects: 5
+runtime:
+  auth: inherit

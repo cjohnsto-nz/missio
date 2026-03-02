@@ -101,9 +101,13 @@ function buildAndSend() {
     delete collectionPayload.request;
   }
 
+  // Force Auth Inherit
+  if (!collectionPayload.config) collectionPayload.config = {};
+  const forceAuthInherit = (getElementByIdOrThrow('forceAuthInherit') as HTMLInputElement).checked;
+  collectionPayload.config.forceAuthInherit = forceAuthInherit || undefined;
+
   // Secret providers
   const secretProviders = buildSecretProviders();
-  if (!collectionPayload.config) collectionPayload.config = {};
   collectionPayload.config.secretProviders = secretProviders.length > 0 ? secretProviders : undefined;
 
   ignoreNextLoad = true;
@@ -629,6 +633,9 @@ function loadCollection(data: any) {
     setTimeout(() => { loadAuthData(auth, 'dAuth'); }, 0);
   }
 
+  // Force Auth Inherit
+  (getElementByIdOrThrow('forceAuthInherit') as HTMLInputElement).checked = !!data.config?.forceAuthInherit;
+
   // Badges
   getElementByIdOrThrow('headersBadge').textContent = String((data.request?.headers || []).length);
   getElementByIdOrThrow('variablesBadge').textContent = String((data.request?.variables || []).length);
@@ -986,5 +993,6 @@ getElementByIdOrThrow('envSelector').addEventListener('change', () => {
   getElementByIdOrThrow(fieldId).addEventListener('input', scheduleUpdate);
 });
 getElementByIdOrThrow('infoSummary').addEventListener('input', scheduleUpdate);
+getElementByIdOrThrow('forceAuthInherit').addEventListener('change', scheduleUpdate);
 
 vscode.postMessage({ type: 'ready' });

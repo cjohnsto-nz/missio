@@ -121,7 +121,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       if (!parentFolder) { return; }
 
       const collDir = vscode.Uri.joinPath(parentFolder, name);
-      const collFile = vscode.Uri.joinPath(collDir, 'collection.yml');
+      const collFile = vscode.Uri.joinPath(collDir, 'opencollection.yml');
 
       const template: OpenCollection = {
         opencollection: '1.0.0',
@@ -148,7 +148,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       const collection = await resolveCollection(nodeOrId, 'Select a collection to validate');
       if (!collection) return;
 
-      const schemaPath = path.join(ctx.extensionContext.extensionPath, 'opencollectionschema.json');
+      const schemaPath = path.join(ctx.extensionContext.extensionPath, 'schema', 'opencollectionschema.json');
       const name = collection.data.info?.name ?? path.basename(collection.rootDir);
 
       await vscode.window.withProgress(

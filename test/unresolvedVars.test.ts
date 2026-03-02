@@ -29,7 +29,7 @@ function mockSecretService(): any {
   return { resolveSecret: async () => undefined };
 }
 
-function makeCollection(vars?: { name: string; value: string }[], auth?: any): MissioCollection {
+function makeCollection(vars?: { name: string; value: string }[], auth?: any, configOverrides?: any): MissioCollection {
   return {
     id: 'test-collection',
     filePath: path.join(testCollectionRoot, 'collection.yml'),
@@ -41,18 +41,20 @@ function makeCollection(vars?: { name: string; value: string }[], auth?: any): M
         variables: vars ?? [],
         auth,
       },
-      config: { environments: [] },
+      config: { environments: [], ...configOverrides },
     },
   } as any;
 }
 
-function makeRequest(overrides: Partial<HttpRequest['http']> = {}): HttpRequest {
+function makeRequest(overrides: Partial<HttpRequest['http']> & { auth?: any } = {}): HttpRequest {
+  const { auth, ...httpOverrides } = overrides;
   return {
     http: {
       method: 'GET',
       url: 'https://example.com',
-      ...overrides,
+      ...httpOverrides,
     },
+    ...(auth !== undefined ? { runtime: { auth } } : {}),
   };
 }
 
@@ -217,6 +219,106 @@ describe('unresolvedVars', () => {
     expect(result).not.toContain('host');
     expect(result).not.toContain('token');
     expect(result).toHaveLength(2);
+  });
+
+  it('uses environment override when resolving unresolved vars', async () => {
+    const collection = makeCollection([], undefined, {
+      environments: [
+        {
+          name: 'dev',
+          variables: [{ name: 'host', value: 'dev.example.com' }],
+        },
+      ],
+    });
+
+    const request = makeRequest({
+      url: 'https://{{host}}/api',
+    });
+
+    const withoutOverride = await detectUnresolvedVars(
+      request,
+      collection,
+      service,
+    );
+    expect(withoutOverride).toEqual(['host']);
+
+    const withOverride = await detectUnresolvedVars(
+      request,
+      collection,
+      service,
+      undefined,
+      'dev',
+    );
+    expect(withOverride).toEqual([]);
+  });
+
+  // ── forceAuthInherit ─────────────────────────────────────────────────
+
+  it('forceAuthInherit: uses collection auth, ignoring request auth', async () => {
+    const collection = makeCollection(
+      [],
+      { type: 'bearer', token: '{{collectionToken}}' },
+      { forceAuthInherit: true },
+    );
+    const result = await detectUnresolvedVars(
+      makeRequest({
+        url: 'https://example.com',
+        auth: { type: 'bearer', token: '{{requestToken}}' },
+      }),
+      collection,
+      service,
+    );
+    expect(result).toEqual(['collectionToken']);
+    expect(result).not.toContain('requestToken');
+  });
+
+  it('forceAuthInherit: uses collection auth, ignoring folder auth', async () => {
+    const collection = makeCollection(
+      [],
+      { type: 'bearer', token: '{{collectionToken}}' },
+      { forceAuthInherit: true },
+    );
+    const folderDefaults: RequestDefaults = {
+      auth: { type: 'bearer', token: '{{folderToken}}' },
+    };
+    const result = await detectUnresolvedVars(
+      makeRequest({ url: 'https://example.com', auth: 'inherit' }),
+      collection,
+      service,
+      folderDefaults,
+    );
+    expect(result).toEqual(['collectionToken']);
+    expect(result).not.toContain('folderToken');
+  });
+
+  it('forceAuthInherit: falls back to request auth when collection auth is missing', async () => {
+    const collection = makeCollection([], undefined, { forceAuthInherit: true });
+    const result = await detectUnresolvedVars(
+      makeRequest({
+        url: 'https://example.com',
+        auth: { type: 'bearer', token: '{{requestToken}}' },
+      }),
+      collection,
+      service,
+    );
+    expect(result).toEqual(['requestToken']);
+  });
+
+  it('forceAuthInherit: falls back to request auth when collection auth is incomplete', async () => {
+    const collection = makeCollection(
+      [],
+      { type: 'bearer', token: '' },
+      { forceAuthInherit: true },
+    );
+    const result = await detectUnresolvedVars(
+      makeRequest({
+        url: 'https://example.com',
+        auth: { type: 'bearer', token: '{{requestToken}}' },
+      }),
+      collection,
+      service,
+    );
+    expect(result).toEqual(['requestToken']);
   });
 
   it('masks resolved values when variable source is secret (indirect secret)', () => {
