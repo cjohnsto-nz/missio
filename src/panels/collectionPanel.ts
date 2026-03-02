@@ -218,13 +218,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <!-- Auth -->
       <div class="tab-panel" id="panel-auth">
         <div class="auth-section">
-          <div class="form-field"><label>Type</label><select class="auth-select" id="defaultAuthType">
-            <option value="none">No Auth</option>
-            <option value="bearer">Bearer Token</option>
-            <option value="basic">Basic Auth</option>
-            <option value="apikey">API Key</option>
-            <option value="oauth2">OAuth 2.0</option>
-          </select></div>
+          <div class="form-field"><label>Type</label><select class="auth-select" id="defaultAuthType"></select></div>
           <div id="defaultAuthFields"></div>
           <div class="form-field" style="margin-top:12px;">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">

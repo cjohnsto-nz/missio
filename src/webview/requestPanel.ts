@@ -947,6 +947,95 @@ function loadRequest(req: any): void {
   updateBadges();
 }
 
+// ── CLI Approval Modal ───────────────────────────
+function showCliApprovalModal(commandTemplate: string, interpolatedCommand: string): void {
+  // Remove any existing modal
+  const existing = document.getElementById('cliApprovalModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cliApprovalModal';
+  overlay.className = 'uv-modal-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'uv-modal-card';
+  card.style.width = '500px';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'uv-modal-header';
+  header.innerHTML =
+    '<div class="uv-modal-title">Approve CLI Auth Command</div>' +
+    '<div class="uv-modal-subtitle">This request uses CLI-based authentication. Review and approve the command before it runs.</div>';
+  card.appendChild(header);
+
+  // Content
+  const content = document.createElement('div');
+  content.className = 'uv-modal-fields';
+
+  // Warning
+  const warning = document.createElement('div');
+  warning.className = 'cli-approval-warning';
+  warning.innerHTML =
+    '<span class="cli-approval-warning-icon">⚠️</span>' +
+    '<span>CLI commands can execute arbitrary code on your system. Only approve commands from collections you trust.</span>';
+  content.appendChild(warning);
+
+  // Command display
+  const cmdLabel = document.createElement('div');
+  cmdLabel.className = 'uv-modal-label';
+  cmdLabel.style.marginTop = '8px';
+  cmdLabel.textContent = 'Command to execute:';
+  content.appendChild(cmdLabel);
+
+  const cmdDisplay = document.createElement('div');
+  cmdDisplay.className = 'cli-approval-command';
+  cmdDisplay.textContent = interpolatedCommand;
+  content.appendChild(cmdDisplay);
+
+  card.appendChild(content);
+
+  // Buttons
+  const actions = document.createElement('div');
+  actions.className = 'uv-modal-actions';
+  actions.innerHTML =
+    '<button class="uv-modal-cancel">Deny</button>' +
+    '<button class="uv-modal-send">Approve &amp; Run</button>';
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  // Wire deny
+  const denyBtn = card.querySelector('.uv-modal-cancel') as HTMLButtonElement;
+  denyBtn.addEventListener('click', () => {
+    overlay.remove();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
+  });
+
+  // Wire approve
+  const approveBtn = card.querySelector('.uv-modal-send') as HTMLButtonElement;
+  approveBtn.addEventListener('click', () => {
+    overlay.remove();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: true });
+  });
+
+  // Escape denies, Enter approves
+  card.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      approveBtn.click();
+    }
+  });
+
+  // Focus approve button
+  setTimeout(() => approveBtn.focus(), 50);
+}
+
 // ── Unresolved Variables Modal ───────────────────
 function showUnresolvedVarsModal(variables: string[]): void {
   // Remove any existing modal
@@ -1134,6 +1223,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'promptUnresolvedVars':
       showUnresolvedVarsModal(msg.variables as string[]);
+      break;
+    case 'promptCliApproval':
+      showCliApprovalModal(msg.commandTemplate as string, msg.interpolatedCommand as string);
       break;
   }
 });

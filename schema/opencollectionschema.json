@@ -1120,6 +1120,9 @@
         {
           "type": "string",
           "const": "inherit"
+        },
+        {
+          "$ref": "#/$defs/AuthCli"
         }
       ]
     },
@@ -2668,6 +2671,51 @@
       "items": {
         "$ref": "#/$defs/Script"
       }
+    },
+    "AuthCliCache": {
+      "type": "object",
+      "description": "Cache settings for CLI-based auth tokens",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether to cache the token (default true)"
+        },
+        "ttlSeconds": {
+          "type": "integer",
+          "description": "Time-to-live in seconds for cached tokens. If omitted, Missio attempts to parse JWT expiry."
+        }
+      },
+      "additionalProperties": false
+    },
+    "AuthCli": {
+      "type": "object",
+      "description": "CLI-based auth: executes a command to obtain a bearer token",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "cli"
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute. Output should be the raw token. Supports {{var}} interpolation."
+        },
+        "tokenHeader": {
+          "type": "string",
+          "description": "Header name to inject the token into (default: Authorization)"
+        },
+        "tokenPrefix": {
+          "type": "string",
+          "description": "Prefix before the token value (default: Bearer). Set to empty string for raw token."
+        },
+        "cache": {
+          "$ref": "#/$defs/AuthCliCache"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "additionalProperties": false
     },
     "SecretProvider": {
       "type": "object",

@@ -31,6 +31,7 @@ export function authTypeOptionsHtml(showInherit: boolean): string {
     '<option value="bearer">Bearer Token</option>' +
     '<option value="basic">Basic Auth</option>' +
     '<option value="apikey">API Key</option>' +
+    '<option value="cli">CLI Token</option>' +
     '<option value="oauth2">OAuth 2.0</option>';
 }
 
@@ -52,6 +53,7 @@ function _detectCurrentAuthType(prefix: string): string | null {
   if (document.getElementById(prefix + 'Token')) return 'bearer';
   if (document.getElementById(prefix + 'Username') && !document.getElementById(prefix + 'OAuth2Flow')) return 'basic';
   if (document.getElementById(prefix + 'Key')) return 'apikey';
+  if (document.getElementById(prefix + 'CliCommand')) return 'cli';
   if (document.getElementById(prefix + 'OAuth2Flow')) return 'oauth2';
   return null;
 }
@@ -81,6 +83,13 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
       `<div class="auth-row"><label>Key</label>${inp(p + 'Key', 'X-Api-Key', w)}</div>` +
       `<div class="auth-row"><label>Value</label>${inp(p + 'Value', '{{apiKey}}', w)}</div>` +
       `<div class="auth-row"><label>In</label><select id="${p}Placement" class="auth-select"><option value="header">Header</option><option value="query">Query</option></select></div>`;
+  } else if (type === 'cli') {
+    fields.innerHTML =
+      `<div class="auth-row"><label>Command</label>${inp(p + 'CliCommand', 'az account get-access-token --query accessToken -o tsv', w)}</div>` +
+      `<div class="auth-row"><label>Header</label>${inp(p + 'CliTokenHeader', 'Authorization', w)}</div>` +
+      `<div class="auth-row"><label>Prefix</label>${inp(p + 'CliTokenPrefix', 'Bearer', w)}</div>` +
+      `<div class="auth-row"><label>Cache</label><input type="checkbox" id="${p}CliCacheEnabled" checked /></div>` +
+      `<div class="auth-row"><label>TTL (sec)</label><input type="number" id="${p}CliCacheTtl" placeholder="auto" min="0" /></div>`;
   } else if (type === 'oauth2') {
     fields.innerHTML =
       `<div class="auth-row"><label>Grant Type</label>` +
@@ -182,6 +191,24 @@ export function buildAuthData(type: string, prefix: string): any {
       return { type: 'basic', username: ceVal(p + 'Username'), password: $el(p + 'Password')?.value || '' };
     case 'apikey':
       return { type: 'apikey', key: ceVal(p + 'Key'), value: ceVal(p + 'Value'), placement: $sel(p + 'Placement')?.value || 'header' };
+    case 'cli': {
+      const cacheEnabled = ($el(p + 'CliCacheEnabled') as HTMLInputElement)?.checked !== false;
+      const ttlRaw = ($el(p + 'CliCacheTtl') as HTMLInputElement)?.value;
+      const ttlSeconds = ttlRaw ? parseInt(ttlRaw, 10) : undefined;
+      const auth: any = {
+        type: 'cli',
+        command: ceVal(p + 'CliCommand'),
+      };
+      const tokenHeader = ceVal(p + 'CliTokenHeader');
+      const tokenPrefix = ceVal(p + 'CliTokenPrefix');
+      if (tokenHeader && tokenHeader !== 'Authorization') auth.tokenHeader = tokenHeader;
+      if (tokenPrefix !== 'Bearer') auth.tokenPrefix = tokenPrefix; // include even if empty
+      if (!cacheEnabled || (ttlSeconds !== undefined && !isNaN(ttlSeconds))) {
+        auth.cache = { enabled: cacheEnabled };
+        if (ttlSeconds !== undefined && !isNaN(ttlSeconds)) auth.cache.ttlSeconds = ttlSeconds;
+      }
+      return auth;
+    }
     case 'oauth2': {
       const rawFlow = $sel(p + 'OAuth2Flow')?.value || 'client_credentials';
       // Map UI flow names to schema flow names
@@ -258,6 +285,16 @@ export function loadAuthData(auth: any, prefix: string): void {
       ceSet(p + 'Key', auth.key || '');
       ceSet(p + 'Value', auth.value || '');
       const pl = $sel(p + 'Placement'); if (pl) pl.value = auth.placement || 'header';
+      break;
+    }
+    case 'cli': {
+      ceSet(p + 'CliCommand', auth.command || '');
+      ceSet(p + 'CliTokenHeader', auth.tokenHeader || 'Authorization');
+      ceSet(p + 'CliTokenPrefix', auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer');
+      const ce = $el(p + 'CliCacheEnabled') as HTMLInputElement;
+      if (ce) ce.checked = auth.cache?.enabled !== false;
+      const ct = $el(p + 'CliCacheTtl') as HTMLInputElement;
+      if (ct && auth.cache?.ttlSeconds !== undefined) ct.value = String(auth.cache.ttlSeconds);
       break;
     }
     case 'oauth2': {

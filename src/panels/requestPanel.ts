@@ -27,6 +27,8 @@ export class RequestEditorProvider extends BaseEditorProvider {
   private readonly _httpClient: HttpClient;
   // Pending resolver for the webview-based unresolved-vars prompt
   private _unresolvedVarsResolver: ((result: Map<string, string> | undefined) => void) | null = null;
+  // Pending resolver for CLI auth approval prompt
+  private _cliApprovalResolver: ((approved: boolean) => void) | null = null;
 
   static postMessageToPanel(filePath: string, message: any): boolean {
     const panel = RequestEditorProvider._panels.get(filePath.toLowerCase());
@@ -227,6 +229,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
         }
         return true;
       }
+      case 'cliApprovalResponse': {
+        if (this._cliApprovalResolver) {
+          this._cliApprovalResolver(!!msg.approved);
+          this._cliApprovalResolver = null;
+        }
+        return true;
+      }
     }
     return false;
   }
@@ -312,10 +321,6 @@ export class RequestEditorProvider extends BaseEditorProvider {
       return;
     }
 
-    // Start timer after the modal is dismissed so dialog time isn't counted
-    const _t0 = Date.now();
-    _rlog(`── _sendRequest start ──`);
-
     // Determine effective auth for progress reporting
     let effectiveAuth;
     if (collection.data.config?.forceAuthInherit) {
@@ -326,9 +331,26 @@ export class RequestEditorProvider extends BaseEditorProvider {
       if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
     }
     const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
+    const isCli = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'cli';
+
+    // CLI approval prompt callback - resets timer after approval
+    let _t0 = Date.now();
+    const cliApprovalPrompt = async (commandTemplate: string, interpolatedCommand: string): Promise<boolean> => {
+      webview.postMessage({ type: 'promptCliApproval', commandTemplate, interpolatedCommand });
+      const approved = await new Promise<boolean>(resolve => {
+        this._cliApprovalResolver = resolve;
+      });
+      // Reset timer after approval dialog so dialog time isn't counted
+      _t0 = Date.now();
+      return approved;
+    };
+
+    _rlog(`── _sendRequest start ──`);
 
     if (isOAuth2) {
       webview.postMessage({ type: 'sending', message: 'Acquiring OAuth2 token…' });
+    } else if (isCli) {
+      webview.postMessage({ type: 'sending', message: 'CLI auth…' });
     } else {
       webview.postMessage({ type: 'sending' });
     }
@@ -338,7 +360,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       // (including OAuth2 with $secret references), headers, body, and secrets.
       const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
         webview.postMessage({ type: 'sending', message: msg });
-      }, extraVariables.size > 0 ? extraVariables : undefined);
+      }, extraVariables.size > 0 ? extraVariables : undefined, undefined, cliApprovalPrompt);
 
       const disableRendering = vscode.workspace.getConfiguration('missio').get<boolean>('disableResponseRendering', false);
       if (disableRendering) {

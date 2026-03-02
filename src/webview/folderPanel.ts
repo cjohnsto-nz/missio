@@ -1,4 +1,4 @@
-import { renderAuthFields, buildAuthData, loadAuthData, type AuthFieldsConfig } from './authFields';
+import { renderAuthFields, buildAuthData, loadAuthData, authTypeOptionsHtml, type AuthFieldsConfig } from './authFields';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
 import { escHtml } from './varlib';
 import {
@@ -265,6 +265,9 @@ registerFlushOnSave(() => {
   if (!isLoading && folderData) buildAndSend();
 });
 initTabs('mainTabs');
+
+// Populate auth type dropdown from centralized options (folder has inherit)
+($('defaultAuthType') as HTMLSelectElement).innerHTML = authTypeOptionsHtml(true);
 
 $('defaultAuthType').addEventListener('change', onDefaultAuthChange);
 $('addDefaultHeaderBtn').addEventListener('click', () => { addHeaderRow(); updateBadges(); scheduleUpdate(); });
