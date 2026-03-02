@@ -135,14 +135,20 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
           }
 
           const responseBody = buffer.toString('utf-8');
+          const warnings: string[] = [];
 
           // Write response body to file if requested
+          let savedTo: string | undefined;
           if (responseOutputPath) {
             try {
               const dir = path.dirname(responseOutputPath);
               if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
               fs.writeFileSync(responseOutputPath, responseBody, 'utf-8');
-            } catch { /* non-fatal */ }
+              savedTo = responseOutputPath;
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              warnings.push(`Failed to write responseOutputPath "${responseOutputPath}": ${message}`);
+            }
           }
 
           const result: Record<string, unknown> = {
@@ -157,7 +163,8 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
             size: buffer.length,
           };
 
-          if (responseOutputPath) result.savedTo = responseOutputPath;
+          if (warnings.length > 0) result.warnings = warnings;
+          if (savedTo) result.savedTo = savedTo;
 
           // Extract values from JSON response body
           if (extract && responseBody) {

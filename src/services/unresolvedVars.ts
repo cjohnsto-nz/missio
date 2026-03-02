@@ -66,14 +66,22 @@ export async function detectUnresolvedVars(
   }
 
   // Auth — walk the effective auth chain (request → folder → collection)
-  // forceAuthInherit: skip request/folder auth, go straight to collection
+  // forceAuthInherit: prefer collection auth; if incomplete, fall back to
+  // request/folder/collection chain to match HttpClient behavior.
   let auth: Auth | undefined;
+  const collectionAuth = collection.data.request?.auth;
   if (collection.data.config?.forceAuthInherit) {
-    auth = collection.data.request?.auth;
+    if (collectionAuth && collectionAuth !== 'inherit' && isAuthComplete(collectionAuth)) {
+      auth = collectionAuth;
+    } else {
+      auth = requestData.runtime?.auth;
+      if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+      if (!auth || auth === 'inherit') auth = collectionAuth;
+    }
   } else {
     auth = requestData.runtime?.auth;
     if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-    if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
+    if (!auth || auth === 'inherit') auth = collectionAuth;
   }
   if (auth && auth !== 'inherit' && typeof auth === 'object') {
     scanAllStrings(auth, varNames);
@@ -165,5 +173,20 @@ function scanBody(body: any, scan: (s: string | undefined) => void): void {
         }
       }
       break;
+  }
+}
+
+function isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
+  switch (auth.type) {
+    case 'basic':
+      return !!(auth.username || auth.password);
+    case 'bearer':
+      return !!auth.token;
+    case 'apikey':
+      return !!auth.key;
+    case 'oauth2':
+      return true;
+    default:
+      return true;
   }
 }

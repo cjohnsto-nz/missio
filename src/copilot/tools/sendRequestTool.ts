@@ -8,6 +8,7 @@ import { detectUnresolvedVars } from '../../services/unresolvedVars';
 import { varPatternGlobal } from '../../models/varPattern';
 import * as path from 'path';
 import * as fs from 'fs';
+import type { Auth } from '../../models/types';
 
 export interface SendRequestParams {
   requestFilePath: string;
@@ -110,13 +111,16 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const response = await this._httpClient.send(request, collection, folderDefaults, undefined, extraVariables, environment);
 
     // Write response body to file if requested
+    let savedTo: string | undefined;
     if (responseOutputPath) {
       try {
         const dir = path.dirname(responseOutputPath);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(responseOutputPath, response.body, 'utf-8');
+        savedTo = responseOutputPath;
       } catch (err) {
-        // Non-fatal: include warning but still return the response
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push(`Failed to write responseOutputPath "${responseOutputPath}": ${message}`);
       }
     }
 
@@ -137,9 +141,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       result.warnings = warnings;
     }
 
-    if (responseOutputPath) {
-      result.savedTo = responseOutputPath;
-    }
+    if (savedTo) result.savedTo = savedTo;
 
     // Extract values from JSON response body
     if (extract && response.body) {
@@ -231,13 +233,31 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     collection: import('../../models/types').MissioCollection,
     folderDefaults: import('../../models/types').RequestDefaults | undefined,
   ): import('../../models/types').Auth | undefined {
+    const collectionAuth = collection.data.request?.auth;
     if (collection.data.config?.forceAuthInherit) {
-      return collection.data.request?.auth;
+      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
+        return collectionAuth;
+      }
     }
     let auth = request.runtime?.auth;
     if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-    if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
+    if (!auth || auth === 'inherit') auth = collectionAuth;
     return auth;
+  }
+
+  private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
+    switch (auth.type) {
+      case 'basic':
+        return !!(auth.username || auth.password);
+      case 'bearer':
+        return !!auth.token;
+      case 'apikey':
+        return !!auth.key;
+      case 'oauth2':
+        return true;
+      default:
+        return true;
+    }
   }
 
   private _applyDryRunAuth(
@@ -477,7 +497,16 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
 
   private _findCollection(filePath: string) {
     const collections = this._collectionService.getCollections();
-    return collections.find(c => filePath.startsWith(c.rootDir + path.sep));
+    const normalizedFilePath = this._normalizePathForCompare(filePath);
+    return collections.find(c => {
+      const normalizedRoot = this._normalizePathForCompare(c.rootDir);
+      return normalizedFilePath === normalizedRoot || normalizedFilePath.startsWith(normalizedRoot + '/');
+    });
+  }
+
+  private _normalizePathForCompare(filePath: string): string {
+    const normalized = path.normalize(filePath).replace(/[\\/]+/g, '/').replace(/\/+$/g, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
   }
 
   private async _readFolderDefaults(requestFilePath: string, collectionRoot: string) {
