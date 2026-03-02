@@ -168,17 +168,24 @@ export class HttpClient implements vscode.Disposable {
         auth = collection.data.request?.auth;
       }
     }
+    let cliApprovalWaitMs = 0;
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
         await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
       } else if (auth.type === 'cli') {
-        await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
+        cliApprovalWaitMs = await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
       } else {
         this._applyAuth(auth, headers, variables);
       }
     }
 
-    _mark('Auth', tPhase);
+    // If there was CLI approval wait time, show it as separate entry and adjust Auth timing
+    if (cliApprovalWaitMs > 0) {
+      _timing.push({ label: 'CLI Approval', start: tPhase - t0, end: tPhase - t0 + cliApprovalWaitMs });
+      _timing.push({ label: 'Auth', start: tPhase - t0 + cliApprovalWaitMs, end: Date.now() - t0 });
+    } else {
+      _mark('Auth', tPhase);
+    }
     _log(`  auth: ${Date.now() - t0}ms`);
     onProgress?.('Sending request…');
     tPhase = Date.now();
@@ -469,14 +476,18 @@ export class HttpClient implements vscode.Disposable {
     }
   }
 
+  /**
+   * Apply CLI auth. Returns the time spent waiting for user approval (0 if no approval needed).
+   */
   private async _applyCliAuth(
     auth: AuthCli,
     headers: Record<string, string>,
     variables: Map<string, string>,
     collection: MissioCollection,
     approvalPrompt?: CliApprovalPrompt,
-  ): Promise<void> {
+  ): Promise<number> {
     const commandTemplate = auth.command;
+    let approvalWaitMs = 0;
 
     // Interpolate command with variables
     let command = this._environmentService.interpolate(commandTemplate, variables);
@@ -496,7 +507,7 @@ export class HttpClient implements vscode.Disposable {
       if (cached && cached.expiresAt > Date.now()) {
         _log(`  CLI auth: using cached token (expires in ${Math.round((cached.expiresAt - Date.now()) / 1000)}s)`);
         this._setCliTokenHeader(headers, auth, cached.token);
-        return;
+        return 0;
       }
     }
 
@@ -510,7 +521,9 @@ export class HttpClient implements vscode.Disposable {
           `Command: ${command}`
         );
       }
+      const approvalStart = Date.now();
       const approved = await approvalPrompt(commandTemplate, command);
+      approvalWaitMs = Date.now() - approvalStart;
       if (!approved) {
         throw new Error('CLI auth command was not approved by user');
       }
@@ -556,6 +569,7 @@ export class HttpClient implements vscode.Disposable {
     }
 
     this._setCliTokenHeader(headers, auth, token);
+    return approvalWaitMs;
   }
 
   private _setCliTokenHeader(headers: Record<string, string>, auth: AuthCli, token: string): void {
