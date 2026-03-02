@@ -22,6 +22,18 @@ import {
   type CommandContext,
 } from './commands';
 import { GlobalsPanel } from './panels/globalsPanel';
+import {
+  ListCollectionsTool,
+  GetCollectionTool,
+  ListRequestsTool,
+  GetRequestTool,
+  ListEnvironmentsTool,
+  SetEnvironmentTool,
+  ResolveVariablesTool,
+  SendRequestTool,
+  ValidateCollectionTool,
+  SendRawRequestTool,
+} from './copilot/tools';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // ── Services ───────────────────────────────────────────────────
@@ -115,6 +127,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ...registerImportCommands(cmdCtx),
   );
 
+  // ── Language Model Tools ──────────────────────────────────────
+
+  registerLanguageModelTools(context, collectionService, environmentService, httpClient, secretService);
+
   // ── Status Bar ─────────────────────────────────────────────────
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -195,4 +211,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
   // All disposables handled via context.subscriptions
+}
+
+// ── Language Model Tools ──────────────────────────────────────────
+
+function registerLanguageModelTools(
+  context: vscode.ExtensionContext,
+  collectionService: CollectionService,
+  environmentService: EnvironmentService,
+  httpClient: HttpClient,
+  secretService: SecretService,
+): void {
+  // Guard: vscode.lm.registerTool may not exist on older VS Code or non-VS Code editors
+  if (typeof vscode.lm?.registerTool !== 'function') {
+    return;
+  }
+
+  const schemaPath = vscode.Uri.joinPath(context.extensionUri, 'schema', 'opencollectionschema.json').fsPath;
+
+  context.subscriptions.push(
+    vscode.lm.registerTool('missio_list_collections', new ListCollectionsTool(collectionService)),
+    vscode.lm.registerTool('missio_get_collection', new GetCollectionTool(collectionService)),
+    vscode.lm.registerTool('missio_list_requests', new ListRequestsTool(collectionService)),
+    vscode.lm.registerTool('missio_get_request', new GetRequestTool(collectionService)),
+    vscode.lm.registerTool('missio_list_environments', new ListEnvironmentsTool(collectionService, environmentService)),
+    vscode.lm.registerTool('missio_set_environment', new SetEnvironmentTool(collectionService, environmentService)),
+    vscode.lm.registerTool('missio_resolve_variables', new ResolveVariablesTool(collectionService, environmentService)),
+    vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, httpClient)),
+    vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
+    vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, environmentService, secretService)),
+  );
 }

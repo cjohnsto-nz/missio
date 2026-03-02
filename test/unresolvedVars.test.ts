@@ -221,6 +221,37 @@ describe('unresolvedVars', () => {
     expect(result).toHaveLength(2);
   });
 
+  it('uses environment override when resolving unresolved vars', async () => {
+    const collection = makeCollection([], undefined, {
+      environments: [
+        {
+          name: 'dev',
+          variables: [{ name: 'host', value: 'dev.example.com' }],
+        },
+      ],
+    });
+
+    const request = makeRequest({
+      url: 'https://{{host}}/api',
+    });
+
+    const withoutOverride = await detectUnresolvedVars(
+      request,
+      collection,
+      service,
+    );
+    expect(withoutOverride).toEqual(['host']);
+
+    const withOverride = await detectUnresolvedVars(
+      request,
+      collection,
+      service,
+      undefined,
+      'dev',
+    );
+    expect(withOverride).toEqual([]);
+  });
+
   // ── forceAuthInherit ─────────────────────────────────────────────────
 
   it('forceAuthInherit: uses collection auth, ignoring request auth', async () => {

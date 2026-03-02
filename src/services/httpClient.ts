@@ -39,13 +39,14 @@ export class HttpClient implements vscode.Disposable {
     folderDefaults?: import('../models/types').RequestDefaults,
     onProgress?: (message: string) => void,
     extraVariables?: Map<string, string>,
+    environmentName?: string,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
     const _mark = (label: string, start: number) => { _timing.push({ label, start: start - t0, end: Date.now() - t0 }); };
     _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
     let tPhase = Date.now();
-    const variables = await this._environmentService.resolveVariables(collection, folderDefaults);
+    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     // Merge ephemeral extra variables (e.g. user-prompted values for unresolved vars)
     if (extraVariables) {
       for (const [k, v] of extraVariables) variables.set(k, v);
@@ -76,9 +77,11 @@ export class HttpClient implements vscode.Disposable {
       urlObj.search = '';
       for (const p of allQueryParams) {
         if (p.disabled) continue;
+        const resolvedValue = this._environmentService.interpolate(p.value, variables);
+        if (resolvedValue === '') continue; // Skip empty-value params
         urlObj.searchParams.set(
           this._environmentService.interpolate(p.name, variables),
-          this._environmentService.interpolate(p.value, variables),
+          resolvedValue,
         );
       }
       url = urlObj.toString();
@@ -127,9 +130,18 @@ export class HttpClient implements vscode.Disposable {
     tPhase = Date.now();
     // Auth: request -> folder -> collection (first non-inherit wins)
     // forceAuthInherit: skip request/folder auth, go straight to collection
+    // If the inherited auth is incomplete, fall back to the normal chain
     let auth: Auth | undefined;
     if (collection.data.config?.forceAuthInherit) {
-      auth = collection.data.request?.auth;
+      const collectionAuth = collection.data.request?.auth;
+      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
+        auth = collectionAuth;
+      } else {
+        // Fall back to normal chain when collection auth is incomplete
+        auth = request.runtime?.auth;
+        if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+        if (!auth || auth === 'inherit') auth = collectionAuth;
+      }
     } else {
       auth = request.runtime?.auth;
       if (!auth || auth === 'inherit') {
@@ -141,7 +153,7 @@ export class HttpClient implements vscode.Disposable {
     }
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
-        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
+        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
       } else {
         this._applyAuth(auth, headers, variables);
       }
@@ -308,7 +320,11 @@ export class HttpClient implements vscode.Disposable {
           };
           headers['Content-Type'] = contentTypes[body.type] ?? 'text/plain';
         }
-        return this._environmentService.interpolate(body.data, variables);
+        // Use JSON-aware interpolation for JSON bodies so "{{var}}" with numeric/boolean/null
+        // values produces typed JSON (e.g. 42 instead of "42")
+        return body.type === 'json'
+          ? this._environmentService.interpolateJson(body.data, variables)
+          : this._environmentService.interpolate(body.data, variables);
       }
       case 'form-urlencoded': {
         if (!headers['Content-Type'] && !headers['content-type']) {
@@ -357,6 +373,7 @@ export class HttpClient implements vscode.Disposable {
     headers: Record<string, string>,
     variables: Map<string, string>,
     collection: MissioCollection,
+    environmentName?: string,
   ): Promise<void> {
     if (!this._oauth2Service) {
       throw new Error('OAuth2 service not available');
@@ -409,11 +426,26 @@ export class HttpClient implements vscode.Disposable {
 
     const interpolated: AuthOAuth2 = base;
 
-    const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+    const envName = environmentName ?? this._environmentService.getActiveEnvironmentName(collection.id);
     const token = await this._oauth2Service.getToken(interpolated, collection.id, envName);
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
+    switch (auth.type) {
+      case 'basic':
+        return !!(auth.username || auth.password);
+      case 'bearer':
+        return !!auth.token;
+      case 'apikey':
+        return !!auth.key;
+      case 'oauth2':
+        return true; // OAuth2 has its own validation path
+      default:
+        return true;
     }
   }
 

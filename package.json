@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -511,56 +511,56 @@
         "id": "missio.methodGet",
         "description": "GET method color",
         "defaults": {
-          "dark": "#89d185",
-          "light": "#388a34"
+          "dark": "#9cd8a4",
+          "light": "#2e7d32"
         }
       },
       {
         "id": "missio.methodPost",
         "description": "POST method color",
         "defaults": {
-          "dark": "#d18616",
-          "light": "#d18616"
+          "dark": "#f7e698",
+          "light": "#b8860b"
         }
       },
       {
         "id": "missio.methodPut",
         "description": "PUT method color",
         "defaults": {
-          "dark": "#3794ff",
-          "light": "#1a85ff"
+          "dark": "#8aabeb",
+          "light": "#1565c0"
         }
       },
       {
         "id": "missio.methodPatch",
         "description": "PATCH method color",
         "defaults": {
-          "dark": "#b180d7",
-          "light": "#652d90"
+          "dark": "#b9aad9",
+          "light": "#6a1b9a"
         }
       },
       {
         "id": "missio.methodDelete",
         "description": "DELETE method color",
         "defaults": {
-          "dark": "#f14c4c",
-          "light": "#e51400"
+          "dark": "#dfa195",
+          "light": "#c62828"
         }
       },
       {
         "id": "missio.methodHead",
         "description": "HEAD method color",
         "defaults": {
-          "dark": "#11a8cd",
-          "light": "#0598bc"
+          "dark": "#9cd8a4",
+          "light": "#2e7d32"
         }
       },
       {
         "id": "missio.methodOptions",
         "description": "OPTIONS method color",
         "defaults": {
-          "dark": "#bc3fbc",
-          "light": "#bc05bc"
+          "dark": "#d16faa",
+          "light": "#ad1457"
         }
       }
     ],
@@ -641,6 +641,274 @@
         }
       }
     },
+    "languageModelTools": [
+      {
+        "name": "missio_list_collections",
+        "displayName": "List API Collections",
+        "modelDescription": "List all OpenCollection API collections discovered in the workspace. Returns collection IDs, names, root directories, and environment counts. Use this first to discover what collections are available before using other Missio tools.",
+        "userDescription": "List all API collections in the workspace.",
+        "toolReferenceName": "missio_list_collections",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(folder-library)",
+        "tags": ["api", "rest", "collections", "missio"]
+      },
+      {
+        "name": "missio_get_collection",
+        "displayName": "Get Collection Details",
+        "modelDescription": "Read a collection definition. By default returns the full OpenCollection definition (config, environments, request defaults, auth, headers, variables, secret providers). Pass summary: true for a lightweight overview (name, root path, environment names, request count, variable count) — use this first for large collections to avoid flooding context.",
+        "userDescription": "Get full details for an API collection.",
+        "toolReferenceName": "missio_get_collection",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file-code)",
+        "tags": ["api", "rest", "collections", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            },
+            "summary": {
+              "type": "boolean",
+              "description": "If true, return a lightweight summary (name, environments, request count) instead of the full definition. Recommended as a first call for large collections."
+            }
+          }
+        }
+      },
+      {
+        "name": "missio_list_requests",
+        "displayName": "List API Requests",
+        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and templateVariables (raw {{placeholder}} names found in the request template with placement context: url/params/headers/body/auth). This is a template-only scan (no environment resolution). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
+        "userDescription": "List all requests in an API collection.",
+        "toolReferenceName": "missio_list_requests",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(list-tree)",
+        "tags": ["api", "rest", "requests", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            },
+            "folder": {
+              "type": "string",
+              "description": "Optional folder path prefix to filter requests (e.g. 'Diagrams'). Case-insensitive prefix match."
+            }
+          }
+        }
+      },
+      {
+        "name": "missio_get_request",
+        "displayName": "Get Request Details",
+        "modelDescription": "Read a single request .yml file and return its full definition including info, http (method, url, headers, params, body), runtime (auth, variables), settings, and examples. Use the requestFilePath returned by missio_list_requests.",
+        "userDescription": "Get full details for an API request.",
+        "toolReferenceName": "missio_get_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(file)",
+        "tags": ["api", "rest", "requests", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "requestFilePath": {
+              "type": "string",
+              "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
+            }
+          },
+          "required": ["requestFilePath"]
+        }
+      },
+      {
+        "name": "missio_list_environments",
+        "displayName": "List Environments",
+        "modelDescription": "List all environments defined in a collection, with variable counts and which environment is currently active. collectionId is optional when only one collection is loaded.",
+        "userDescription": "List environments for an API collection.",
+        "toolReferenceName": "missio_list_environments",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(server-environment)",
+        "tags": ["api", "environments", "variables", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            }
+          }
+        }
+      },
+      {
+        "name": "missio_set_environment",
+        "displayName": "Set Active Environment",
+        "modelDescription": "Set the active environment for a collection. This affects variable resolution and request execution. collectionId is optional when only one collection is loaded.",
+        "userDescription": "Set the active environment for an API collection.",
+        "toolReferenceName": "missio_set_environment",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(settings-gear)",
+        "tags": ["api", "environments", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            },
+            "environmentName": {
+              "type": "string",
+              "description": "Name of the environment to activate."
+            }
+          },
+          "required": ["environmentName"]
+        }
+      },
+      {
+        "name": "missio_resolve_variables",
+        "displayName": "Resolve Variables",
+        "modelDescription": "Resolve all variables for a collection, returning the full variable map with source information (global, collection, folder, environment, dotenv, secret). Optionally specify an environment name to preview resolution without changing the active environment. Pass a requestFilePath to include folder-scoped variables from that request's parent directory.",
+        "userDescription": "Resolve all variables for an API collection.",
+        "toolReferenceName": "missio_resolve_variables",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(symbol-variable)",
+        "tags": ["api", "variables", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name to use instead of the active environment. Does not change the active environment — stateless preview."
+            },
+            "requestFilePath": {
+              "type": "string",
+              "description": "Optional path to a request file. If provided, folder-level variables from the request's parent directory are included in resolution. Can be absolute or relative to collection root."
+            }
+          }
+        }
+      },
+      {
+        "name": "missio_send_request",
+        "displayName": "Send HTTP Request",
+        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request (URL, headers, auth, and body) and returns unresolvedVariables; any listed must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom JSON body that is not templated, use missio_send_raw_request instead.",
+        "userDescription": "Send an HTTP request from an API collection.",
+        "toolReferenceName": "missio_send_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(play)",
+        "tags": ["api", "rest", "http", "send", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "requestFilePath": {
+              "type": "string",
+              "description": "Path to the request .yml file. Can be absolute (as returned by missio_list_requests) or relative to the collection root (e.g. 'Diagrams/List.yml')."
+            },
+            "collectionId": {
+              "type": "string",
+              "description": "Optional collection ID to disambiguate when multiple collections exist. If omitted, inferred from the requestFilePath."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name for this request only. Does NOT change the active environment — stateless per-request override. Use missio_list_environments to see available names."
+            },
+            "variables": {
+              "type": "object",
+              "description": "Optional key-value pairs to override or supplement resolved variables. Highest priority — merged after all other sources (environment, collection, folder, dotenv). Use this to fill unresolved {{placeholders}} or swap values like baseUrl. Values may be strings, numbers, booleans, or null — non-string values are preserved as typed JSON literals in JSON request bodies (e.g. {\"index\": 0} produces a JSON number, not a string)."
+            },
+            "dryRun": {
+              "type": "boolean",
+              "description": "If true, resolve all variables and return the interpolated method, URL, headers, and body without actually sending the request. Useful for verifying variable resolution and JSON type coercion before a live send."
+            },
+            "responseOutputPath": {
+              "type": "string",
+              "description": "Optional absolute file path to write the full (untruncated) response body to. Use this when the response exceeds 10 000 chars. Parent directories are created automatically."
+            },
+            "extract": {
+              "type": "object",
+              "description": "Optional dot-path extraction from JSON response body. Keys are your chosen names, values are dot-path expressions (e.g. {\"firstId\": \"data[0].id\", \"total\": \"meta.total\"}). Extracted values are returned in an 'extracted' field.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["requestFilePath"]
+        }
+      },
+      {
+        "name": "missio_validate_collection",
+        "displayName": "Validate Collection",
+        "modelDescription": "Validate an entire collection directory against the OpenCollection JSON Schema. Returns a per-file pass/fail report with error details. collectionId is optional when only one collection is loaded.",
+        "userDescription": "Validate an API collection against the OpenCollection schema.",
+        "toolReferenceName": "missio_validate_collection",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(check-all)",
+        "tags": ["api", "validation", "schema", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "collectionId": {
+              "type": "string",
+              "description": "Collection ID from missio_list_collections. Optional when only one collection is loaded (auto-selected)."
+            }
+          }
+        }
+      },
+      {
+        "name": "missio_send_raw_request",
+        "displayName": "Send Raw HTTP Request",
+        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL supports {{variable}} interpolation from the active collection/environment. Body can be a JSON object (sent as application/json) or a string. Auth is inherited from the collection if one is loaded. Response body is truncated to 10 000 chars — use responseOutputPath for the full body. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
+        "userDescription": "Send an ad-hoc HTTP request without a collection file.",
+        "toolReferenceName": "missio_send_raw_request",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(zap)",
+        "tags": ["api", "rest", "http", "send", "raw", "missio"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "type": "string",
+              "description": "HTTP method (GET, POST, PUT, PATCH, DELETE, etc.)."
+            },
+            "url": {
+              "type": "string",
+              "description": "Request URL. Supports {{variable}} interpolation if a collection is loaded (e.g. {{baseUrl}}/api/items)."
+            },
+            "headers": {
+              "type": "object",
+              "description": "Optional HTTP headers as key-value pairs. Values support {{variable}} interpolation."
+            },
+            "body": {
+              "description": "Optional request body. Pass a JSON object (auto-serialized, Content-Type set to application/json) or a string (interpolated with {{variables}}). For JSON APIs, pass the object directly — no string escaping needed."
+            },
+            "collectionId": {
+              "type": "string",
+              "description": "Optional collection ID for variable resolution and auth inheritance. Auto-selected when only one collection is loaded."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name for variable resolution. Does not change the active environment."
+            },
+            "variables": {
+              "type": "object",
+              "description": "Optional variable overrides. Highest priority — merged after all other sources."
+            },
+            "responseOutputPath": {
+              "type": "string",
+              "description": "Optional absolute file path to write the full (untruncated) response body to. Use this when the response exceeds 10 000 chars."
+            },
+            "extract": {
+              "type": "object",
+              "description": "Optional dot-path extraction from JSON response body. Keys are your chosen names, values are dot-path expressions (e.g. {\"id\": \"data[0].id\"}).",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["method", "url"]
+        }
+      }
+    ],
     "yamlValidation": [
       {
         "fileMatch": "opencollection.yml",

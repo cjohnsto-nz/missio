@@ -33,12 +33,15 @@ function scanAllStrings(obj: unknown, into: Set<string>): void {
  * excluding builtins and $secret.* references.
  * Handles nested variables (e.g. api_url = "https://{{host}}/{{version}}")
  * and the inherited auth chain (request → folder → collection).
+ * If environmentName is provided, variable resolution uses that environment
+ * instead of the currently active one.
  */
 export async function detectUnresolvedVars(
   requestData: HttpRequest,
   collection: MissioCollection,
   environmentService: EnvironmentService,
   folderDefaults?: RequestDefaults,
+  environmentName?: string,
 ): Promise<string[]> {
   const varNames = new Set<string>();
   const scan = (s: string | undefined) => extractVarNames(s, varNames);
@@ -79,7 +82,7 @@ export async function detectUnresolvedVars(
   if (varNames.size === 0) return [];
 
   // Resolve variables, then find which referenced names remain unresolved
-  const resolved = await environmentService.resolveVariables(collection, folderDefaults);
+  const resolved = await environmentService.resolveVariables(collection, folderDefaults, environmentName);
 
   const unresolved = new Set<string>();
 

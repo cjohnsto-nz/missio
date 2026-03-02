@@ -47,13 +47,13 @@
   --m-status-badge-text: #000;
 
   /* HTTP methods */
-  --m-method-get:  #9cd8a4;
-  --m-method-post: #f7e698;
-  --m-method-put: #8aabeb;
-  --m-method-patch: #b9aad9;
-  --m-method-delete: #dfa195;
-  --m-method-head: #9cd8a4;
-  --m-method-options: #d16faa;
+  --m-method-get: var(--vscode-missio-methodGet, #9cd8a4);
+  --m-method-post: var(--vscode-missio-methodPost, #f7e698);
+  --m-method-put: var(--vscode-missio-methodPut, #8aabeb);
+  --m-method-patch: var(--vscode-missio-methodPatch, #b9aad9);
+  --m-method-delete: var(--vscode-missio-methodDelete, #dfa195);
+  --m-method-head: var(--vscode-missio-methodHead, #9cd8a4);
+  --m-method-options: var(--vscode-missio-methodOptions, #d16faa);
 
   /* Syntax tokens */
   --m-tk-key: #9cdcfe;
@@ -156,13 +156,13 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --m-tk-bracket: #0431fa;
 
   /* HTTP methods (deeper for light backgrounds) */
-  --m-method-get: #2e7d32;
-  --m-method-post: #b8860b;
-  --m-method-put: #1565c0;
-  --m-method-patch: #6a1b9a;
-  --m-method-delete: #c62828;
-  --m-method-head: #2e7d32;
-  --m-method-options: #ad1457;
+  --m-method-get: var(--vscode-missio-methodGet, #2e7d32);
+  --m-method-post: var(--vscode-missio-methodPost, #b8860b);
+  --m-method-put: var(--vscode-missio-methodPut, #1565c0);
+  --m-method-patch: var(--vscode-missio-methodPatch, #6a1b9a);
+  --m-method-delete: var(--vscode-missio-methodDelete, #c62828);
+  --m-method-head: var(--vscode-missio-methodHead, #2e7d32);
+  --m-method-options: var(--vscode-missio-methodOptions, #ad1457);
 
   /* Variable highlighting */
   --m-var-color: #795e26;

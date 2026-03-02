@@ -32,7 +32,29 @@ export class CollectionService implements vscode.Disposable {
   }
 
   getCollection(id: string): MissioCollection | undefined {
-    return this._collections.get(id);
+    // Exact match first
+    let result = this._collections.get(id);
+    if (result) return result;
+
+    // Normalize path separators and try case-insensitive match
+    // (LLMs often normalise Windows backslashes to forward slashes)
+    const norm = path.normalize(id).toLowerCase();
+    for (const [key, val] of this._collections) {
+      if (path.normalize(key).toLowerCase() === norm) return val;
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a collection by optional ID with single-collection auto-selection.
+   * If id is provided, performs a path-normalized lookup.
+   * If id is omitted and exactly one collection is loaded, returns it.
+   * Used by Copilot tools where collectionId may be omitted.
+   */
+  resolveCollection(id?: string): MissioCollection | undefined {
+    if (id) return this.getCollection(id);
+    const all = this.getCollections();
+    return all.length === 1 ? all[0] : undefined;
   }
 
   getWorkspaces(): OpenCollectionWorkspace[] {
