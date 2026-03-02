@@ -11,6 +11,7 @@ import type {
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
+import type { CliAuthApprovalService } from './cliAuthApproval';
 
 const _logChannel = vscode.window.createOutputChannel('Missio Requests');
 function _log(msg: string): void {
@@ -24,13 +25,21 @@ interface CliTokenCacheEntry {
   expiresAt: number; // epoch ms
 }
 
+/** Callback to prompt user for CLI command approval. Returns true if approved. */
+export type CliApprovalPrompt = (commandTemplate: string, interpolatedCommand: string) => Promise<boolean>;
+
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
   private _secretService: SecretService | undefined;
+  private _cliAuthApprovalService: CliAuthApprovalService | undefined;
   private _cliTokenCache: Map<string, CliTokenCacheEntry> = new Map();
 
   constructor(private readonly _environmentService: EnvironmentService) {}
+
+  setCliAuthApprovalService(service: CliAuthApprovalService): void {
+    this._cliAuthApprovalService = service;
+  }
 
   setOAuth2Service(oauth2Service: OAuth2Service): void {
     this._oauth2Service = oauth2Service;
@@ -47,6 +56,7 @@ export class HttpClient implements vscode.Disposable {
     onProgress?: (message: string) => void,
     extraVariables?: Map<string, string>,
     environmentName?: string,
+    cliApprovalPrompt?: CliApprovalPrompt,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
@@ -162,7 +172,7 @@ export class HttpClient implements vscode.Disposable {
       if (auth.type === 'oauth2') {
         await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
       } else if (auth.type === 'cli') {
-        await this._applyCliAuth(auth as AuthCli, headers, variables, collection);
+        await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
       } else {
         this._applyAuth(auth, headers, variables);
       }
@@ -464,9 +474,12 @@ export class HttpClient implements vscode.Disposable {
     headers: Record<string, string>,
     variables: Map<string, string>,
     collection: MissioCollection,
+    approvalPrompt?: CliApprovalPrompt,
   ): Promise<void> {
+    const commandTemplate = auth.command;
+
     // Interpolate command with variables
-    let command = this._environmentService.interpolate(auth.command, variables);
+    let command = this._environmentService.interpolate(commandTemplate, variables);
 
     // Resolve $secret references in command
     const providers = collection.data.config?.secretProviders ?? [];
@@ -485,6 +498,21 @@ export class HttpClient implements vscode.Disposable {
         this._setCliTokenHeader(headers, auth, cached.token);
         return;
       }
+    }
+
+    // Check if the fully interpolated command is approved
+    if (this._cliAuthApprovalService && !this._cliAuthApprovalService.isApproved(command)) {
+      _log(`  CLI auth: command not approved, prompting user`);
+      if (!approvalPrompt) {
+        throw new Error('CLI auth command requires approval but no approval prompt available');
+      }
+      const approved = await approvalPrompt(commandTemplate, command);
+      if (!approved) {
+        throw new Error('CLI auth command was not approved by user');
+      }
+      // Store approval for the interpolated command
+      await this._cliAuthApprovalService.approve(command);
+      _log(`  CLI auth: command approved and stored`);
     }
 
     // Execute command

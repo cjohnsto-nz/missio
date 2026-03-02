@@ -1578,3 +1578,34 @@ td.var-cell .var-overlay {
   cursor: pointer;
 }
 .uv-modal-send:hover { opacity: 0.9; }
+
+/* ── CLI Approval Modal ─────────────────── */
+.cli-approval-command {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.cli-approval-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 200, 0, 0.1);
+  border: 1px solid rgba(255, 200, 0, 0.3);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--badge-warn);
+  line-height: 1.4;
+}
+.cli-approval-warning-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
