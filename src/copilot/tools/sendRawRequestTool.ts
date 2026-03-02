@@ -69,7 +69,7 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
     if (collection && !headers['Authorization'] && !headers['authorization']) {
       const auth = collection.data.request?.auth;
       if (auth && auth !== 'inherit') {
-        this._applyBasicAuth(auth, headers, varMap);
+        url = this._applyCollectionAuth(auth, headers, varMap, url);
       }
     }
 
@@ -135,14 +135,20 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
           }
 
           const responseBody = buffer.toString('utf-8');
+          const warnings: string[] = [];
 
           // Write response body to file if requested
+          let savedTo: string | undefined;
           if (responseOutputPath) {
             try {
               const dir = path.dirname(responseOutputPath);
               if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
               fs.writeFileSync(responseOutputPath, responseBody, 'utf-8');
-            } catch { /* non-fatal */ }
+              savedTo = responseOutputPath;
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              warnings.push(`Failed to write responseOutputPath "${responseOutputPath}": ${message}`);
+            }
           }
 
           const result: Record<string, unknown> = {
@@ -157,7 +163,8 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
             size: buffer.length,
           };
 
-          if (responseOutputPath) result.savedTo = responseOutputPath;
+          if (warnings.length > 0) result.warnings = warnings;
+          if (savedTo) result.savedTo = savedTo;
 
           // Extract values from JSON response body
           if (extract && responseBody) {
@@ -207,36 +214,44 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
 
   // ── Helpers ──
 
-  private _applyBasicAuth(
+  private _applyCollectionAuth(
     auth: Exclude<import('../../models/types').Auth, 'inherit'>,
     headers: Record<string, string>,
     variables: Map<string, string>,
-  ): void {
+    url: string,
+  ): string {
     switch (auth.type) {
       case 'bearer':
         if (auth.token) {
           headers['Authorization'] = `Bearer ${this._environmentService.interpolate(auth.token, variables)}`;
         }
-        break;
+        return url;
       case 'basic':
         if (auth.username) {
           const user = this._environmentService.interpolate(auth.username, variables);
           const pass = this._environmentService.interpolate(auth.password ?? '', variables);
           headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
         }
-        break;
+        return url;
       case 'apikey':
         if (auth.key && auth.value) {
           const key = this._environmentService.interpolate(auth.key, variables);
           const val = this._environmentService.interpolate(auth.value, variables);
           if (auth.placement === 'query') {
-            // Can't easily modify URL at this point, add as header instead
-            headers[key] = val;
+            try {
+              const parsed = new URL(url);
+              parsed.searchParams.set(key, val);
+              return parsed.toString();
+            } catch {
+              headers[key] = val;
+            }
           } else {
             headers[key] = val;
           }
         }
-        break;
+        return url;
+      default:
+        return url;
     }
   }
 

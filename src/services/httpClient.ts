@@ -171,7 +171,7 @@ export class HttpClient implements vscode.Disposable {
     let cliApprovalWaitMs = 0;
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
-        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection);
+        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
       } else if (auth.type === 'cli') {
         cliApprovalWaitMs = await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
       } else {
@@ -399,6 +399,7 @@ export class HttpClient implements vscode.Disposable {
     headers: Record<string, string>,
     variables: Map<string, string>,
     collection: MissioCollection,
+    environmentName?: string,
   ): Promise<void> {
     if (!this._oauth2Service) {
       throw new Error('OAuth2 service not available');
@@ -451,7 +452,7 @@ export class HttpClient implements vscode.Disposable {
 
     const interpolated: AuthOAuth2 = base;
 
-    const envName = this._environmentService.getActiveEnvironmentName(collection.id);
+    const envName = environmentName ?? this._environmentService.getActiveEnvironmentName(collection.id);
     const token = await this._oauth2Service.getToken(interpolated, collection.id, envName);
 
     if (token) {

@@ -1,12 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { parse as parseYaml } from 'yaml';
 import { OpenApiImporter } from '../src/importers/openApiImporter';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const TMP_DIR = path.resolve(__dirname, '.tmp-openapi-test');
+let TMP_DIR = '';
 
 function makeSpec(overrides: any = {}): any {
   return {
@@ -44,11 +45,36 @@ function readYaml(filePath: string): any {
   return parseYaml(fs.readFileSync(filePath, 'utf-8'));
 }
 
-function rmrf(dir: string) {
-  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+function _isTransientRmError(e: unknown): boolean {
+  const code = (e as { code?: string })?.code;
+  return code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY';
 }
 
-afterEach(() => rmrf(TMP_DIR));
+async function rmrf(dir: string): Promise<void> {
+  if (!dir || !fs.existsSync(dir)) return;
+
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if (!_isTransientRmError(e)) throw e;
+      await new Promise(resolve => setTimeout(resolve, attempt * 30));
+    }
+  }
+
+  // Best-effort cleanup: avoid failing tests due transient Windows file locks.
+  try { await fs.promises.rm(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+
+beforeEach(() => {
+  TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-openapi-test-'));
+});
+
+afterEach(async () => {
+  await rmrf(TMP_DIR);
+  TMP_DIR = '';
+});
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -584,78 +610,7 @@ describe('OpenApiImporter', () => {
   // ── Auth / security schemes ───────────────────────────────────────
 
   describe('auth', () => {
-    it('converts bearer auth from global security', async () => {
-      const spec = makeSpec({
-        security: [{ bearerAuth: [] }],
-        components: {
-          securitySchemes: {
-            bearerAuth: { type: 'http', scheme: 'bearer' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'bearer', token: '' });
-    });
-
-    it('converts basic auth', async () => {
-      const spec = makeSpec({
-        security: [{ basicAuth: [] }],
-        components: {
-          securitySchemes: {
-            basicAuth: { type: 'http', scheme: 'basic' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'basic', username: '', password: '' });
-    });
-
-    it('converts apiKey auth', async () => {
-      const spec = makeSpec({
-        security: [{ apiKey: [] }],
-        components: {
-          securitySchemes: {
-            apiKey: { type: 'apiKey', name: 'X-API-Key', in: 'header' },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth).toEqual({ type: 'apikey', key: 'X-API-Key', value: '', placement: 'header' });
-    });
-
-    it('converts OAuth2 client_credentials', async () => {
-      const spec = makeSpec({
-        security: [{ oauth: [] }],
-        components: {
-          securitySchemes: {
-            oauth: {
-              type: 'oauth2',
-              flows: {
-                clientCredentials: {
-                  tokenUrl: 'https://auth.example.com/token',
-                  scopes: { 'read:users': 'Read users', 'write:users': 'Write users' },
-                },
-              },
-            },
-          },
-        },
-      });
-      const file = writeSpecJson(spec);
-      const result = await importer.import(file, TMP_DIR);
-      const coll = readYaml(result.collectionFile);
-      expect(coll.request.auth.type).toBe('oauth2');
-      expect(coll.request.auth.flow).toBe('client_credentials');
-      expect(coll.request.auth.accessTokenUrl).toBe('https://auth.example.com/token');
-      expect(coll.request.auth.scope).toBe('read:users write:users');
-    });
-
-    it('sets inherit when operation has no security override', async () => {
+    it('applies global bearer auth to operations without overrides', async () => {
       const spec = makeSpec({
         security: [{ bearerAuth: [] }],
         components: {
@@ -672,7 +627,100 @@ describe('OpenApiImporter', () => {
       const file = writeSpecJson(spec);
       const result = await importer.import(file, TMP_DIR);
       const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'bearer', token: '' });
+    });
+
+    it('applies global basic auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ basicAuth: [] }],
+        components: {
+          securitySchemes: {
+            basicAuth: { type: 'http', scheme: 'basic' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'basic', username: '', password: '' });
+    });
+
+    it('applies global apiKey auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ apiKey: [] }],
+        components: {
+          securitySchemes: {
+            apiKey: { type: 'apiKey', name: 'X-API-Key', in: 'header' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth).toEqual({ type: 'apikey', key: 'X-API-Key', value: '', placement: 'header' });
+    });
+
+    it('applies global OAuth2 client_credentials auth to operations without overrides', async () => {
+      const spec = makeSpec({
+        security: [{ oauth: [] }],
+        components: {
+          securitySchemes: {
+            oauth: {
+              type: 'oauth2',
+              flows: {
+                clientCredentials: {
+                  tokenUrl: 'https://auth.example.com/token',
+                  scopes: { 'read:users': 'Read users', 'write:users': 'Write users' },
+                },
+              },
+            },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
+      expect(req.runtime.auth.type).toBe('oauth2');
+      expect(req.runtime.auth.flow).toBe('client_credentials');
+      expect(req.runtime.auth.accessTokenUrl).toBe('https://auth.example.com/token');
+      expect(req.runtime.auth.scope).toBe('read:users write:users');
+    });
+
+    it('sets operation auth to inherit when operation security is explicitly empty', async () => {
+      const spec = makeSpec({
+        security: [{ bearerAuth: [] }],
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer' },
+          },
+        },
+        paths: {
+          '/users': {
+            get: { summary: 'List', security: [], responses: {} },
+          },
+        },
+      });
+      const file = writeSpecJson(spec);
+      const result = await importer.import(file, TMP_DIR);
+      const req = readYaml(path.join(result.collectionDir, 'List.yml'));
       expect(req.runtime.auth).toBe('inherit');
+      const coll = readYaml(result.collectionFile);
+      expect(coll.request?.auth).toBeUndefined();
     });
   });
 

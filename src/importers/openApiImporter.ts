@@ -54,17 +54,13 @@ export class OpenApiImporter implements CollectionImporter {
       collection.request.variables = collVars;
     }
 
-    // Global security → collection-level auth
+    // Global security (applied per operation so operation security: [] can disable auth)
     const defaultAuth = this.getDefaultAuth(spec);
-    if (defaultAuth) {
-      collection.request = collection.request || {};
-      collection.request.auth = defaultAuth;
-    }
 
     collection.config = { environments: [] };
 
     // Process paths into folders and requests
-    const counts = this.processPaths(spec, collDir);
+    const counts = this.processPaths(spec, collDir, defaultAuth);
 
     // Write opencollection.yml
     const collFile = path.join(collDir, 'opencollection.yml');
@@ -111,7 +107,7 @@ export class OpenApiImporter implements CollectionImporter {
 
   // ── Path processing ─────────────────────────────────────────────────
 
-  private processPaths(spec: any, collDir: string): { requests: number; folders: number } {
+  private processPaths(spec: any, collDir: string, defaultAuth: any | null): { requests: number; folders: number } {
     // Collect operations grouped by tag
     const tagGroups = new Map<string, { method: string; path: string; op: any; pathItem: any }[]>();
     const untagged: { method: string; path: string; op: any; pathItem: any }[] = [];
@@ -146,7 +142,7 @@ export class OpenApiImporter implements CollectionImporter {
     const rootCounters = new Map<string, number>();
     for (const entry of untagged) {
       seq++;
-      const req = this.convertOperation(entry, spec, seq);
+      const req = this.convertOperation(entry, spec, seq, defaultAuth);
       const name = this.uniqueName(this.sanitizePath(req.info.name), rootCounters);
       const reqFile = path.join(collDir, name + '.yml');
       fs.writeFileSync(reqFile, stringifyYaml(req, { lineWidth: 120 }), 'utf-8');
@@ -180,7 +176,7 @@ export class OpenApiImporter implements CollectionImporter {
       const opCounters = new Map<string, number>();
       for (const entry of ops) {
         seq++;
-        const req = this.convertOperation(entry, spec, seq);
+        const req = this.convertOperation(entry, spec, seq, defaultAuth);
         const name = this.uniqueName(this.sanitizePath(req.info.name), opCounters);
         const reqFile = path.join(folderDir, name + '.yml');
         fs.writeFileSync(reqFile, stringifyYaml(req, { lineWidth: 120 }), 'utf-8');
@@ -197,6 +193,7 @@ export class OpenApiImporter implements CollectionImporter {
     entry: { method: string; path: string; op: any; pathItem: any },
     spec: any,
     seq: number,
+    defaultAuth: any | null,
   ): any {
     const { method, path: pathStr, op, pathItem } = entry;
     const name = op.summary || op.operationId || `${method.toUpperCase()} ${pathStr}`;
@@ -236,12 +233,7 @@ export class OpenApiImporter implements CollectionImporter {
     }
 
     // Auth → runtime.auth per OpenCollection schema
-    const opAuth = this.getOperationAuth(op, spec);
-    if (opAuth) {
-      request.runtime = { auth: opAuth };
-    } else {
-      request.runtime = { auth: 'inherit' };
-    }
+    request.runtime = { auth: this.getOperationAuth(op, spec, defaultAuth) };
 
     // Request body
     if (op.requestBody) {
@@ -523,10 +515,16 @@ export class OpenApiImporter implements CollectionImporter {
     return this.resolveSecurityRequirement(spec.security[0], spec);
   }
 
-  private getOperationAuth(op: any, spec: any): any | null {
-    if (!op.security) return null;
-    if (op.security.length === 0) return null; // explicit empty = no auth
-    return this.resolveSecurityRequirement(op.security[0], spec);
+  private getOperationAuth(op: any, spec: any, defaultAuth: any | null): any | 'inherit' {
+    // No operation-level security: inherit global default if present.
+    if (!op.security) {
+      return defaultAuth ?? 'inherit';
+    }
+    // Explicit empty security array means "no auth required" for this operation.
+    if (op.security.length === 0) {
+      return 'inherit';
+    }
+    return this.resolveSecurityRequirement(op.security[0], spec) ?? 'inherit';
   }
 
   private resolveSecurityRequirement(req: any, spec: any): any | null {

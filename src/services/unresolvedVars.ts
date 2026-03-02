@@ -33,12 +33,15 @@ function scanAllStrings(obj: unknown, into: Set<string>): void {
  * excluding builtins and $secret.* references.
  * Handles nested variables (e.g. api_url = "https://{{host}}/{{version}}")
  * and the inherited auth chain (request → folder → collection).
+ * If environmentName is provided, variable resolution uses that environment
+ * instead of the currently active one.
  */
 export async function detectUnresolvedVars(
   requestData: HttpRequest,
   collection: MissioCollection,
   environmentService: EnvironmentService,
   folderDefaults?: RequestDefaults,
+  environmentName?: string,
 ): Promise<string[]> {
   const varNames = new Set<string>();
   const scan = (s: string | undefined) => extractVarNames(s, varNames);
@@ -63,14 +66,22 @@ export async function detectUnresolvedVars(
   }
 
   // Auth — walk the effective auth chain (request → folder → collection)
-  // forceAuthInherit: skip request/folder auth, go straight to collection
+  // forceAuthInherit: prefer collection auth; if incomplete, fall back to
+  // request/folder/collection chain to match HttpClient behavior.
   let auth: Auth | undefined;
+  const collectionAuth = collection.data.request?.auth;
   if (collection.data.config?.forceAuthInherit) {
-    auth = collection.data.request?.auth;
+    if (collectionAuth && collectionAuth !== 'inherit' && isAuthComplete(collectionAuth)) {
+      auth = collectionAuth;
+    } else {
+      auth = requestData.runtime?.auth;
+      if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
+      if (!auth || auth === 'inherit') auth = collectionAuth;
+    }
   } else {
     auth = requestData.runtime?.auth;
     if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-    if (!auth || auth === 'inherit') auth = collection.data.request?.auth;
+    if (!auth || auth === 'inherit') auth = collectionAuth;
   }
   if (auth && auth !== 'inherit' && typeof auth === 'object') {
     scanAllStrings(auth, varNames);
@@ -79,7 +90,7 @@ export async function detectUnresolvedVars(
   if (varNames.size === 0) return [];
 
   // Resolve variables, then find which referenced names remain unresolved
-  const resolved = await environmentService.resolveVariables(collection, folderDefaults);
+  const resolved = await environmentService.resolveVariables(collection, folderDefaults, environmentName);
 
   const unresolved = new Set<string>();
 
@@ -162,5 +173,20 @@ function scanBody(body: any, scan: (s: string | undefined) => void): void {
         }
       }
       break;
+  }
+}
+
+function isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
+  switch (auth.type) {
+    case 'basic':
+      return !!(auth.username || auth.password);
+    case 'bearer':
+      return !!auth.token;
+    case 'apikey':
+      return !!auth.key;
+    case 'oauth2':
+      return true;
+    default:
+      return true;
   }
 }
