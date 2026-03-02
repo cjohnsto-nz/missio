@@ -1,12 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { parse as parseYaml } from 'yaml';
 import { OpenApiImporter } from '../src/importers/openApiImporter';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-const TMP_DIR = path.resolve(__dirname, '.tmp-openapi-test');
+let TMP_DIR = '';
 
 function makeSpec(overrides: any = {}): any {
   return {
@@ -44,11 +45,36 @@ function readYaml(filePath: string): any {
   return parseYaml(fs.readFileSync(filePath, 'utf-8'));
 }
 
-function rmrf(dir: string) {
-  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+function _isTransientRmError(e: unknown): boolean {
+  const code = (e as { code?: string })?.code;
+  return code === 'EPERM' || code === 'EBUSY' || code === 'ENOTEMPTY';
 }
 
-afterEach(() => rmrf(TMP_DIR));
+async function rmrf(dir: string): Promise<void> {
+  if (!dir || !fs.existsSync(dir)) return;
+
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    try {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if (!_isTransientRmError(e)) throw e;
+      await new Promise(resolve => setTimeout(resolve, attempt * 30));
+    }
+  }
+
+  // Best-effort cleanup: avoid failing tests due transient Windows file locks.
+  try { await fs.promises.rm(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+
+beforeEach(() => {
+  TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-openapi-test-'));
+});
+
+afterEach(async () => {
+  await rmrf(TMP_DIR);
+  TMP_DIR = '';
+});
 
 // ── Tests ────────────────────────────────────────────────────────────
 
