@@ -240,8 +240,8 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       }
     }
     let auth = request.runtime?.auth;
-    if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-    if (!auth || auth === 'inherit') auth = collectionAuth;
+    if (auth === 'inherit') auth = folderDefaults?.auth;
+    if (auth === 'inherit') auth = collectionAuth;
     return auth;
   }
 

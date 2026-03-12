@@ -273,7 +273,7 @@ export function buildAuthData(type: string, prefix: string): any {
     case 'inherit':
       return 'inherit';
     default:
-      return undefined; // 'none' — delete auth
+      return undefined;
   }
 }
 

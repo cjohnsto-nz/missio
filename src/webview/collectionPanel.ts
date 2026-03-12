@@ -623,13 +623,15 @@ function loadCollection(data: any) {
 
   // Default auth
   const auth = data.request?.auth;
-  if (auth && typeof auth === 'object' && auth.type) {
+  if (auth === 'none') {
+    (getElementByIdOrThrow('defaultAuthType') as HTMLSelectElement).value = 'none';
+  } else if (auth && typeof auth === 'object' && auth.type) {
     (getElementByIdOrThrow('defaultAuthType') as HTMLSelectElement).value = auth.type;
   } else {
     (getElementByIdOrThrow('defaultAuthType') as HTMLSelectElement).value = 'none';
   }
   onDefaultAuthChange();
-  if (auth && typeof auth === 'object' && auth.type) {
+  if (auth && auth !== 'none' && typeof auth === 'object' && auth.type) {
     setTimeout(() => { loadAuthData(auth, 'dAuth'); }, 0);
   }
 

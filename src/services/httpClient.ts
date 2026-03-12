@@ -154,17 +154,17 @@ export class HttpClient implements vscode.Disposable {
       if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
         auth = collectionAuth;
       } else {
-        // Fall back to normal chain when collection auth is incomplete
+        // Fall back to explicit inherit chain when collection auth is incomplete
         auth = request.runtime?.auth;
-        if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-        if (!auth || auth === 'inherit') auth = collectionAuth;
+        if (auth === 'inherit') auth = folderDefaults?.auth;
+        if (auth === 'inherit') auth = collectionAuth;
       }
     } else {
       auth = request.runtime?.auth;
-      if (!auth || auth === 'inherit') {
+      if (auth === 'inherit') {
         auth = folderDefaults?.auth;
       }
-      if (!auth || auth === 'inherit') {
+      if (auth === 'inherit') {
         auth = collection.data.request?.auth;
       }
     }
@@ -601,17 +601,15 @@ export class HttpClient implements vscode.Disposable {
     variables: Map<string, string>,
   ): void {
     switch (auth.type) {
-      case 'basic': {
-        const user = this._environmentService.interpolate(auth.username ?? '', variables);
-        const pass = this._environmentService.interpolate(auth.password ?? '', variables);
-        headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+      case 'basic':
+        headers['Authorization'] = 'Basic ' + Buffer.from(
+          `${this._environmentService.interpolate(auth.username || '', variables)}:${this._environmentService.interpolate(auth.password || '', variables)}`
+        ).toString('base64');
         break;
-      }
-      case 'bearer': {
+      case 'bearer':
         const token = this._environmentService.interpolate(auth.token ?? '', variables);
         headers['Authorization'] = `Bearer ${token}`;
         break;
-      }
       case 'apikey': {
         const key = this._environmentService.interpolate(auth.key ?? '', variables);
         const value = this._environmentService.interpolate(auth.value ?? '', variables);
