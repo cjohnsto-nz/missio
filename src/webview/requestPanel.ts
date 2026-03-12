@@ -1354,6 +1354,7 @@ $('saveExampleBtn').addEventListener('click', () => {
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
+ ($('authType') as HTMLSelectElement).innerHTML = authTypeOptionsHtml(true);
 $('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });
 $('panel-auth').addEventListener('input', scheduleDocumentUpdate);
 $('panel-auth').addEventListener('change', scheduleDocumentUpdate);
