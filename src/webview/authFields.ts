@@ -86,6 +86,19 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
   } else if (type === 'cli') {
     fields.innerHTML =
       `<div class="auth-row"><label>Command</label>${inp(p + 'CliCommand', 'az account get-access-token --query accessToken -o tsv', w)}</div>` +
+      `<div class="auth-row"><label>Presets</label>` +
+        `<select id="${p}CliPreset" class="auth-select">` +
+          `<option value="">Select a preset…</option>` +
+          `<option value="" disabled>Cloud CLIs</option>` +
+          `<option value="az account get-access-token --resource {{resource}} --query accessToken -o tsv">Azure CLI: access token</option>` +
+          `<option value="gcloud auth print-access-token">GCP: Access token</option>` +
+          `<option value="gcloud auth print-identity-token">GCP: Identity token</option>` +
+          `<option value="gh auth token">GitHub: gh auth token</option>` +
+          `<option value="" disabled>Environment variables</option>` +
+          `<option value="powershell -NoProfile -Command Write-Output $env:{{envVar}}">PowerShell: env var</option>` +
+          `<option value="bash -lc 'printenv {{envVar}}'">bash: env var</option>` +
+        `</select>` +
+      `</div>` +
       `<div class="auth-row"><label>Header</label>${inp(p + 'CliTokenHeader', 'Authorization', w)}</div>` +
       `<div class="auth-row"><label>Prefix</label>${inp(p + 'CliTokenPrefix', 'Bearer', w)}</div>` +
       `<div class="auth-row"><label>Cache</label><input type="checkbox" id="${p}CliCacheEnabled" checked /></div>` +
@@ -157,6 +170,20 @@ export function renderAuthFields(type: string, config: AuthFieldsConfig): void {
     el.addEventListener('change', onChange);
   });
   fields.querySelectorAll('select').forEach(el => el.addEventListener('change', onChange));
+
+  if (type === 'cli') {
+    const preset = document.getElementById(p + 'CliPreset') as HTMLSelectElement | null;
+    if (preset) {
+      preset.addEventListener('change', () => {
+        const cmd = preset.value;
+        if (cmd) {
+          ceSet(p + 'CliCommand', cmd);
+          preset.value = '';
+          onChange();
+        }
+      });
+    }
+  }
 
   // Notify caller of new contenteditable value elements
   if (config.onFieldsRendered) {
