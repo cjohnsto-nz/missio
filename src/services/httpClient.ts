@@ -504,6 +504,8 @@ export class HttpClient implements vscode.Disposable {
     }
 
     const cacheEnabled = auth.cache?.enabled !== false;
+    // Key on the fully resolved command so env-specific variables and secrets
+    // produce distinct cache entries.
     const cacheKey = `${collection.id}:${command}`;
 
     // Check cache
