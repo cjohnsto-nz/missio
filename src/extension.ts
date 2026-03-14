@@ -119,9 +119,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const globalsPanel = GlobalsPanel.register(context, environmentService);
+  const clearCliApprovalsCommand = vscode.commands.registerCommand('missio.clearCliApprovals', async () => {
+    const choice = await vscode.window.showWarningMessage(
+      'Clear all approved CLI auth commands? You will be prompted to approve them again next time they run.',
+      { modal: true },
+      'Clear Approvals',
+    );
+    if (choice !== 'Clear Approvals') return;
+    await cliAuthApprovalService.clearAll();
+    httpClient.clearCliTokenCache();
+    vscode.window.showInformationMessage('Cleared all approved CLI auth commands and cached CLI tokens.');
+  });
 
   context.subscriptions.push(
     globalsPanel,
+    clearCliApprovalsCommand,
     vscode.commands.registerCommand('missio.editGlobalVariables', () => globalsPanel.open()),
     ...registerRequestCommands(cmdCtx),
     ...registerCollectionCommands(cmdCtx),

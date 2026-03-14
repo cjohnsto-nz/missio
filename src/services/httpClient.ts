@@ -37,6 +37,10 @@ export class HttpClient implements vscode.Disposable {
 
   constructor(private readonly _environmentService: EnvironmentService) {}
 
+  clearCliTokenCache(): void {
+    this._cliTokenCache.clear();
+  }
+
   setCliAuthApprovalService(service: CliAuthApprovalService): void {
     this._cliAuthApprovalService = service;
   }
