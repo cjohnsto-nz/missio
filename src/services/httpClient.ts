@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
   Auth, AuthOAuth2, AuthCli, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
@@ -12,6 +13,8 @@ import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
 import type { CliAuthApprovalService } from './cliAuthApproval';
+
+const execAsync = promisify(exec);
 
 const _logChannel = vscode.window.createOutputChannel('Missio Requests');
 function _log(msg: string): void {
@@ -543,11 +546,13 @@ export class HttpClient implements vscode.Disposable {
     _log(`  CLI auth: executing command`);
     let token: string;
     try {
-      token = execSync(command, {
+      const { stdout, stderr } = await execAsync(command, {
         encoding: 'utf-8',
         timeout: 30000,
         windowsHide: true,
-      }).trim();
+      });
+      if (stderr) _log(`  CLI auth: stderr: ${stderr.trim()}`);
+      token = stdout.trim();
     } catch (err: any) {
       const msg = err.stderr?.toString() || err.message || 'Unknown error';
       throw new Error(`CLI auth command failed: ${msg}`);
