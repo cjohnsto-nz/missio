@@ -1,4 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { buildAuthData } from '../src/webview/authFields';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  delete (globalThis as any).document;
+});
 
 describe('CLI Auth', () => {
   describe('JWT TTL parsing', () => {
@@ -141,6 +147,65 @@ describe('CLI Auth', () => {
         },
       };
       expect(auth.cache?.enabled).toBe(false);
+    });
+  });
+
+  describe('buildAuthData CLI cache serialization', () => {
+    function mockCliFields(fields: {
+      command?: string;
+      tokenHeader?: string;
+      tokenPrefix?: string;
+      cacheEnabled?: boolean;
+      ttlValue?: string;
+    }): void {
+      const elements = new Map<string, any>([
+        ['authCliCommand', { _getRawText: () => fields.command ?? 'echo token' }],
+        ['authCliTokenHeader', { _getRawText: () => fields.tokenHeader ?? 'Authorization' }],
+        ['authCliTokenPrefix', { _getRawText: () => fields.tokenPrefix ?? 'Bearer' }],
+        ['authCliCacheEnabled', { checked: fields.cacheEnabled ?? true }],
+        ['authCliCacheTtl', { value: fields.ttlValue ?? '' }],
+      ]);
+
+      (globalThis as any).document = {
+        getElementById: (id: string) => elements.get(id) ?? null,
+      };
+    }
+
+    it('omits cache when enabled and ttl is empty', () => {
+      mockCliFields({ cacheEnabled: true, ttlValue: '' });
+
+      const auth = buildAuthData('cli', 'auth');
+
+      expect(auth).toEqual({
+        type: 'cli',
+        command: 'echo token',
+      });
+      expect(auth.cache).toBeUndefined();
+    });
+
+    it('writes only ttlSeconds when cache is enabled with a valid ttl', () => {
+      mockCliFields({ cacheEnabled: true, ttlValue: '3600' });
+
+      const auth = buildAuthData('cli', 'auth');
+
+      expect(auth.cache).toEqual({ ttlSeconds: 3600 });
+      expect(auth.cache.enabled).toBeUndefined();
+    });
+
+    it('writes enabled false when cache is disabled without ttl', () => {
+      mockCliFields({ cacheEnabled: false, ttlValue: '' });
+
+      const auth = buildAuthData('cli', 'auth');
+
+      expect(auth.cache).toEqual({ enabled: false });
+    });
+
+    it('ignores invalid ttl values', () => {
+      mockCliFields({ cacheEnabled: true, ttlValue: 'abc' });
+
+      const auth = buildAuthData('cli', 'auth');
+
+      expect(auth.cache).toBeUndefined();
     });
   });
 });

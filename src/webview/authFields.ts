@@ -222,6 +222,7 @@ export function buildAuthData(type: string, prefix: string): any {
       const cacheEnabled = ($el(p + 'CliCacheEnabled') as HTMLInputElement)?.checked !== false;
       const ttlRaw = ($el(p + 'CliCacheTtl') as HTMLInputElement)?.value;
       const ttlSeconds = ttlRaw ? parseInt(ttlRaw, 10) : undefined;
+      const hasValidTtl = ttlSeconds !== undefined && !isNaN(ttlSeconds);
       const auth: any = {
         type: 'cli',
         command: ceVal(p + 'CliCommand'),
@@ -230,9 +231,11 @@ export function buildAuthData(type: string, prefix: string): any {
       const tokenPrefix = ceVal(p + 'CliTokenPrefix');
       if (tokenHeader && tokenHeader !== 'Authorization') auth.tokenHeader = tokenHeader;
       if (tokenPrefix !== 'Bearer') auth.tokenPrefix = tokenPrefix; // include even if empty
-      if (!cacheEnabled || (ttlSeconds !== undefined && !isNaN(ttlSeconds))) {
-        auth.cache = { enabled: cacheEnabled };
-        if (ttlSeconds !== undefined && !isNaN(ttlSeconds)) auth.cache.ttlSeconds = ttlSeconds;
+      if (!cacheEnabled || hasValidTtl) {
+        auth.cache = {
+          ...(!cacheEnabled ? { enabled: false } : {}),
+          ...(hasValidTtl ? { ttlSeconds } : {}),
+        };
       }
       return auth;
     }
