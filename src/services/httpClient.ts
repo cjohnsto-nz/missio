@@ -599,7 +599,7 @@ export class HttpClient implements vscode.Disposable {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) return undefined;
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
       if (typeof payload.exp === 'number') {
         const expiresAt = payload.exp * 1000;
         const ttl = expiresAt - Date.now();
