@@ -570,7 +570,7 @@ export class HttpClient implements vscode.Disposable {
     if (cacheEnabled) {
       this._cliTokenCache.set(cacheKey, {
         token,
-        expiresAt: Date.now() + ttlMs - 60000, // expire 1 min early for safety
+        expiresAt: this._computeCliCacheExpiry(ttlMs),
       });
       _log(`  CLI auth: cached token for ${Math.round(ttlMs / 1000)}s`);
     }
@@ -583,6 +583,11 @@ export class HttpClient implements vscode.Disposable {
     const headerName = auth.tokenHeader || 'Authorization';
     const prefix = auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer';
     headers[headerName] = prefix ? `${prefix} ${token}` : token;
+  }
+
+  private _computeCliCacheExpiry(ttlMs: number): number {
+    const safetyMarginMs = Math.min(60000, Math.floor(ttlMs * 0.1));
+    return Date.now() + Math.max(ttlMs - safetyMarginMs, 0);
   }
 
   private _parseJwtTtl(token: string): number | undefined {

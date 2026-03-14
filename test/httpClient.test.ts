@@ -76,3 +76,36 @@ describe('HttpClient OAuth2 environment scoping', () => {
     expect(headers.Authorization).toBe('Bearer token-456');
   });
 });
+
+describe('HttpClient CLI cache expiry', () => {
+  it('expires long-lived tokens 60 seconds early', () => {
+    const client = new HttpClient({} as any);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    const expiresAt = (client as any)._computeCliCacheExpiry(3_600_000);
+
+    expect(expiresAt).toBe(1_000_000 + 3_600_000 - 60_000);
+    nowSpy.mockRestore();
+  });
+
+  it('uses a proportional early-expiry margin for medium-lived tokens', () => {
+    const client = new HttpClient({} as any);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(2_000_000);
+
+    const expiresAt = (client as any)._computeCliCacheExpiry(300_000);
+
+    expect(expiresAt).toBe(2_000_000 + 300_000 - 30_000);
+    nowSpy.mockRestore();
+  });
+
+  it('keeps short-lived tokens cacheable by using a smaller safety margin', () => {
+    const client = new HttpClient({} as any);
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(3_000_000);
+
+    const expiresAt = (client as any)._computeCliCacheExpiry(30_000);
+
+    expect(expiresAt).toBe(3_000_000 + 30_000 - 3_000);
+    expect(expiresAt).toBeGreaterThan(3_000_000);
+    nowSpy.mockRestore();
+  });
+});
