@@ -959,13 +959,15 @@ function showCliApprovalModal(commandTemplate: string, interpolatedCommand: stri
 
   const card = document.createElement('div');
   card.className = 'uv-modal-card';
-  card.style.width = '500px';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  card.setAttribute('aria-labelledby', 'cliApprovalModalTitle');
 
   // Header
   const header = document.createElement('div');
   header.className = 'uv-modal-header';
   header.innerHTML =
-    '<div class="uv-modal-title">Approve CLI Auth Command</div>' +
+    '<div class="uv-modal-title" id="cliApprovalModalTitle">Approve CLI Auth Command</div>' +
     '<div class="uv-modal-subtitle">This request uses CLI-based authentication. Review and approve the command before it runs.</div>';
   card.appendChild(header);
 
@@ -1006,31 +1008,41 @@ function showCliApprovalModal(commandTemplate: string, interpolatedCommand: stri
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 
+  const cleanup = () => {
+    document.removeEventListener('keydown', keyHandler);
+    overlay.remove();
+  };
+
+  const deny = () => {
+    cleanup();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
+  };
+
+  const approve = () => {
+    cleanup();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: true });
+  };
+
   // Wire deny
   const denyBtn = card.querySelector('.uv-modal-cancel') as HTMLButtonElement;
-  denyBtn.addEventListener('click', () => {
-    overlay.remove();
-    vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
-  });
+  denyBtn.addEventListener('click', deny);
 
   // Wire approve
   const approveBtn = card.querySelector('.uv-modal-send') as HTMLButtonElement;
-  approveBtn.addEventListener('click', () => {
-    overlay.remove();
-    vscode.postMessage({ type: 'cliApprovalResponse', approved: true });
-  });
+  approveBtn.addEventListener('click', approve);
 
   // Escape denies, Enter approves
-  card.addEventListener('keydown', (e: KeyboardEvent) => {
+  const keyHandler = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
-      overlay.remove();
-      vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
+      e.preventDefault();
+      deny();
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      approveBtn.click();
+      approve();
     }
-  });
+  };
+  document.addEventListener('keydown', keyHandler);
 
   // Focus approve button
   setTimeout(() => approveBtn.focus(), 50);
