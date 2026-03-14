@@ -56,16 +56,6 @@ export class CliAuthApprovalService implements vscode.Disposable {
   }
 
   /**
-   * Revoke approval for a resolved command.
-   */
-  async revoke(command: string): Promise<void> {
-    const hash = this._hashCommand(command);
-    const hashes = this._getApprovedHashes();
-    hashes.delete(hash);
-    await this._saveApprovedHashes(hashes);
-  }
-
-  /**
    * Clear all approved commands.
    */
   async clearAll(): Promise<void> {
