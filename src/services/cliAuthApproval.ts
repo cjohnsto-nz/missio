@@ -14,9 +14,9 @@ export class CliAuthApprovalService implements vscode.Disposable {
   dispose(): void {}
 
   /**
-   * Generate a stable hash for a command template.
-   * We hash the raw command (before variable interpolation) so approval
-   * persists even when variable values change.
+   * Generate a stable hash for an executable command string.
+   * Approvals are keyed to the fully resolved command so changes introduced
+   * by interpolation or secret resolution require fresh approval.
    */
   private _hashCommand(command: string): string {
     return crypto.createHash('sha256').update(command).digest('hex').slice(0, 16);
@@ -38,28 +38,28 @@ export class CliAuthApprovalService implements vscode.Disposable {
   }
 
   /**
-   * Check if a command template is approved.
+   * Check if a resolved command is approved.
    */
-  isApproved(commandTemplate: string): boolean {
-    const hash = this._hashCommand(commandTemplate);
+  isApproved(command: string): boolean {
+    const hash = this._hashCommand(command);
     return this._getApprovedHashes().has(hash);
   }
 
   /**
-   * Mark a command template as approved.
+   * Mark a resolved command as approved.
    */
-  async approve(commandTemplate: string): Promise<void> {
-    const hash = this._hashCommand(commandTemplate);
+  async approve(command: string): Promise<void> {
+    const hash = this._hashCommand(command);
     const hashes = this._getApprovedHashes();
     hashes.add(hash);
     await this._saveApprovedHashes(hashes);
   }
 
   /**
-   * Revoke approval for a command template.
+   * Revoke approval for a resolved command.
    */
-  async revoke(commandTemplate: string): Promise<void> {
-    const hash = this._hashCommand(commandTemplate);
+  async revoke(command: string): Promise<void> {
+    const hash = this._hashCommand(command);
     const hashes = this._getApprovedHashes();
     hashes.delete(hash);
     await this._saveApprovedHashes(hashes);

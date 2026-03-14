@@ -287,6 +287,12 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         headers['Authorization'] = 'Basic [redacted]';
         break;
       }
+      case 'cli': {
+        const headerName = (auth as any).tokenHeader || 'Authorization';
+        const prefix = (auth as any).tokenPrefix !== undefined ? (auth as any).tokenPrefix : 'Bearer';
+        headers[headerName] = prefix ? `${prefix} [redacted]` : '[redacted]';
+        break;
+      }
     }
   }
 
@@ -342,7 +348,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     }
 
     // Auth — apply effective auth chain (request → folder → collection), mirroring httpClient selection.
-    // We only apply simple auth types here (apikey/basic/bearer). OAuth2 token acquisition is not performed in dryRun.
+    // We only synthesize preview headers here. OAuth2 token acquisition and CLI command execution are not performed in dryRun.
     this._applyDryRunAuth(request, collection, folderDefaults, headers, variables);
     // Resolve body using the same logic as httpClient._buildBody
     let body: string | undefined;
