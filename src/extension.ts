@@ -4,6 +4,7 @@ import { CollectionService } from './services/collectionService';
 import { EnvironmentService } from './services/environmentService';
 import { SecretService } from './services/secretService';
 import { HttpClient } from './services/httpClient';
+import { CliAuthApprovalService } from './services/cliAuthApproval';
 import { CollectionTreeProvider } from './providers/collectionTreeProvider';
 import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
 import { GlobalsTreeProvider } from './providers/globalsTreeProvider';
@@ -43,8 +44,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const environmentService = new EnvironmentService(context, secretService);
   const httpClient = new HttpClient(environmentService);
   const oauth2Service = new OAuth2Service(context.secrets);
+  const cliAuthApprovalService = new CliAuthApprovalService(context);
   httpClient.setOAuth2Service(oauth2Service);
   httpClient.setSecretService(secretService);
+  httpClient.setCliAuthApprovalService(cliAuthApprovalService);
   const responseProvider = new ResponseDocumentProvider();
 
   context.subscriptions.push(
@@ -116,9 +119,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const globalsPanel = GlobalsPanel.register(context, environmentService);
+  const clearCliApprovalsCommand = vscode.commands.registerCommand('missio.clearCliApprovals', async () => {
+    const choice = await vscode.window.showWarningMessage(
+      'Clear all approved CLI auth commands? You will be prompted to approve them again next time they run.',
+      { modal: true },
+      'Clear Approvals',
+    );
+    if (choice !== 'Clear Approvals') return;
+    await cliAuthApprovalService.clearAll();
+    httpClient.clearCliTokenCache();
+    vscode.window.showInformationMessage('Cleared all approved CLI auth commands and cached CLI tokens.');
+  });
 
   context.subscriptions.push(
     globalsPanel,
+    clearCliApprovalsCommand,
     vscode.commands.registerCommand('missio.editGlobalVariables', () => globalsPanel.open()),
     ...registerRequestCommands(cmdCtx),
     ...registerCollectionCommands(cmdCtx),

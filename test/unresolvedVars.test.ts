@@ -164,8 +164,7 @@ describe('unresolvedVars', () => {
       collection,
       service,
     );
-    expect(result).toContain('user');
-    expect(result).toContain('pass');
+    expect(result).toEqual([]);
   });
 
   it('does not scan inherited auth when request has its own auth', async () => {

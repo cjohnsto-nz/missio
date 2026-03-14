@@ -123,6 +123,19 @@ export interface AuthAwsV4 {
   profileName?: string;
 }
 
+export interface AuthCliCache {
+  enabled?: boolean;
+  ttlSeconds?: number;
+}
+
+export interface AuthCli {
+  type: 'cli';
+  command: string;
+  tokenHeader?: string;
+  tokenPrefix?: string;
+  cache?: AuthCliCache;
+}
+
 export interface OAuth2Credentials {
   clientId?: string;
   clientSecret?: string;
@@ -183,6 +196,7 @@ export type Auth =
   | AuthWsse
   | AuthApiKey
   | AuthAwsV4
+  | AuthCli
   | AuthOAuth2
   | 'inherit';
 

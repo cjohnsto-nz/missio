@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -317,6 +317,12 @@
         "title": "Validate Collection",
         "category": "Missio",
         "icon": "$(check-all)"
+      },
+      {
+        "command": "missio.clearCliApprovals",
+        "title": "Clear Approved CLI Auth Commands",
+        "category": "Missio",
+        "icon": "$(shield)"
       }
     ],
     "menus": {

@@ -2,14 +2,19 @@ import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
-  Auth, AuthOAuth2, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
+  Auth, AuthOAuth2, AuthCli, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
   MissioCollection,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
+import type { CliAuthApprovalService } from './cliAuthApproval';
+
+const execAsync = promisify(exec);
 
 const _logChannel = vscode.window.createOutputChannel('Missio Requests');
 function _log(msg: string): void {
@@ -18,12 +23,30 @@ function _log(msg: string): void {
 }
 export { _logChannel as requestLog };
 
+interface CliTokenCacheEntry {
+  token: string;
+  expiresAt: number; // epoch ms
+}
+
+/** Callback to prompt user for CLI command approval. Returns true if approved. */
+export type CliApprovalPrompt = (commandTemplate: string, interpolatedCommand: string) => Promise<boolean>;
+
 export class HttpClient implements vscode.Disposable {
   private _activeRequests: Map<string, http.ClientRequest> = new Map();
   private _oauth2Service: OAuth2Service | undefined;
   private _secretService: SecretService | undefined;
+  private _cliAuthApprovalService: CliAuthApprovalService | undefined;
+  private _cliTokenCache: Map<string, CliTokenCacheEntry> = new Map();
 
   constructor(private readonly _environmentService: EnvironmentService) {}
+
+  clearCliTokenCache(): void {
+    this._cliTokenCache.clear();
+  }
+
+  setCliAuthApprovalService(service: CliAuthApprovalService): void {
+    this._cliAuthApprovalService = service;
+  }
 
   setOAuth2Service(oauth2Service: OAuth2Service): void {
     this._oauth2Service = oauth2Service;
@@ -40,6 +63,7 @@ export class HttpClient implements vscode.Disposable {
     onProgress?: (message: string) => void,
     extraVariables?: Map<string, string>,
     environmentName?: string,
+    cliApprovalPrompt?: CliApprovalPrompt,
   ): Promise<HttpResponse> {
     const t0 = Date.now();
     const _timing: { label: string; start: number; end: number }[] = [];
@@ -137,29 +161,38 @@ export class HttpClient implements vscode.Disposable {
       if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
         auth = collectionAuth;
       } else {
-        // Fall back to normal chain when collection auth is incomplete
+        // Fall back to explicit inherit chain when collection auth is incomplete
         auth = request.runtime?.auth;
-        if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-        if (!auth || auth === 'inherit') auth = collectionAuth;
+        if (auth === 'inherit') auth = folderDefaults?.auth;
+        if (auth === 'inherit') auth = collectionAuth;
       }
     } else {
       auth = request.runtime?.auth;
-      if (!auth || auth === 'inherit') {
+      if (auth === 'inherit') {
         auth = folderDefaults?.auth;
       }
-      if (!auth || auth === 'inherit') {
+      if (auth === 'inherit') {
         auth = collection.data.request?.auth;
       }
     }
+    let cliApprovalWaitMs = 0;
     if (auth && auth !== 'inherit') {
       if (auth.type === 'oauth2') {
         await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
+      } else if (auth.type === 'cli') {
+        cliApprovalWaitMs = await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
       } else {
         this._applyAuth(auth, headers, variables);
       }
     }
 
-    _mark('Auth', tPhase);
+    // If there was CLI approval wait time, show it as separate entry and adjust Auth timing
+    if (cliApprovalWaitMs > 0) {
+      _timing.push({ label: 'CLI Approval', start: tPhase - t0, end: tPhase - t0 + cliApprovalWaitMs });
+      _timing.push({ label: 'Auth', start: tPhase - t0 + cliApprovalWaitMs, end: Date.now() - t0 });
+    } else {
+      _mark('Auth', tPhase);
+    }
     _log(`  auth: ${Date.now() - t0}ms`);
     onProgress?.('Sending request…');
     tPhase = Date.now();
@@ -442,11 +475,140 @@ export class HttpClient implements vscode.Disposable {
         return !!auth.token;
       case 'apikey':
         return !!auth.key;
+      case 'cli':
+        return !!auth.command;
       case 'oauth2':
         return true; // OAuth2 has its own validation path
       default:
         return true;
     }
+  }
+
+  /**
+   * Apply CLI auth. Returns the time spent waiting for user approval (0 if no approval needed).
+   */
+  private async _applyCliAuth(
+    auth: AuthCli,
+    headers: Record<string, string>,
+    variables: Map<string, string>,
+    collection: MissioCollection,
+    approvalPrompt?: CliApprovalPrompt,
+  ): Promise<number> {
+    const commandTemplate = auth.command;
+    let approvalWaitMs = 0;
+
+    // Interpolate command with variables
+    let command = this._environmentService.interpolate(commandTemplate, variables);
+
+    // Resolve $secret references in command
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0 && this._secretService) {
+      command = await this._secretService.resolveSecretReferences(command, providers, variables);
+    }
+
+    const cacheEnabled = auth.cache?.enabled !== false;
+    // Key on the fully resolved command so env-specific variables and secrets
+    // produce distinct cache entries.
+    const cacheKey = `${collection.id}:${command}`;
+
+    // Check cache
+    if (cacheEnabled) {
+      const cached = this._cliTokenCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        _log(`  CLI auth: using cached token (expires in ${Math.round((cached.expiresAt - Date.now()) / 1000)}s)`);
+        this._setCliTokenHeader(headers, auth, cached.token);
+        return 0;
+      }
+    }
+
+    // Check if the fully interpolated command is approved
+    if (this._cliAuthApprovalService && !this._cliAuthApprovalService.isApproved(command)) {
+      _log(`  CLI auth: command not approved, prompting user`);
+      if (!approvalPrompt) {
+        throw new Error(
+          `CLI auth command requires user approval before execution. ` +
+          `The user must first run this request interactively in the Missio request panel to approve the command. ` +
+          `Command: ${command}`
+        );
+      }
+      const approvalStart = Date.now();
+      const approved = await approvalPrompt(commandTemplate, command);
+      approvalWaitMs = Date.now() - approvalStart;
+      if (!approved) {
+        throw new Error('CLI auth command was not approved by user');
+      }
+      // Store approval for the interpolated command
+      await this._cliAuthApprovalService.approve(command);
+      _log(`  CLI auth: command approved and stored`);
+    }
+
+    // Execute command
+    _log(`  CLI auth: executing command`);
+    let token: string;
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        encoding: 'utf-8',
+        timeout: 30000,
+        windowsHide: true,
+      });
+      if (stderr) _log(`  CLI auth: stderr: ${stderr.trim()}`);
+      token = stdout.trim();
+    } catch (err: any) {
+      const msg = err.stderr?.toString() || err.message || 'Unknown error';
+      throw new Error(`CLI auth command failed: ${msg}`);
+    }
+
+    if (!token) {
+      throw new Error('CLI auth command returned empty token');
+    }
+
+    // Determine TTL
+    let ttlMs: number;
+    if (auth.cache?.ttlSeconds !== undefined) {
+      ttlMs = auth.cache.ttlSeconds * 1000;
+    } else {
+      // Try to parse JWT expiry
+      ttlMs = this._parseJwtTtl(token) ?? 3600 * 1000; // default 1 hour
+    }
+
+    // Cache token
+    if (cacheEnabled) {
+      this._cliTokenCache.set(cacheKey, {
+        token,
+        expiresAt: this._computeCliCacheExpiry(ttlMs),
+      });
+      _log(`  CLI auth: cached token for ${Math.round(ttlMs / 1000)}s`);
+    }
+
+    this._setCliTokenHeader(headers, auth, token);
+    return approvalWaitMs;
+  }
+
+  private _setCliTokenHeader(headers: Record<string, string>, auth: AuthCli, token: string): void {
+    const headerName = auth.tokenHeader || 'Authorization';
+    const prefix = auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer';
+    headers[headerName] = prefix ? `${prefix} ${token}` : token;
+  }
+
+  private _computeCliCacheExpiry(ttlMs: number): number {
+    const safetyMarginMs = Math.min(60000, Math.floor(ttlMs * 0.1));
+    return Date.now() + Math.max(ttlMs - safetyMarginMs, 0);
+  }
+
+  private _parseJwtTtl(token: string): number | undefined {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return undefined;
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      if (typeof payload.exp === 'number') {
+        const expiresAt = payload.exp * 1000;
+        const ttl = expiresAt - Date.now();
+        return ttl > 0 ? ttl : undefined;
+      }
+    } catch {
+      // Not a JWT or invalid format
+    }
+    return undefined;
   }
 
   private _applyAuth(
@@ -455,12 +617,11 @@ export class HttpClient implements vscode.Disposable {
     variables: Map<string, string>,
   ): void {
     switch (auth.type) {
-      case 'basic': {
-        const user = this._environmentService.interpolate(auth.username ?? '', variables);
-        const pass = this._environmentService.interpolate(auth.password ?? '', variables);
-        headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
+      case 'basic':
+        headers['Authorization'] = 'Basic ' + Buffer.from(
+          `${this._environmentService.interpolate(auth.username || '', variables)}:${this._environmentService.interpolate(auth.password || '', variables)}`
+        ).toString('base64');
         break;
-      }
       case 'bearer': {
         const token = this._environmentService.interpolate(auth.token ?? '', variables);
         headers['Authorization'] = `Bearer ${token}`;

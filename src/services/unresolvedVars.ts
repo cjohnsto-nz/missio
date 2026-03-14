@@ -75,13 +75,13 @@ export async function detectUnresolvedVars(
       auth = collectionAuth;
     } else {
       auth = requestData.runtime?.auth;
-      if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-      if (!auth || auth === 'inherit') auth = collectionAuth;
+      if (auth === 'inherit') auth = folderDefaults?.auth;
+      if (auth === 'inherit') auth = collectionAuth;
     }
   } else {
     auth = requestData.runtime?.auth;
-    if (!auth || auth === 'inherit') auth = folderDefaults?.auth;
-    if (!auth || auth === 'inherit') auth = collectionAuth;
+    if (auth === 'inherit') auth = folderDefaults?.auth;
+    if (auth === 'inherit') auth = collectionAuth;
   }
   if (auth && auth !== 'inherit' && typeof auth === 'object') {
     scanAllStrings(auth, varNames);

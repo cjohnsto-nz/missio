@@ -947,6 +947,107 @@ function loadRequest(req: any): void {
   updateBadges();
 }
 
+// ── CLI Approval Modal ───────────────────────────
+function showCliApprovalModal(commandTemplate: string, interpolatedCommand: string): void {
+  // Remove any existing modal
+  const existing = document.getElementById('cliApprovalModal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'cliApprovalModal';
+  overlay.className = 'uv-modal-overlay';
+
+  const card = document.createElement('div');
+  card.className = 'uv-modal-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  card.setAttribute('aria-labelledby', 'cliApprovalModalTitle');
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'uv-modal-header';
+  header.innerHTML =
+    '<div class="uv-modal-title" id="cliApprovalModalTitle">Approve CLI Auth Command</div>' +
+    '<div class="uv-modal-subtitle">This request uses CLI-based authentication. Review and approve the command before it runs.</div>';
+  card.appendChild(header);
+
+  // Content
+  const content = document.createElement('div');
+  content.className = 'uv-modal-fields';
+
+  // Warning
+  const warning = document.createElement('div');
+  warning.className = 'cli-approval-warning';
+  warning.innerHTML =
+    '<span class="cli-approval-warning-icon">⚠️</span>' +
+    '<span>CLI commands can execute arbitrary code on your system. Only approve commands from collections you trust.</span>';
+  content.appendChild(warning);
+
+  // Command display
+  const cmdLabel = document.createElement('div');
+  cmdLabel.className = 'uv-modal-label';
+  cmdLabel.style.marginTop = '8px';
+  cmdLabel.textContent = 'Command to execute:';
+  content.appendChild(cmdLabel);
+
+  const cmdDisplay = document.createElement('div');
+  cmdDisplay.className = 'cli-approval-command';
+  cmdDisplay.textContent = interpolatedCommand;
+  content.appendChild(cmdDisplay);
+
+  card.appendChild(content);
+
+  // Buttons
+  const actions = document.createElement('div');
+  actions.className = 'uv-modal-actions';
+  actions.innerHTML =
+    '<button class="uv-modal-cancel">Deny</button>' +
+    '<button class="uv-modal-send">Approve &amp; Run</button>';
+  card.appendChild(actions);
+
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  const cleanup = () => {
+    document.removeEventListener('keydown', keyHandler);
+    overlay.remove();
+  };
+
+  const deny = () => {
+    cleanup();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: false });
+  };
+
+  const approve = () => {
+    cleanup();
+    vscode.postMessage({ type: 'cliApprovalResponse', approved: true });
+  };
+
+  // Wire deny
+  const denyBtn = card.querySelector('.uv-modal-cancel') as HTMLButtonElement;
+  denyBtn.addEventListener('click', deny);
+
+  // Wire approve
+  const approveBtn = card.querySelector('.uv-modal-send') as HTMLButtonElement;
+  approveBtn.addEventListener('click', approve);
+
+  // Escape denies, Enter approves
+  const keyHandler = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      deny();
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      approve();
+    }
+  };
+  document.addEventListener('keydown', keyHandler);
+
+  // Focus approve button
+  setTimeout(() => approveBtn.focus(), 50);
+}
+
 // ── Unresolved Variables Modal ───────────────────
 function showUnresolvedVarsModal(variables: string[]): void {
   // Remove any existing modal
@@ -1135,6 +1236,9 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'promptUnresolvedVars':
       showUnresolvedVarsModal(msg.variables as string[]);
       break;
+    case 'promptCliApproval':
+      showCliApprovalModal(msg.commandTemplate as string, msg.interpolatedCommand as string);
+      break;
   }
 });
 
@@ -1262,6 +1366,7 @@ $('saveExampleBtn').addEventListener('click', () => {
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
+ ($('authType') as HTMLSelectElement).innerHTML = authTypeOptionsHtml(true);
 $('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });
 $('panel-auth').addEventListener('input', scheduleDocumentUpdate);
 $('panel-auth').addEventListener('change', scheduleDocumentUpdate);
