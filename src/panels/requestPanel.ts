@@ -122,6 +122,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
   }
 
   protected _onPanelDisposed(document: vscode.TextDocument): void {
+    this._resolvePendingPromptsOnClose();
     RequestEditorProvider._panels.delete(document.uri.fsPath.toLowerCase());
   }
 
@@ -162,6 +163,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         return true;
       }
       case 'cancelRequest': {
+        this._resolvePendingPromptsOnClose();
         this._httpClient.cancelAll();
         return true;
       }
@@ -241,6 +243,18 @@ export class RequestEditorProvider extends BaseEditorProvider {
   }
 
   // ── Request-specific logic ──
+
+
+  private _resolvePendingPromptsOnClose(): void {
+    if (this._unresolvedVarsResolver) {
+      this._unresolvedVarsResolver(undefined);
+      this._unresolvedVarsResolver = null;
+    }
+    if (this._cliApprovalResolver) {
+      this._cliApprovalResolver(false);
+      this._cliApprovalResolver = null;
+    }
+  }
 
 
   private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
