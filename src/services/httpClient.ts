@@ -610,10 +610,11 @@ export class HttpClient implements vscode.Disposable {
           `${this._environmentService.interpolate(auth.username || '', variables)}:${this._environmentService.interpolate(auth.password || '', variables)}`
         ).toString('base64');
         break;
-      case 'bearer':
+      case 'bearer': {
         const token = this._environmentService.interpolate(auth.token ?? '', variables);
         headers['Authorization'] = `Bearer ${token}`;
         break;
+      }
       case 'apikey': {
         const key = this._environmentService.interpolate(auth.key ?? '', variables);
         const value = this._environmentService.interpolate(auth.value ?? '', variables);
