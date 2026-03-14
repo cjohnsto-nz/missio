@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildAuthData } from '../src/webview/authFields';
+import { HttpClient } from '../src/services/httpClient';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -8,29 +9,15 @@ afterEach(() => {
 
 describe('CLI Auth', () => {
   describe('JWT TTL parsing', () => {
+    const client = new HttpClient({} as any);
+    const parseJwtTtl = (token: string) => (client as any)._parseJwtTtl(token);
+
     // Helper to create a mock JWT with a given expiry
     function createMockJwt(exp: number): string {
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64');
-      const payload = Buffer.from(JSON.stringify({ exp })).toString('base64');
+      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ exp })).toString('base64url');
       const signature = 'mock-signature';
       return `${header}.${payload}.${signature}`;
-    }
-
-    // Replicate the _parseJwtTtl logic for testing
-    function parseJwtTtl(token: string): number | undefined {
-      try {
-        const parts = token.split('.');
-        if (parts.length !== 3) return undefined;
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        if (typeof payload.exp === 'number') {
-          const expiresAt = payload.exp * 1000;
-          const ttl = expiresAt - Date.now();
-          return ttl > 0 ? ttl : undefined;
-        }
-      } catch {
-        // Not a JWT or invalid format
-      }
-      return undefined;
     }
 
     it('parses valid JWT with future expiry', () => {
@@ -55,8 +42,8 @@ describe('CLI Auth', () => {
     });
 
     it('returns undefined for JWT without exp claim', () => {
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64');
-      const payload = Buffer.from(JSON.stringify({ sub: 'user123' })).toString('base64');
+      const header = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ sub: 'user123' })).toString('base64url');
       const jwt = `${header}.${payload}.signature`;
       const ttl = parseJwtTtl(jwt);
       expect(ttl).toBeUndefined();
@@ -69,16 +56,9 @@ describe('CLI Auth', () => {
   });
 
   describe('CLI token header setting', () => {
-    // Replicate the _setCliTokenHeader logic for testing
-    function setCliTokenHeader(
-      headers: Record<string, string>,
-      auth: { tokenHeader?: string; tokenPrefix?: string },
-      token: string,
-    ): void {
-      const headerName = auth.tokenHeader || 'Authorization';
-      const prefix = auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer';
-      headers[headerName] = prefix ? `${prefix} ${token}` : token;
-    }
+    const client = new HttpClient({} as any);
+    const setCliTokenHeader = (headers: Record<string, string>, auth: any, token: string) =>
+      (client as any)._setCliTokenHeader(headers, auth, token);
 
     it('sets Authorization header with Bearer prefix by default', () => {
       const headers: Record<string, string> = {};
