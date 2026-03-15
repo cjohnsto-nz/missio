@@ -615,28 +615,28 @@ describe('EnvironmentService', () => {
 
     afterEach(() => { service.dispose(); });
 
-    it('substitutes numeric value without quotes', () => {
+    it('keeps numeric-looking values as strings when placeholder is quoted', () => {
       const vars = new Map([['index', '0']]);
       const result = service.interpolateJson('{"index": "{{index}}"}', vars);
-      expect(result).toBe('{"index": 0}');
+      expect(result).toBe('{"index": "0"}');
     });
 
-    it('substitutes boolean true without quotes', () => {
+    it('keeps boolean true as string when placeholder is quoted', () => {
       const vars = new Map([['flag', 'true']]);
       const result = service.interpolateJson('{"flag": "{{flag}}"}', vars);
-      expect(result).toBe('{"flag": true}');
+      expect(result).toBe('{"flag": "true"}');
     });
 
-    it('substitutes boolean false without quotes', () => {
+    it('keeps boolean false as string when placeholder is quoted', () => {
       const vars = new Map([['flag', 'false']]);
       const result = service.interpolateJson('{"flag": "{{flag}}"}', vars);
-      expect(result).toBe('{"flag": false}');
+      expect(result).toBe('{"flag": "false"}');
     });
 
-    it('substitutes null without quotes', () => {
+    it('keeps null as string when placeholder is quoted', () => {
       const vars = new Map([['val', 'null']]);
       const result = service.interpolateJson('{"val": "{{val}}"}', vars);
-      expect(result).toBe('{"val": null}');
+      expect(result).toBe('{"val": "null"}');
     });
 
     it('keeps string values quoted', () => {
@@ -651,28 +651,34 @@ describe('EnvironmentService', () => {
       expect(result).toBe('{"msg": "Hello world"}');
     });
 
-    it('handles multiple typed substitutions', () => {
+    it('keeps multiple quoted substitutions as strings', () => {
       const vars = new Map([['a', '42'], ['b', 'true'], ['c', 'text']]);
       const result = service.interpolateJson('{"a": "{{a}}", "b": "{{b}}", "c": "{{c}}"}', vars);
-      expect(result).toBe('{"a": 42, "b": true, "c": "text"}');
+      expect(result).toBe('{"a": "42", "b": "true", "c": "text"}');
     });
 
-    it('handles negative numbers', () => {
+    it('handles typed substitutions for unquoted placeholders', () => {
+      const vars = new Map([['a', '42'], ['b', 'true'], ['c', 'null'], ['d', '-5'], ['e', '3.14'], ['f', '1e10']]);
+      const result = service.interpolateJson('{"a": {{a}}, "b": {{b}}, "c": {{c}}, "d": {{d}}, "e": {{e}}, "f": {{f}}}', vars);
+      expect(result).toBe('{"a": 42, "b": true, "c": null, "d": -5, "e": 3.14, "f": 1e10}');
+    });
+
+    it('keeps negative numbers as strings when placeholder is quoted', () => {
       const vars = new Map([['offset', '-5']]);
       const result = service.interpolateJson('{"offset": "{{offset}}"}', vars);
-      expect(result).toBe('{"offset": -5}');
+      expect(result).toBe('{"offset": "-5"}');
     });
 
-    it('handles float numbers', () => {
+    it('keeps float numbers as strings when placeholder is quoted', () => {
       const vars = new Map([['ratio', '3.14']]);
       const result = service.interpolateJson('{"ratio": "{{ratio}}"}', vars);
-      expect(result).toBe('{"ratio": 3.14}');
+      expect(result).toBe('{"ratio": "3.14"}');
     });
 
-    it('handles scientific notation', () => {
+    it('keeps scientific notation as strings when placeholder is quoted', () => {
       const vars = new Map([['big', '1e10']]);
       const result = service.interpolateJson('{"big": "{{big}}"}', vars);
-      expect(result).toBe('{"big": 1e10}');
+      expect(result).toBe('{"big": "1e10"}');
     });
 
     it('does not coerce strings that look numeric-ish but are not', () => {

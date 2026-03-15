@@ -257,15 +257,16 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   /**
-   * JSON-aware interpolation: when `"{{var}}"` is the entire JSON string value
-   * and the resolved value is a valid JSON literal (number, boolean, null),
-   * the surrounding quotes are stripped so the output is valid typed JSON.
+   * JSON-aware interpolation.
+   * - Quoted placeholders (e.g. `"{{var}}"`) are always treated as strings.
+   * - Typed JSON literals (number/boolean/null) are supported when placeholders
+   *   are unquoted (e.g. `"count": {{count}}`).
    *
    * Use this for `body.type === 'json'` bodies only.
    */
   interpolateJson(template: string, variables: Map<string, string>): string {
     // Phase 1: handle "{{var}}" patterns where the entire quoted value is a single placeholder.
-    // If the resolved value is a JSON literal, emit it unquoted.
+    // Respect explicit JSON string quoting in the template.
     const phase1 = template.replace(
       new RegExp(`"(\\{\\{\\s*${VAR_NAME_CHARS}\\s*\\}\\})"`, 'g'),
       (match, placeholder) => {
@@ -276,7 +277,6 @@ export class EnvironmentService implements vscode.Disposable {
         const builtin = this._resolveBuiltin(key);
         const value = builtin !== undefined ? builtin : variables.get(key);
         if (value === undefined) return match; // leave unresolved as-is
-        if (this._isJsonLiteral(value)) return value;
         // Escape for valid JSON string and keep quoted
         return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
       },
