@@ -257,39 +257,16 @@ export class EnvironmentService implements vscode.Disposable {
   }
 
   /**
-   * JSON-aware interpolation.
-   * - Quoted placeholders (e.g. `"{{var}}"`) are always treated as strings.
-   * - Typed JSON literals (number/boolean/null) are supported when placeholders
-   *   are unquoted (e.g. `"count": {{count}}`).
+   * Interpolate `{{var}}` placeholders in a JSON body template.
+   * Variables are substituted verbatim — it is the caller's responsibility to
+   * ensure variable values are valid in their JSON context.
+   * Unquoted placeholders (e.g. `"count": {{count}}`) naturally carry typed
+   * JSON literals (42, true, null) straight from the variable value.
    *
    * Use this for `body.type === 'json'` bodies only.
    */
   interpolateJson(template: string, variables: Map<string, string>): string {
-    // Phase 1: handle "{{var}}" patterns where the entire quoted value is a single placeholder.
-    // Respect explicit JSON string quoting in the template.
-    const phase1 = template.replace(
-      new RegExp(`"(\\{\\{\\s*${VAR_NAME_CHARS}\\s*\\}\\})"`, 'g'),
-      (match, placeholder) => {
-        // Extract variable name from {{name}}
-        const nameMatch = placeholder.match(/\{\{\s*([\w.$-]+)\s*\}\}/);
-        if (!nameMatch) return match;
-        const key = nameMatch[1];
-        const builtin = this._resolveBuiltin(key);
-        const value = builtin !== undefined ? builtin : variables.get(key);
-        if (value === undefined) return match; // leave unresolved as-is
-        // Escape for valid JSON string and keep quoted
-        return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-      },
-    );
-
-    // Phase 2: normal interpolation for remaining {{var}} occurrences
-    // (e.g. inside longer strings like "Hello {{name}}", or in non-quoted positions)
-    return phase1.replace(varPatternGlobal(), (match, name) => {
-      const key = name.trim();
-      const builtin = this._resolveBuiltin(key);
-      if (builtin !== undefined) return builtin;
-      return variables.has(key) ? variables.get(key)! : match;
-    });
+    return this.interpolate(template, variables);
   }
 
   /**

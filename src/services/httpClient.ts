@@ -353,9 +353,8 @@ export class HttpClient implements vscode.Disposable {
           };
           headers['Content-Type'] = contentTypes[body.type] ?? 'text/plain';
         }
-        // Use JSON-aware interpolation for JSON bodies.
-        // Quoted placeholders stay strings; unquoted placeholders can resolve
-        // to typed literals (number/boolean/null).
+        // Use interpolateJson for JSON bodies — unquoted placeholders carry
+        // typed literals (42, true, null) verbatim from the variable value.
         return body.type === 'json'
           ? this._environmentService.interpolateJson(body.data, variables)
           : this._environmentService.interpolate(body.data, variables);

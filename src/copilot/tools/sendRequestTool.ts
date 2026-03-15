@@ -64,8 +64,8 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
 
     // Convert typed variable values to strings for the resolution map.
-    // interpolateJson respects explicit JSON quotes and only emits typed literals
-    // for unquoted placeholders.
+    // interpolateJson substitutes variables verbatim; unquoted placeholders
+    // carry typed JSON literals (42, true, null) directly from the variable value.
     const extraVariables = variables
       ? new Map<string, string>(Object.entries(variables).map(([k, v]) => [k, String(v)]))
       : undefined;
