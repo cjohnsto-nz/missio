@@ -5,6 +5,7 @@ import { EnvironmentService } from '../../services/environmentService';
 import { HttpClient } from '../../services/httpClient';
 import { readFolderFile } from '../../services/yamlParser';
 import { detectUnresolvedVars } from '../../services/unresolvedVars';
+import { resolveInheritedAuth } from '../../services/authResolver';
 import { varPatternGlobal } from '../../models/varPattern';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -239,10 +240,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         return collectionAuth;
       }
     }
-    let auth = request.runtime?.auth;
-    if (auth === 'inherit') auth = folderDefaults?.auth;
-    if (auth === 'inherit') auth = collectionAuth;
-    return auth;
+    return resolveInheritedAuth(request.runtime?.auth, folderDefaults?.auth, collectionAuth);
   }
 
   private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
@@ -516,15 +514,22 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   }
 
   private async _readFolderDefaults(requestFilePath: string, collectionRoot: string) {
+    const normalizedRoot = this._normalizePathForCompare(collectionRoot);
     let dir = path.dirname(requestFilePath);
-    while (dir !== collectionRoot && dir.startsWith(collectionRoot)) {
+    while (true) {
+      const normalizedDir = this._normalizePathForCompare(dir);
+      if (normalizedDir === normalizedRoot || !normalizedDir.startsWith(normalizedRoot + '/')) {
+        break;
+      }
       for (const name of ['folder.yml', 'folder.yaml']) {
         try {
           const data = await readFolderFile(path.join(dir, name));
           if (data?.request) return data.request;
         } catch { /* no folder file */ }
       }
-      dir = path.dirname(dir);
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
     }
     return undefined;
   }

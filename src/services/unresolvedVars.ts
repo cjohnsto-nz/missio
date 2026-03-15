@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { HttpRequest, MissioCollection, RequestDefaults, Auth } from '../models/types';
 import { varPatternGlobal } from '../models/varPattern';
 import type { EnvironmentService } from './environmentService';
+import { resolveInheritedAuth } from './authResolver';
 
 const BUILTINS = new Set(['$guid', '$timestamp', '$randomInt']);
 
@@ -74,14 +75,10 @@ export async function detectUnresolvedVars(
     if (collectionAuth && collectionAuth !== 'inherit' && isAuthComplete(collectionAuth)) {
       auth = collectionAuth;
     } else {
-      auth = requestData.runtime?.auth;
-      if (auth === 'inherit') auth = folderDefaults?.auth;
-      if (auth === 'inherit') auth = collectionAuth;
+      auth = resolveInheritedAuth(requestData.runtime?.auth, folderDefaults?.auth, collectionAuth);
     }
   } else {
-    auth = requestData.runtime?.auth;
-    if (auth === 'inherit') auth = folderDefaults?.auth;
-    if (auth === 'inherit') auth = collectionAuth;
+    auth = resolveInheritedAuth(requestData.runtime?.auth, folderDefaults?.auth, collectionAuth);
   }
   if (auth && auth !== 'inherit' && typeof auth === 'object') {
     scanAllStrings(auth, varNames);
