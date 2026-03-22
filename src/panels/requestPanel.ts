@@ -433,11 +433,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
         return; // User cancelled
       }
 
+      const includeAuth = format === 'curl-auth';
       const resolved = await this._httpClient.buildResolvedRequest(
         requestData, collection, folderDefaults, extraVariables,
+        undefined, undefined, { includeAuth },
       );
 
-      const output = format === 'http' ? toHttpRaw(resolved) : toCurl(resolved);
+      const outputFormat = format === 'curl-auth' ? 'curl' : format;
+      const output = outputFormat === 'http' ? toHttpRaw(resolved) : toCurl(resolved);
       await vscode.env.clipboard.writeText(output);
       const label = format === 'http' ? 'HTTP' : 'cURL';
       vscode.window.showInformationMessage(`${label} copied to clipboard`);
@@ -539,6 +542,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       <button class="btn btn-secondary" id="exportBtn" title="Export request">Export</button>
       <div class="export-menu" id="exportMenu" style="display:none;">
         <div class="export-menu-item" data-format="curl">cURL</div>
+        <div class="export-menu-item" data-format="curl-auth">cURL + Auth</div>
         <div class="export-menu-item" data-format="http">HTTP</div>
       </div>
     </div>

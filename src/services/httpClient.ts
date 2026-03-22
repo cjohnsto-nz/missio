@@ -75,6 +75,7 @@ export class HttpClient implements vscode.Disposable {
     extraVariables?: Map<string, string>,
     environmentName?: string,
     cliApprovalPrompt?: CliApprovalPrompt,
+    options?: { includeAuth?: boolean },
   ): Promise<ResolvedRequest> {
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     if (extraVariables) {
@@ -139,29 +140,31 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
-    // Auth
-    let auth: Auth | undefined;
-    if (collection.data.config?.forceAuthInherit) {
-      const collectionAuth = collection.data.request?.auth;
-      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
-        auth = collectionAuth;
+    // Auth (skip when exporting without auth)
+    if (options?.includeAuth !== false) {
+      let auth: Auth | undefined;
+      if (collection.data.config?.forceAuthInherit) {
+        const collectionAuth = collection.data.request?.auth;
+        if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
+          auth = collectionAuth;
+        } else {
+          auth = request.runtime?.auth;
+          if (auth === 'inherit') auth = folderDefaults?.auth;
+          if (auth === 'inherit') auth = collectionAuth;
+        }
       } else {
         auth = request.runtime?.auth;
         if (auth === 'inherit') auth = folderDefaults?.auth;
-        if (auth === 'inherit') auth = collectionAuth;
+        if (auth === 'inherit') auth = collection.data.request?.auth;
       }
-    } else {
-      auth = request.runtime?.auth;
-      if (auth === 'inherit') auth = folderDefaults?.auth;
-      if (auth === 'inherit') auth = collection.data.request?.auth;
-    }
-    if (auth && auth !== 'inherit') {
-      if (auth.type === 'oauth2') {
-        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
-      } else if (auth.type === 'cli') {
-        await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
-      } else {
-        this._applyAuth(auth, headers, variables);
+      if (auth && auth !== 'inherit') {
+        if (auth.type === 'oauth2') {
+          await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
+        } else if (auth.type === 'cli') {
+          await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
+        } else {
+          this._applyAuth(auth, headers, variables);
+        }
       }
     }
 
