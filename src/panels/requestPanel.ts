@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
-import { type HttpClient, requestLog } from '../services/httpClient';
+import { type HttpClient, requestLog, type ResolvedRequest } from '../services/httpClient';
+import { toCurl, toHttpRaw } from '../services/curlExporter';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -216,6 +217,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._saveExample(webview, msg, ctx);
         return true;
       }
+      case 'exportRequest': {
+        const collection = this._findCollection(filePath);
+        if (!collection) {
+          webview.postMessage({ type: 'error', message: 'Collection not found' });
+          return true;
+        }
+        const folderDefaults = await this._getFolderDefaults(filePath, collection);
+        await this._exportRequest(webview, msg.request, collection, folderDefaults, msg.format ?? 'curl');
+        return true;
+      }
       case 'unresolvedVarsResponse': {
         if (this._unresolvedVarsResolver) {
           if (msg.cancelled) {
@@ -401,6 +412,41 @@ export class RequestEditorProvider extends BaseEditorProvider {
     }
   }
 
+  private async _exportRequest(
+    webview: vscode.Webview,
+    requestData: HttpRequest,
+    collection: MissioCollection,
+    folderDefaults: RequestDefaults | undefined,
+    format: string,
+  ): Promise<void> {
+    try {
+      // Detect unresolved variables and prompt via webview modal (same as send flow)
+      const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+      let extraVariables: Map<string, string> | undefined = new Map();
+      if (unresolved.length > 0) {
+        webview.postMessage({ type: 'promptUnresolvedVars', variables: unresolved });
+        extraVariables = await new Promise<Map<string, string> | undefined>(resolve => {
+          this._unresolvedVarsResolver = resolve;
+        });
+      }
+      if (extraVariables === undefined) {
+        return; // User cancelled
+      }
+
+      const resolved = await this._httpClient.buildResolvedRequest(
+        requestData, collection, folderDefaults, extraVariables,
+      );
+
+      const output = format === 'http' ? toHttpRaw(resolved) : toCurl(resolved);
+      await vscode.env.clipboard.writeText(output);
+      const label = format === 'http' ? 'HTTP' : 'cURL';
+      vscode.window.showInformationMessage(`${label} copied to clipboard`);
+      webview.postMessage({ type: 'exportComplete', format });
+    } catch (e: any) {
+      vscode.window.showErrorMessage(`Export failed: ${e.message ?? e}`);
+    }
+  }
+
   private async _saveExample(webview: vscode.Webview, msg: any, ctx: EditorContext): Promise<void> {
     const exampleName = await vscode.window.showInputBox({
       prompt: 'Name for this example',
@@ -489,6 +535,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
     <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
+    <div class="export-dropdown" id="exportDropdown">
+      <button class="btn btn-secondary" id="exportBtn" title="Export request">Export</button>
+      <div class="export-menu" id="exportMenu" style="display:none;">
+        <div class="export-menu-item" data-format="curl">cURL</div>
+        <div class="export-menu-item" data-format="http">HTTP</div>
+      </div>
+    </div>
   </div>
 
   <div class="main-content">

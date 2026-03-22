@@ -23,6 +23,14 @@ function _log(msg: string): void {
 }
 export { _logChannel as requestLog };
 
+/** Fully resolved request ready for execution or export. */
+export interface ResolvedRequest {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
 interface CliTokenCacheEntry {
   token: string;
   expiresAt: number; // epoch ms
@@ -54,6 +62,130 @@ export class HttpClient implements vscode.Disposable {
 
   setSecretService(secretService: SecretService): void {
     this._secretService = secretService;
+  }
+
+  /**
+   * Resolve all variables, interpolate URL/headers/body/auth, and return the
+   * fully-resolved request without executing it. Useful for export (cURL, etc.).
+   */
+  async buildResolvedRequest(
+    request: HttpRequest,
+    collection: MissioCollection,
+    folderDefaults?: import('../models/types').RequestDefaults,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    cliApprovalPrompt?: CliApprovalPrompt,
+  ): Promise<ResolvedRequest> {
+    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
+    if (extraVariables) {
+      for (const [k, v] of extraVariables) variables.set(k, v);
+    }
+    const details = request.http;
+    if (!details?.url || !details?.method) {
+      throw new Error('Request must have a URL and method');
+    }
+
+    // Interpolate URL
+    let url = this._environmentService.interpolate(details.url, variables);
+    if (url && !/^https?:\/\//i.test(url)) {
+      url = 'http://' + url;
+    }
+
+    // Apply query params
+    const allQueryParams = (details.params ?? []).filter(p => p.type === 'query');
+    if (allQueryParams.length > 0) {
+      const urlObj = new URL(url);
+      urlObj.search = '';
+      for (const p of allQueryParams) {
+        if (p.disabled) continue;
+        const resolvedValue = this._environmentService.interpolate(p.value, variables);
+        if (resolvedValue === '') continue;
+        urlObj.searchParams.set(
+          this._environmentService.interpolate(p.name, variables),
+          resolvedValue,
+        );
+      }
+      url = urlObj.toString();
+    }
+
+    // Apply path params
+    const pathParams = (details.params ?? []).filter(p => p.type === 'path' && !p.disabled);
+    for (const p of pathParams) {
+      const name = this._environmentService.interpolate(p.name, variables);
+      const value = this._environmentService.interpolate(p.value, variables);
+      url = url.replace(`:${name}`, encodeURIComponent(value));
+    }
+
+    // Build headers: collection -> folder -> request (each layer overrides)
+    const headers: Record<string, string> = {};
+    for (const h of (collection.data.request?.headers ?? [])) {
+      if (!h.disabled) {
+        headers[this._environmentService.interpolate(h.name, variables)] =
+          this._environmentService.interpolate(h.value, variables);
+      }
+    }
+    if (folderDefaults?.headers) {
+      for (const h of folderDefaults.headers) {
+        if (!h.disabled) {
+          headers[this._environmentService.interpolate(h.name, variables)] =
+            this._environmentService.interpolate(h.value, variables);
+        }
+      }
+    }
+    for (const h of (details.headers ?? [])) {
+      if (!h.disabled) {
+        headers[this._environmentService.interpolate(h.name, variables)] =
+          this._environmentService.interpolate(h.value, variables);
+      }
+    }
+
+    // Auth
+    let auth: Auth | undefined;
+    if (collection.data.config?.forceAuthInherit) {
+      const collectionAuth = collection.data.request?.auth;
+      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
+        auth = collectionAuth;
+      } else {
+        auth = request.runtime?.auth;
+        if (auth === 'inherit') auth = folderDefaults?.auth;
+        if (auth === 'inherit') auth = collectionAuth;
+      }
+    } else {
+      auth = request.runtime?.auth;
+      if (auth === 'inherit') auth = folderDefaults?.auth;
+      if (auth === 'inherit') auth = collection.data.request?.auth;
+    }
+    if (auth && auth !== 'inherit') {
+      if (auth.type === 'oauth2') {
+        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
+      } else if (auth.type === 'cli') {
+        await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
+      } else {
+        this._applyAuth(auth, headers, variables);
+      }
+    }
+
+    // Body
+    let body: string | undefined;
+    const resolvedBody = this._resolveBody(details.body);
+    if (resolvedBody) {
+      body = this._buildBody(resolvedBody, headers, variables);
+    }
+
+    // Resolve $secret references
+    const providers = collection.data.config?.secretProviders ?? [];
+    if (providers.length > 0 && this._secretService) {
+      url = await this._secretService.resolveSecretReferences(url, providers, variables);
+      for (const [k, v] of Object.entries(headers)) {
+        const resolved = await this._secretService.resolveSecretReferences(v, providers, variables);
+        if (resolved !== v) headers[k] = resolved;
+      }
+      if (body) {
+        body = await this._secretService.resolveSecretReferences(body, providers, variables);
+      }
+    }
+
+    return { method: details.method.toUpperCase(), url, headers, body };
   }
 
   async send(

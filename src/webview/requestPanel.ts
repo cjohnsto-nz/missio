@@ -1174,6 +1174,13 @@ window.addEventListener('message', (event: MessageEvent) => {
       hideLoading();
       setSendingState(false);
       break;
+    case 'exportComplete': {
+      const btn = $('exportBtn');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+      break;
+    }
     case 'languageChanged':
       setCurrentLang(msg.language);
       ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
@@ -1363,6 +1370,29 @@ $('saveExampleBtn').addEventListener('click', () => {
   const req = buildRequest();
   vscode.postMessage({ type: 'saveExample', request: req, response: getLastResponse() });
 });
+// ── Export dropdown ──────────────────────────────
+{
+  const exportBtn = $('exportBtn');
+  const exportMenu = $('exportMenu');
+
+  exportBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const visible = exportMenu.style.display !== 'none';
+    exportMenu.style.display = visible ? 'none' : 'block';
+  });
+
+  exportMenu.addEventListener('click', (e) => {
+    const item = (e.target as HTMLElement).closest('.export-menu-item') as HTMLElement | null;
+    if (!item) return;
+    const format = item.dataset.format;
+    exportMenu.style.display = 'none';
+    const req = buildRequest();
+    vscode.postMessage({ type: 'exportRequest', request: req, format });
+  });
+
+  document.addEventListener('click', () => { exportMenu.style.display = 'none'; });
+}
+
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
