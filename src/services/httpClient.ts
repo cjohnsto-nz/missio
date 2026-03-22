@@ -353,11 +353,7 @@ export class HttpClient implements vscode.Disposable {
           };
           headers['Content-Type'] = contentTypes[body.type] ?? 'text/plain';
         }
-        // Use interpolateJson for JSON bodies — unquoted placeholders carry
-        // typed literals (42, true, null) verbatim from the variable value.
-        return body.type === 'json'
-          ? this._environmentService.interpolateJson(body.data, variables)
-          : this._environmentService.interpolate(body.data, variables);
+        return this._environmentService.interpolate(body.data, variables);
       }
       case 'form-urlencoded': {
         if (!headers['Content-Type'] && !headers['content-type']) {

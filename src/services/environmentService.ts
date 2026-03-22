@@ -256,18 +256,7 @@ export class EnvironmentService implements vscode.Disposable {
     });
   }
 
-  /**
-   * Interpolate `{{var}}` placeholders in a JSON body template.
-   * Variables are substituted verbatim — it is the caller's responsibility to
-   * ensure variable values are valid in their JSON context.
-   * Unquoted placeholders (e.g. `"count": {{count}}`) naturally carry typed
-   * JSON literals (42, true, null) straight from the variable value.
-   *
-   * Use this for `body.type === 'json'` bodies only.
-   */
-  interpolateJson(template: string, variables: Map<string, string>): string {
-    return this.interpolate(template, variables);
-  }
+
 
   /**
    * Interpolate {{var}} placeholders AND resolve $secret.{vault}.{key} references.
