@@ -224,7 +224,7 @@ body {
 .btn {
   padding: 6px 14px;
   border-radius: 4px;
-  border: 1px solid transparent;
+  border: none;
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
@@ -248,7 +248,7 @@ body {
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
 
 /* ── Export dropdown ────────────────────────── */
-.export-dropdown { position: relative; }
+.export-dropdown { position: relative; display: flex; }
 #exportBtn { min-width: 70px; text-align: center; }
 .export-menu {
   position: absolute;
