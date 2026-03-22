@@ -60,6 +60,7 @@ We aim to support these in the coming weeks.
 - **Request timer** — live elapsed time display while a request is in progress, with the previous response dimmed until the new one arrives
 - **Auto headers** — `Content-Type` and `Content-Length` are calculated automatically and shown as read-only (override by specifying your own)
 - **Unresolved variable prompts** — if any `{{variables}}` remain unresolved after interpolation, a modal prompts you to fill them in before sending
+- **Export requests** — export as cURL or raw HTTP via the Export dropdown; choose "cURL + Auth" to include resolved authentication headers
 - **Save examples** — save response snapshots and load them later
 
 #### Large Response Handling
