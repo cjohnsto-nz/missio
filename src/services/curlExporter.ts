@@ -10,8 +10,10 @@ function shellEscape(s: string): string {
 export function toCurl(req: ResolvedRequest): string {
   const parts: string[] = ['curl'];
 
-  // Method — always explicit for clarity
-  parts.push(`-X ${req.method}`);
+  // Method — omit -X for GET (curl default)
+  if (req.method !== 'GET') {
+    parts.push(`-X ${req.method}`);
+  }
 
   // URL
   parts.push(`'${shellEscape(req.url)}'`);
@@ -45,7 +47,9 @@ export function toHttpRaw(req: ResolvedRequest): string {
   lines.push(`Host: ${url.host}`);
 
   for (const [name, value] of Object.entries(req.headers)) {
-    if (name.toLowerCase() === 'host') continue; // already added
+    const lower = name.toLowerCase();
+    if (lower === 'host') continue; // already added
+    if (lower === 'content-length') continue; // computed below
     lines.push(`${name}: ${value}`);
   }
 

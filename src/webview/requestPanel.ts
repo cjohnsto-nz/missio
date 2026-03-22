@@ -1391,6 +1391,9 @@ $('saveExampleBtn').addEventListener('click', () => {
   });
 
   document.addEventListener('click', () => { exportMenu.style.display = 'none'; });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { exportMenu.style.display = 'none'; }
+  });
 }
 
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });

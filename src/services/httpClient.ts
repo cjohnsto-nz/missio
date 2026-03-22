@@ -202,160 +202,21 @@ export class HttpClient implements vscode.Disposable {
     const _mark = (label: string, start: number) => { _timing.push({ label, start: start - t0, end: Date.now() - t0 }); };
     _log(`── Send ${request.http?.method ?? '?'} ${request.http?.url ?? '?'} ──`);
     let tPhase = Date.now();
-    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
-    // Merge ephemeral extra variables (e.g. user-prompted values for unresolved vars)
-    if (extraVariables) {
-      for (const [k, v] of extraVariables) variables.set(k, v);
-    }
-    _mark('Resolve Variables', tPhase);
-    _log(`  resolveVariables: ${Date.now() - t0}ms`);
-    const details = request.http;
-    if (!details?.url || !details?.method) {
-      throw new Error('Request must have a URL and method');
-    }
+
+    const resolved = await this.buildResolvedRequest(
+      request, collection, folderDefaults, extraVariables, environmentName, cliApprovalPrompt,
+    );
+
+    _mark('Resolve', tPhase);
+    _log(`  resolve: ${Date.now() - t0}ms`);
 
     const config = vscode.workspace.getConfiguration('missio');
     const settings = this._resolveSettings(request.settings, config);
 
-    // Interpolate URL
-    let url = this._environmentService.interpolate(details.url, variables);
-
-    // Auto-prepend http:// if no scheme provided (matches Postman behaviour)
-    if (url && !/^https?:\/\//i.test(url)) {
-      url = 'http://' + url;
-    }
-
-    // Apply query params — params array is the source of truth, so strip any
-    // query string baked into the URL (common Postman import artifact)
-    const allQueryParams = (details.params ?? []).filter(p => p.type === 'query');
-    if (allQueryParams.length > 0) {
-      const urlObj = new URL(url);
-      urlObj.search = '';
-      for (const p of allQueryParams) {
-        if (p.disabled) continue;
-        const resolvedValue = this._environmentService.interpolate(p.value, variables);
-        if (resolvedValue === '') continue; // Skip empty-value params
-        urlObj.searchParams.set(
-          this._environmentService.interpolate(p.name, variables),
-          resolvedValue,
-        );
-      }
-      url = urlObj.toString();
-    }
-
-    // Apply path params
-    const pathParams = (details.params ?? []).filter(p => p.type === 'path' && !p.disabled);
-    for (const p of pathParams) {
-      const name = this._environmentService.interpolate(p.name, variables);
-      const value = this._environmentService.interpolate(p.value, variables);
-      url = url.replace(`:${name}`, encodeURIComponent(value));
-    }
-
-    // Build headers: collection -> folder -> request (each layer overrides)
-    const headers: Record<string, string> = {};
-
-    // Collection default headers
-    const defaultHeaders = collection.data.request?.headers ?? [];
-    for (const h of defaultHeaders) {
-      if (!h.disabled) {
-        headers[this._environmentService.interpolate(h.name, variables)] =
-          this._environmentService.interpolate(h.value, variables);
-      }
-    }
-
-    // Folder default headers (override collection)
-    if (folderDefaults?.headers) {
-      for (const h of folderDefaults.headers) {
-        if (!h.disabled) {
-          headers[this._environmentService.interpolate(h.name, variables)] =
-            this._environmentService.interpolate(h.value, variables);
-        }
-      }
-    }
-
-    // Request headers (override folder and collection)
-    for (const h of (details.headers ?? [])) {
-      if (!h.disabled) {
-        headers[this._environmentService.interpolate(h.name, variables)] =
-          this._environmentService.interpolate(h.value, variables);
-      }
-    }
-
-    _mark('Interpolate + Params', tPhase);
-    _log(`  interpolate+params: ${Date.now() - t0}ms`);
-    tPhase = Date.now();
-    // Auth: request -> folder -> collection (first non-inherit wins)
-    // forceAuthInherit: skip request/folder auth, go straight to collection
-    // If the inherited auth is incomplete, fall back to the normal chain
-    let auth: Auth | undefined;
-    if (collection.data.config?.forceAuthInherit) {
-      const collectionAuth = collection.data.request?.auth;
-      if (collectionAuth && collectionAuth !== 'inherit' && this._isAuthComplete(collectionAuth)) {
-        auth = collectionAuth;
-      } else {
-        // Fall back to explicit inherit chain when collection auth is incomplete
-        auth = request.runtime?.auth;
-        if (auth === 'inherit') auth = folderDefaults?.auth;
-        if (auth === 'inherit') auth = collectionAuth;
-      }
-    } else {
-      auth = request.runtime?.auth;
-      if (auth === 'inherit') {
-        auth = folderDefaults?.auth;
-      }
-      if (auth === 'inherit') {
-        auth = collection.data.request?.auth;
-      }
-    }
-    let cliApprovalWaitMs = 0;
-    if (auth && auth !== 'inherit') {
-      if (auth.type === 'oauth2') {
-        await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
-      } else if (auth.type === 'cli') {
-        cliApprovalWaitMs = await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
-      } else {
-        this._applyAuth(auth, headers, variables);
-      }
-    }
-
-    // If there was CLI approval wait time, show it as separate entry and adjust Auth timing
-    if (cliApprovalWaitMs > 0) {
-      _timing.push({ label: 'CLI Approval', start: tPhase - t0, end: tPhase - t0 + cliApprovalWaitMs });
-      _timing.push({ label: 'Auth', start: tPhase - t0 + cliApprovalWaitMs, end: Date.now() - t0 });
-    } else {
-      _mark('Auth', tPhase);
-    }
-    _log(`  auth: ${Date.now() - t0}ms`);
     onProgress?.('Sending request…');
-    tPhase = Date.now();
-    // Body
-    let body: string | Buffer | undefined;
-    const resolvedBody = this._resolveBody(details.body);
-    if (resolvedBody) {
-      const result = this._buildBody(resolvedBody, headers, variables);
-      body = result;
-    }
-
-    _mark('Body', tPhase);
-    _log(`  body: ${Date.now() - t0}ms`);
-    tPhase = Date.now();
-    // Resolve $secret references in URL, headers, and body
-    const providers = collection.data.config?.secretProviders ?? [];
-    if (providers.length > 0 && this._secretService) {
-      url = await this._secretService.resolveSecretReferences(url, providers, variables);
-      for (const [k, v] of Object.entries(headers)) {
-        const resolved = await this._secretService.resolveSecretReferences(v, providers, variables);
-        if (resolved !== v) headers[k] = resolved;
-      }
-      if (body && typeof body === 'string') {
-        body = await this._secretService.resolveSecretReferences(body, providers, variables);
-      }
-    }
-
-    _mark('Secrets', tPhase);
-    _log(`  secrets: ${Date.now() - t0}ms`);
     // Execute
-    _log(`  executing: ${details.method} ${url}`);
+    const { method, url, headers, body } = resolved;
+    _log(`  executing: ${method} ${url}`);
     tPhase = Date.now();
     const parsedUrl = new URL(url);
     const isHttps = parsedUrl.protocol === 'https:';
@@ -367,7 +228,7 @@ export class HttpClient implements vscode.Disposable {
       const startTime = Date.now();
 
       const options: http.RequestOptions = {
-        method: details.method!.toUpperCase(),
+        method,
         hostname: parsedUrl.hostname,
         port: parsedUrl.port || (isHttps ? 443 : 80),
         path: parsedUrl.pathname + parsedUrl.search,
@@ -425,7 +286,7 @@ export class HttpClient implements vscode.Disposable {
       this._activeRequests.set(requestId, req);
 
       if (body) {
-        const bodyBuffer = typeof body === 'string' ? Buffer.from(body, 'utf-8') : body;
+        const bodyBuffer = Buffer.from(body, 'utf-8');
         req.setHeader('Content-Length', bodyBuffer.length);
         _log(`  body: ${bodyBuffer.length} bytes`);
         req.write(bodyBuffer);
