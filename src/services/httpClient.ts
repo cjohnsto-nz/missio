@@ -13,6 +13,7 @@ import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
 import type { CliAuthApprovalService } from './cliAuthApproval';
+import { resolveInheritedAuth } from './authResolver';
 
 const execAsync = promisify(exec);
 
@@ -162,18 +163,10 @@ export class HttpClient implements vscode.Disposable {
         auth = collectionAuth;
       } else {
         // Fall back to explicit inherit chain when collection auth is incomplete
-        auth = request.runtime?.auth;
-        if (auth === 'inherit') auth = folderDefaults?.auth;
-        if (auth === 'inherit') auth = collectionAuth;
+        auth = resolveInheritedAuth(request.runtime?.auth, folderDefaults?.auth, collectionAuth);
       }
     } else {
-      auth = request.runtime?.auth;
-      if (auth === 'inherit') {
-        auth = folderDefaults?.auth;
-      }
-      if (auth === 'inherit') {
-        auth = collection.data.request?.auth;
-      }
+      auth = resolveInheritedAuth(request.runtime?.auth, folderDefaults?.auth, collection.data.request?.auth);
     }
     let cliApprovalWaitMs = 0;
     if (auth && auth !== 'inherit') {
@@ -353,11 +346,7 @@ export class HttpClient implements vscode.Disposable {
           };
           headers['Content-Type'] = contentTypes[body.type] ?? 'text/plain';
         }
-        // Use JSON-aware interpolation for JSON bodies so "{{var}}" with numeric/boolean/null
-        // values produces typed JSON (e.g. 42 instead of "42")
-        return body.type === 'json'
-          ? this._environmentService.interpolateJson(body.data, variables)
-          : this._environmentService.interpolate(body.data, variables);
+        return this._environmentService.interpolate(body.data, variables);
       }
       case 'form-urlencoded': {
         if (!headers['Content-Type'] && !headers['content-type']) {

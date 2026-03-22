@@ -256,41 +256,7 @@ export class EnvironmentService implements vscode.Disposable {
     });
   }
 
-  /**
-   * JSON-aware interpolation: when `"{{var}}"` is the entire JSON string value
-   * and the resolved value is a valid JSON literal (number, boolean, null),
-   * the surrounding quotes are stripped so the output is valid typed JSON.
-   *
-   * Use this for `body.type === 'json'` bodies only.
-   */
-  interpolateJson(template: string, variables: Map<string, string>): string {
-    // Phase 1: handle "{{var}}" patterns where the entire quoted value is a single placeholder.
-    // If the resolved value is a JSON literal, emit it unquoted.
-    const phase1 = template.replace(
-      new RegExp(`"(\\{\\{\\s*${VAR_NAME_CHARS}\\s*\\}\\})"`, 'g'),
-      (match, placeholder) => {
-        // Extract variable name from {{name}}
-        const nameMatch = placeholder.match(/\{\{\s*([\w.$-]+)\s*\}\}/);
-        if (!nameMatch) return match;
-        const key = nameMatch[1];
-        const builtin = this._resolveBuiltin(key);
-        const value = builtin !== undefined ? builtin : variables.get(key);
-        if (value === undefined) return match; // leave unresolved as-is
-        if (this._isJsonLiteral(value)) return value;
-        // Escape for valid JSON string and keep quoted
-        return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-      },
-    );
 
-    // Phase 2: normal interpolation for remaining {{var}} occurrences
-    // (e.g. inside longer strings like "Hello {{name}}", or in non-quoted positions)
-    return phase1.replace(varPatternGlobal(), (match, name) => {
-      const key = name.trim();
-      const builtin = this._resolveBuiltin(key);
-      if (builtin !== undefined) return builtin;
-      return variables.has(key) ? variables.get(key)! : match;
-    });
-  }
 
   /**
    * Interpolate {{var}} placeholders AND resolve $secret.{vault}.{key} references.

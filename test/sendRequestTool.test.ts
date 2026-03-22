@@ -28,7 +28,6 @@ describe('SendRequestTool dryRun redaction', () => {
         ['token', { value: 'super-secret-token', source: 'secret' }],
       ]),
       interpolate: (template: string, vars: Map<string, string>) => interpolate(template, vars),
-      interpolateJson: (template: string, vars: Map<string, string>) => interpolate(template, vars),
     } as any;
 
     const tool = new SendRequestTool({} as any, environmentService, {} as any);
@@ -80,6 +79,29 @@ describe('SendRequestTool auth selection and path matching', () => {
     const auth = (tool as any)._selectEffectiveAuth(request, collection, undefined);
 
     expect(auth).toEqual({ type: 'bearer', token: '{{requestToken}}' });
+  });
+
+  it('uses collection auth when request auth is inherit and folder defaults are missing', () => {
+    const collection = makeCollection();
+    collection.data.request = {
+      auth: {
+        type: 'cli',
+        command: 'az account get-access-token --query accessToken -o tsv',
+      } as any,
+    } as any;
+
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'https://example.com' },
+      runtime: { auth: 'inherit' },
+    };
+
+    const tool = new SendRequestTool({} as any, {} as any, {} as any);
+    const auth = (tool as any)._selectEffectiveAuth(request, collection, undefined);
+
+    expect(auth).toEqual({
+      type: 'cli',
+      command: 'az account get-access-token --query accessToken -o tsv',
+    });
   });
 
   it('matches collection root for absolute paths with mixed separators', () => {
