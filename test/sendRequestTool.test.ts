@@ -28,7 +28,6 @@ describe('SendRequestTool dryRun redaction', () => {
         ['token', { value: 'super-secret-token', source: 'secret' }],
       ]),
       interpolate: (template: string, vars: Map<string, string>) => interpolate(template, vars),
-      interpolateJson: (template: string, vars: Map<string, string>) => interpolate(template, vars),
     } as any;
 
     const tool = new SendRequestTool({} as any, environmentService, {} as any);

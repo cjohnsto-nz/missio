@@ -65,8 +65,6 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
 
     // Convert typed variable values to strings for the resolution map.
-    // interpolateJson handles smart coercion: "{{var}}" with a value like "0" or "true"
-    // will produce unquoted JSON literals in JSON bodies.
     const extraVariables = variables
       ? new Map<string, string>(Object.entries(variables).map(([k, v]) => [k, String(v)]))
       : undefined;
@@ -358,7 +356,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       if (resolvedBody) {
         switch (resolvedBody.type) {
           case 'json':
-            body = this._environmentService.interpolateJson(resolvedBody.data, variables);
+            body = this._environmentService.interpolate(resolvedBody.data, variables);
             break;
           case 'text':
           case 'xml':
@@ -514,6 +512,9 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   }
 
   private async _readFolderDefaults(requestFilePath: string, collectionRoot: string) {
+    // Walk up from the request's directory toward the collection root, looking
+    // for a folder.yml/yaml. Paths are normalised (lowercased, forward-slashed,
+    // trailing-slash-stripped) so comparisons work on Windows and with mixed separators.
     const normalizedRoot = this._normalizePathForCompare(collectionRoot);
     let dir = path.dirname(requestFilePath);
     while (true) {
