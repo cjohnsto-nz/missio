@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.7.1",
+  "version": "0.7.3",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -656,7 +656,12 @@
         "toolReferenceName": "missio_list_collections",
         "canBeReferencedInPrompt": true,
         "icon": "$(folder-library)",
-        "tags": ["api", "rest", "collections", "missio"]
+        "tags": [
+          "api",
+          "rest",
+          "collections",
+          "missio"
+        ]
       },
       {
         "name": "missio_get_collection",
@@ -666,7 +671,12 @@
         "toolReferenceName": "missio_get_collection",
         "canBeReferencedInPrompt": true,
         "icon": "$(file-code)",
-        "tags": ["api", "rest", "collections", "missio"],
+        "tags": [
+          "api",
+          "rest",
+          "collections",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -689,7 +699,12 @@
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
         "icon": "$(list-tree)",
-        "tags": ["api", "rest", "requests", "missio"],
+        "tags": [
+          "api",
+          "rest",
+          "requests",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -712,7 +727,12 @@
         "toolReferenceName": "missio_get_request",
         "canBeReferencedInPrompt": true,
         "icon": "$(file)",
-        "tags": ["api", "rest", "requests", "missio"],
+        "tags": [
+          "api",
+          "rest",
+          "requests",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -721,7 +741,9 @@
               "description": "Absolute path to the request .yml file, as returned by missio_list_requests."
             }
           },
-          "required": ["requestFilePath"]
+          "required": [
+            "requestFilePath"
+          ]
         }
       },
       {
@@ -732,7 +754,12 @@
         "toolReferenceName": "missio_list_environments",
         "canBeReferencedInPrompt": true,
         "icon": "$(server-environment)",
-        "tags": ["api", "environments", "variables", "missio"],
+        "tags": [
+          "api",
+          "environments",
+          "variables",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -751,7 +778,11 @@
         "toolReferenceName": "missio_set_environment",
         "canBeReferencedInPrompt": true,
         "icon": "$(settings-gear)",
-        "tags": ["api", "environments", "missio"],
+        "tags": [
+          "api",
+          "environments",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -764,7 +795,9 @@
               "description": "Name of the environment to activate."
             }
           },
-          "required": ["environmentName"]
+          "required": [
+            "environmentName"
+          ]
         }
       },
       {
@@ -775,7 +808,11 @@
         "toolReferenceName": "missio_resolve_variables",
         "canBeReferencedInPrompt": true,
         "icon": "$(symbol-variable)",
-        "tags": ["api", "variables", "missio"],
+        "tags": [
+          "api",
+          "variables",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -802,7 +839,13 @@
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
         "icon": "$(play)",
-        "tags": ["api", "rest", "http", "send", "missio"],
+        "tags": [
+          "api",
+          "rest",
+          "http",
+          "send",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -838,7 +881,9 @@
               }
             }
           },
-          "required": ["requestFilePath"]
+          "required": [
+            "requestFilePath"
+          ]
         }
       },
       {
@@ -849,7 +894,12 @@
         "toolReferenceName": "missio_validate_collection",
         "canBeReferencedInPrompt": true,
         "icon": "$(check-all)",
-        "tags": ["api", "validation", "schema", "missio"],
+        "tags": [
+          "api",
+          "validation",
+          "schema",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -868,7 +918,14 @@
         "toolReferenceName": "missio_send_raw_request",
         "canBeReferencedInPrompt": true,
         "icon": "$(zap)",
-        "tags": ["api", "rest", "http", "send", "raw", "missio"],
+        "tags": [
+          "api",
+          "rest",
+          "http",
+          "send",
+          "raw",
+          "missio"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -911,7 +968,10 @@
               }
             }
           },
-          "required": ["method", "url"]
+          "required": [
+            "method",
+            "url"
+          ]
         }
       }
     ],
@@ -963,6 +1023,8 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "httpsnippet": "^3.0.9",
     "yaml": "^2.3.0"
   }
 }
