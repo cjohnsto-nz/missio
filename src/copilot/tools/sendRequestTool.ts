@@ -516,15 +516,22 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   }
 
   private async _readFolderDefaults(requestFilePath: string, collectionRoot: string) {
+    const normalizedRoot = this._normalizePathForCompare(collectionRoot);
     let dir = path.dirname(requestFilePath);
-    while (dir !== collectionRoot && dir.startsWith(collectionRoot)) {
+    while (true) {
+      const normalizedDir = this._normalizePathForCompare(dir);
+      if (normalizedDir === normalizedRoot || !normalizedDir.startsWith(normalizedRoot + '/')) {
+        break;
+      }
       for (const name of ['folder.yml', 'folder.yaml']) {
         try {
           const data = await readFolderFile(path.join(dir, name));
           if (data?.request) return data.request;
         } catch { /* no folder file */ }
       }
-      dir = path.dirname(dir);
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
     }
     return undefined;
   }
