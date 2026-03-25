@@ -149,12 +149,12 @@ export class HttpClient implements vscode.Disposable {
           auth = collectionAuth;
         } else {
           auth = request.runtime?.auth;
-          if (auth === 'inherit') auth = folderDefaults?.auth;
+          if (auth === 'inherit') auth = folderDefaults?.auth ?? 'inherit';
           if (auth === 'inherit') auth = collectionAuth;
         }
       } else {
         auth = request.runtime?.auth;
-        if (auth === 'inherit') auth = folderDefaults?.auth;
+        if (auth === 'inherit') auth = folderDefaults?.auth ?? 'inherit';
         if (auth === 'inherit') auth = collection.data.request?.auth;
       }
       if (auth && auth !== 'inherit') {

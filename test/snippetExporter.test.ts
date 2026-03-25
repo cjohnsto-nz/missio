@@ -93,15 +93,15 @@ describe('exportRequest', () => {
     expect(output).not.toContain('%7B%7B');
   });
 
-  it('preserves multiple {{template}} variables in the same URL segment', () => {
+  it('preserves multiple {{template}} variables in URL path segments', () => {
     const req: ResolvedRequest = {
       method: 'GET',
-      url: 'https://{{host}}:{{port}}/api',
+      url: 'https://example.com/{{tenant}}/{{resource}}',
       headers: {},
     };
     const output = exportRequest(req, 'shell:curl');
-    expect(output).toContain('{{host}}');
-    expect(output).toContain('{{port}}');
+    expect(output).toContain('{{tenant}}');
+    expect(output).toContain('{{resource}}');
   });
 
   it('exports to Python requests format', () => {

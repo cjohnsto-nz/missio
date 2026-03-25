@@ -222,7 +222,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
           effectiveAuth = collection.data.request?.auth;
         } else {
           effectiveAuth = msg.request?.runtime?.auth;
-          if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+          if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth ?? 'inherit';
           if (effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
         }
         if (effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2') {
@@ -400,7 +400,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       effectiveAuth = collection.data.request?.auth;
     } else {
       effectiveAuth = requestData.runtime?.auth;
-      if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+      if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth ?? 'inherit';
       if (effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
     }
     const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
