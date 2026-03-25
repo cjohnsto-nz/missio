@@ -510,7 +510,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
           method: (details?.method ?? 'GET').toUpperCase(),
           url: details?.url ?? '',
           headers,
-          body: typeof details?.body?.data === 'string' ? details.body.data : undefined,
+          body: details?.body && !Array.isArray(details.body) && typeof details.body.data === 'string' ? details.body.data : undefined,
         };
       }
 

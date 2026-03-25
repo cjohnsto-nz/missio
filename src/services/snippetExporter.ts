@@ -146,12 +146,12 @@ export function exportRequest(req: ResolvedRequest, formatId: string): string {
 
   // Bypass httpsnippet's built-in HAR validation so template variables
   // don't trigger "Validation Failed" errors.
-  const snippet = new HTTPSnippet({ method: 'GET', url: 'http://x' } as HarRequest);
+  const snippet = new HTTPSnippet({ method: 'GET', url: 'http://x' } as unknown as HarRequest);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const s = snippet as any;
   s.requests = [s.prepare(har)];
 
-  const output = snippet.convert(targetId, clientId);
+  const output = snippet.convert(targetId as Parameters<typeof snippet.convert>[0], clientId);
   if (output === false) {
     throw new Error(`Conversion failed for ${formatId}`);
   }

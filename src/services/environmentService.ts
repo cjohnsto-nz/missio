@@ -256,6 +256,8 @@ export class EnvironmentService implements vscode.Disposable {
     });
   }
 
+
+
   /**
    * JSON-aware interpolation: when `"{{var}}"` is the entire JSON string value
    * and the resolved value is a valid JSON literal (number, boolean, null),
