@@ -157,6 +157,17 @@ describe('unresolvedVars', () => {
     expect(result).toEqual(['collectionToken']);
   });
 
+  it('scans collection-level auth when request auth is inherit and folder defaults are missing', async () => {
+    const collection = makeCollection([], { type: 'cli', command: 'echo {{collectionToken}}' });
+    const result = await detectUnresolvedVars(
+      makeRequest({ url: 'https://example.com', auth: 'inherit' }),
+      collection,
+      service,
+      undefined,
+    );
+    expect(result).toEqual(['collectionToken']);
+  });
+
   it('scans collection-level auth when request has no auth and no folder defaults', async () => {
     const collection = makeCollection([], { type: 'basic', username: '{{user}}', password: '{{pass}}' });
     const result = await detectUnresolvedVars(
