@@ -82,7 +82,7 @@ export class CurlRequestImporter implements RequestTextImporter {
       } else if (tok === '-u' || tok === '--user') {
         const cred = tokens[++i] ?? '';
         const colonIdx = cred.indexOf(':');
-        if (colonIdx > 0) {
+        if (colonIdx >= 0) {
           basicAuth = {
             username: cred.substring(0, colonIdx),
             password: cred.substring(colonIdx + 1),

@@ -136,7 +136,7 @@ export class HttpRawRequestImporter implements RequestTextImporter {
         try {
           const decoded = Buffer.from(val.substring(6).trim(), 'base64').toString('utf-8');
           const colonIdx = decoded.indexOf(':');
-          if (colonIdx > 0) {
+          if (colonIdx >= 0) {
             auth = {
               type: 'basic' as const,
               username: decoded.substring(0, colonIdx),
