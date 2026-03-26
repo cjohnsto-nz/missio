@@ -209,6 +209,25 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._openInBrowser(msg.bodyBase64, msg.contentType);
         return true;
       }
+      case 'chooseFile': {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Select Binary File',
+        });
+        if (uris && uris[0]) {
+          const chosen = uris[0].fsPath;
+          const ext = chosen.split('.').pop()?.toLowerCase() ?? '';
+          const extToMime: Record<string, string> = {
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+            webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon',
+            pdf: 'application/pdf', zip: 'application/zip', gz: 'application/gzip',
+            tar: 'application/x-tar', xml: 'application/xml', csv: 'text/csv',
+          };
+          const contentType = extToMime[ext] ?? 'application/octet-stream';
+          webview.postMessage({ type: 'fileChosen', filePath: chosen, contentType });
+        }
+        return true;
+      }
       case 'refreshOAuthAndRetry': {
         const collection = this._findCollection(filePath);
         if (!collection) {
@@ -682,6 +701,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <button class="pill" data-body-type="raw">Raw</button>
               <button class="pill" data-body-type="form-urlencoded">Form Encoded</button>
               <button class="pill" data-body-type="multipart-form">Multipart</button>
+              <button class="pill" data-body-type="file">Binary</button>
             </div>
             <select class="lang-select" id="bodyLangMode">
               <option value="json">JSON</option>
@@ -704,6 +724,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <tbody id="bodyFormBody"></tbody>
             </table>
             <button class="add-row-btn" id="addFormFieldBtn">+ Add Field</button>
+          </div>
+          <div id="bodyBinaryEditor" style="display:none;">
+            <div class="binary-row">
+              <input type="text" id="binaryFilePath" class="binary-path-input" readonly placeholder="(no file selected)" />
+              <button class="btn btn-secondary" id="chooseBinaryFileBtn">Choose File…</button>
+            </div>
+            <div class="binary-row binary-type-row">
+              <label class="binary-label">Content-Type</label>
+              <input type="text" id="binaryContentType" class="binary-type-input" placeholder="application/octet-stream" />
+            </div>
           </div>
         </div>
         <!-- Auth -->

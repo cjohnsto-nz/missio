@@ -125,7 +125,11 @@ function toHar(req: ResolvedRequest): HarRequest {
 
   if (req.body) {
     const ct = req.headers['Content-Type'] || req.headers['content-type'] || 'application/octet-stream';
-    har.postData = { mimeType: ct, text: req.body };
+    // Binary (Buffer) bodies can't be represented as HAR text — skip postData for those.
+    const bodyText = Buffer.isBuffer(req.body) ? undefined : req.body;
+    if (bodyText !== undefined) {
+      har.postData = { mimeType: ct, text: bodyText };
+    }
   }
 
   return har;
