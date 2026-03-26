@@ -1282,14 +1282,22 @@ window.addEventListener('message', (event: MessageEvent) => {
       ($('bodyData') as HTMLTextAreaElement).value = msg.content;
       syncHighlight();
       break;
-    case 'fileChosen':
+    case 'fileChosen': {
       ($('binaryFilePath') as HTMLInputElement).value = msg.filePath ?? '';
       if (msg.contentType) {
-        ($('binaryContentType') as HTMLInputElement).value = msg.contentType;
+        const ctInput = $('binaryContentType') as HTMLInputElement;
+        const currentCt = ctInput.value.trim();
+        // Always apply a specific detected type; only apply the generic fallback
+        // if the field is currently empty or already holds the generic fallback.
+        if (msg.contentType !== 'application/octet-stream' ||
+            currentCt === '' || currentCt === 'application/octet-stream') {
+          ctInput.value = msg.contentType;
+        }
       }
       syncAutoHeaders();
       scheduleDocumentUpdate();
       break;
+    }
     case 'examplesUpdated':
       if (currentRequest) currentRequest.examples = msg.examples || [];
       break;

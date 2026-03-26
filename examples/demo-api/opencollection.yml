@@ -7,6 +7,13 @@ info:
     - name: Missio
 config:
   environments:
+    - name: LOCAL
+      variables:
+        - name: baseUrl
+          value: https://jsonplaceholder.typicode.com
+        - name: userId
+          value: "1"
+      color: charts.blue
     - name: DEV
       variables:
         - name: baseUrl

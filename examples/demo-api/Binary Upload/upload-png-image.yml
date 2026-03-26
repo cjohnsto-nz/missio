@@ -1,0 +1,34 @@
+info:
+  name: Upload PNG Image
+  type: http
+  seq: 3
+  description: >
+    POST fixtures/sample.png as a binary image body.
+    The server echoes the image back with Content-Type image/png
+    so it renders in the Missio response panel.
+    Start the demo server first: node examples/demo-api/server.js
+    (The server generates fixtures/sample.png on first start.)
+
+http:
+  method: POST
+  url: "http://localhost:3456/upload/image"
+  headers: []
+  params: []
+  body:
+    type: file
+    data:
+      - filePath: fixtures/sample.png
+        contentType: image/png
+        selected: true
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+runtime:
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"

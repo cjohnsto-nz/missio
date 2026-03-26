@@ -218,10 +218,29 @@ export class RequestEditorProvider extends BaseEditorProvider {
           const chosen = uris[0].fsPath;
           const ext = chosen.split('.').pop()?.toLowerCase() ?? '';
           const extToMime: Record<string, string> = {
+            // Images
             jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
             webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon',
-            pdf: 'application/pdf', zip: 'application/zip', gz: 'application/gzip',
-            tar: 'application/x-tar', xml: 'application/xml', csv: 'text/csv',
+            svg: 'image/svg+xml', tif: 'image/tiff', tiff: 'image/tiff',
+            // Text
+            txt: 'text/plain', html: 'text/html', htm: 'text/html',
+            css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
+            md: 'text/markdown', csv: 'text/csv',
+            // Data/structured
+            json: 'application/json', xml: 'application/xml',
+            yaml: 'application/yaml', yml: 'application/yaml',
+            // Documents
+            pdf: 'application/pdf',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            // Archives
+            zip: 'application/zip', gz: 'application/gzip',
+            tar: 'application/x-tar', '7z': 'application/x-7z-compressed',
+            // Media
+            mp4: 'video/mp4', webm: 'video/webm', avi: 'video/x-msvideo',
+            mov: 'video/quicktime', mp3: 'audio/mpeg',
+            wav: 'audio/wav', ogg: 'audio/ogg',
           };
           const contentType = extToMime[ext] ?? 'application/octet-stream';
           webview.postMessage({ type: 'fileChosen', filePath: chosen, contentType });
