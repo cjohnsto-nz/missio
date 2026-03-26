@@ -751,40 +751,45 @@ $('bodyData').addEventListener('scroll', syncScroll);
   });
 }
 
+// ── Body indent char (kept in sync with VS Code editor.insertSpaces / editor.tabSize) ──
+let _indentChar = '  ';
+
 // ── Autocomplete keyboard ────────────────────────
 $('bodyData').addEventListener('keydown', (e: Event) => {
   const ke = e as KeyboardEvent;
-  if (isAutocompleteActive()) { handleAutocompleteKeydown(ke); return; }
+  if (isAutocompleteActive() && handleAutocompleteKeydown(ke)) return;
   if (ke.key === 'Tab') {
     e.preventDefault();
     const ta = e.target as HTMLTextAreaElement;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
+    const indentLen = _indentChar.length;
     if (ke.shiftKey) {
       // Shift+Tab: outdent selected lines
       const val = ta.value;
       const lineStart = val.lastIndexOf('\n', start - 1) + 1;
       const lineEnd = end;
       const block = val.substring(lineStart, lineEnd);
-      const outdented = block.replace(/^  /gm, '');
+      const outdentRe = new RegExp('^' + _indentChar.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gm');
+      const outdented = block.replace(outdentRe, '');
       const removed = block.length - outdented.length;
       ta.value = val.substring(0, lineStart) + outdented + val.substring(lineEnd);
-      ta.selectionStart = Math.max(lineStart, start - (val.substring(lineStart, start).startsWith('  ') ? 2 : 0));
-      ta.selectionEnd = end - removed;
+      ta.selectionStart = Math.max(lineStart, start - (val.substring(lineStart, start).startsWith(_indentChar) ? indentLen : 0));
+      ta.selectionEnd = Math.max(ta.selectionStart, end - removed);
     } else if (start !== end) {
       // Tab with selection: indent all selected lines
       const val = ta.value;
       const lineStart = val.lastIndexOf('\n', start - 1) + 1;
       const block = val.substring(lineStart, end);
-      const indented = block.replace(/^/gm, '  ');
+      const indented = block.replace(/^/gm, _indentChar);
       const added = indented.length - block.length;
       ta.value = val.substring(0, lineStart) + indented + val.substring(end);
-      ta.selectionStart = start + 2;
+      ta.selectionStart = start + indentLen;
       ta.selectionEnd = end + added;
     } else {
-      // No selection: insert 2 spaces at cursor
-      ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
-      ta.selectionStart = ta.selectionEnd = start + 2;
+      // No selection: insert indent at cursor
+      ta.value = ta.value.substring(0, start) + _indentChar + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + indentLen;
     }
     ta.dispatchEvent(new Event('input', { bubbles: true }));
   }
@@ -1337,6 +1342,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'promptCliApproval':
       showCliApprovalModal(msg.commandTemplate as string, msg.interpolatedCommand as string);
+      break;
+    case 'indentation':
+      _indentChar = msg.insertSpaces ? ' '.repeat(msg.tabSize) : '\t';
       break;
   }
 });
