@@ -196,7 +196,7 @@ export class HttpClient implements vscode.Disposable {
               );
             }
           }
-          body = fs.readFileSync(absPath);
+          body = await fs.promises.readFile(absPath);
           const ct = variant.contentType || 'application/octet-stream';
           if (!headers['Content-Type'] && !headers['content-type']) {
             headers['Content-Type'] = ct;
