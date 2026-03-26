@@ -216,7 +216,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         });
         if (uris && uris[0]) {
           const chosen = uris[0].fsPath;
-          const ext = chosen.split('.').pop()?.toLowerCase() ?? '';
+          const ext = path.extname(chosen).toLowerCase().replace(/^\./, '');
           const extToMime: Record<string, string> = {
             // Images
             jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
