@@ -198,7 +198,8 @@ export class HttpClient implements vscode.Disposable {
           }
           body = await fs.promises.readFile(absPath);
           const ct = variant.contentType || 'application/octet-stream';
-          if (!headers['Content-Type'] && !headers['content-type']) {
+          const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
+          if (!hasContentType) {
             headers['Content-Type'] = ct;
           }
         }
