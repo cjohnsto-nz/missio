@@ -10,7 +10,7 @@ config:
     - name: LOCAL
       variables:
         - name: baseUrl
-          value: https://jsonplaceholder.typicode.com
+          value: http://localhost:3456
         - name: userId
           value: "1"
       color: charts.blue
