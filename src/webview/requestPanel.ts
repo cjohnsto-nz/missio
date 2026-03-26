@@ -753,7 +753,41 @@ $('bodyData').addEventListener('scroll', syncScroll);
 
 // ── Autocomplete keyboard ────────────────────────
 $('bodyData').addEventListener('keydown', (e: Event) => {
-  if (isAutocompleteActive()) handleAutocompleteKeydown(e as KeyboardEvent);
+  const ke = e as KeyboardEvent;
+  if (isAutocompleteActive()) { handleAutocompleteKeydown(ke); return; }
+  if (ke.key === 'Tab') {
+    e.preventDefault();
+    const ta = e.target as HTMLTextAreaElement;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (ke.shiftKey) {
+      // Shift+Tab: outdent selected lines
+      const val = ta.value;
+      const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+      const lineEnd = end;
+      const block = val.substring(lineStart, lineEnd);
+      const outdented = block.replace(/^  /gm, '');
+      const removed = block.length - outdented.length;
+      ta.value = val.substring(0, lineStart) + outdented + val.substring(lineEnd);
+      ta.selectionStart = Math.max(lineStart, start - (val.substring(lineStart, start).startsWith('  ') ? 2 : 0));
+      ta.selectionEnd = end - removed;
+    } else if (start !== end) {
+      // Tab with selection: indent all selected lines
+      const val = ta.value;
+      const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+      const block = val.substring(lineStart, end);
+      const indented = block.replace(/^/gm, '  ');
+      const added = indented.length - block.length;
+      ta.value = val.substring(0, lineStart) + indented + val.substring(end);
+      ta.selectionStart = start + 2;
+      ta.selectionEnd = end + added;
+    } else {
+      // No selection: insert 2 spaces at cursor
+      ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + 2;
+    }
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 });
 $('url').addEventListener('keydown', (e: Event) => {
   if (isAutocompleteActive()) {
