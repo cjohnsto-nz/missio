@@ -239,6 +239,7 @@ body {
 }
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
 #sendBtn { min-width: 70px; text-align: center; }
+#exportCopyBtn, #exportSaveBtn { width: 70px; text-align: center; }
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
@@ -246,6 +247,120 @@ body {
 .btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--input-border); }
 .btn-secondary:hover { border-color: var(--btn-bg); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* ── Export tab ─────────────────────────────── */
+.export-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.export-format-select {
+  background: var(--input-bg);
+  color: var(--fg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.export-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.export-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  cursor: pointer;
+  position: relative;
+}
+.export-checkbox input[type="checkbox"]:checked {
+  background: var(--btn-bg);
+  border-color: var(--btn-bg);
+}
+.export-checkbox input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--btn-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.export-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.export-preview-wrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background, var(--bg));
+  min-height: 0;
+}
+.export-inline-spinner {
+  display: flex;
+  align-items: center;
+}
+.export-inline-spinner .spinner {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+.export-preview {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Fira Code', Consolas, monospace);
+  font-size: var(--vscode-editor-font-size, 13px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--vscode-editor-foreground, var(--fg));
+  tab-size: 2;
+}
+.export-preview .export-generating {
+  color: var(--m-tab-inactive-fg);
+  font-style: italic;
+}
+
+/* ── highlight.js token colors (mapped to VS Code theme) ── */
+.export-preview .hljs-keyword,
+.export-preview .hljs-selector-tag,
+.export-preview .hljs-built_in,
+.export-preview .hljs-type { color: var(--vscode-debugTokenExpression-name, #569cd6); }
+.export-preview .hljs-string,
+.export-preview .hljs-literal { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.export-preview .hljs-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.export-preview .hljs-comment,
+.export-preview .hljs-doctag { color: var(--vscode-debugTokenExpression-comment, #6a9955); font-style: italic; }
+.export-preview .hljs-variable,
+.export-preview .hljs-template-variable { color: var(--vscode-debugTokenExpression-value, #9cdcfe); }
+.export-preview .hljs-title,
+.export-preview .hljs-title\.function_ { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+.export-preview .hljs-title\.class_ { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+.export-preview .hljs-attr,
+.export-preview .hljs-attribute { color: var(--vscode-debugTokenExpression-name, #9cdcfe); }
+.export-preview .hljs-symbol,
+.export-preview .hljs-bullet { color: var(--vscode-debugTokenExpression-string, #d7ba7d); }
+.export-preview .hljs-meta { color: var(--vscode-descriptionForeground, #808080); }
+.export-preview .hljs-params { color: var(--vscode-editor-foreground, var(--fg)); }
+.export-preview .hljs-section { color: var(--vscode-textLink-foreground, #4fc1ff); }
+.export-preview .hljs-subst { color: var(--vscode-editor-foreground, var(--fg)); }
 
 /* ── Tabs ─────────────────────────────────── */
 .tabs {

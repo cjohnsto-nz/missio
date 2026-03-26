@@ -10,6 +10,43 @@ import {
   currentLang, setCurrentLang,
 } from './state';
 import { highlight, escHtml } from './highlight';
+import hljs from 'highlight.js/lib/core';
+import bash from 'highlight.js/lib/languages/bash';
+import c from 'highlight.js/lib/languages/c';
+import clojure from 'highlight.js/lib/languages/clojure';
+import csharp from 'highlight.js/lib/languages/csharp';
+import go from 'highlight.js/lib/languages/go';
+import http from 'highlight.js/lib/languages/http';
+import java from 'highlight.js/lib/languages/java';
+import javascript from 'highlight.js/lib/languages/javascript';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import objectivec from 'highlight.js/lib/languages/objectivec';
+import ocaml from 'highlight.js/lib/languages/ocaml';
+import php from 'highlight.js/lib/languages/php';
+import powershell from 'highlight.js/lib/languages/powershell';
+import python from 'highlight.js/lib/languages/python';
+import r from 'highlight.js/lib/languages/r';
+import ruby from 'highlight.js/lib/languages/ruby';
+import swift from 'highlight.js/lib/languages/swift';
+
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('c', c);
+hljs.registerLanguage('clojure', clojure);
+hljs.registerLanguage('csharp', csharp);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('http', http);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('kotlin', kotlin);
+hljs.registerLanguage('objectivec', objectivec);
+hljs.registerLanguage('ocaml', ocaml);
+hljs.registerLanguage('php', php);
+hljs.registerLanguage('powershell', powershell);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('r', r);
+hljs.registerLanguage('ruby', ruby);
+hljs.registerLanguage('swift', swift);
+
 import { findVarAtCursor } from './varlib';
 import { authTypeOptionsHtml, renderAuthFields, buildAuthData, loadAuthData } from './authFields';
 import { initOAuth2TokenStatusController } from './oauth2TokenStatus';
@@ -48,7 +85,7 @@ function scheduleDocumentUpdate(): void {
 }
 
 // ── Tab switching ──────────────────────────────
-const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings'];
+const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings', 'export'];
 const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
 
 function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void {
@@ -63,7 +100,9 @@ function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void
 
 $('reqTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
-    switchTab($('reqTabs'), (tab as HTMLElement).dataset.tab!, reqPanelIds);
+    const tabId = (tab as HTMLElement).dataset.tab!;
+    switchTab($('reqTabs'), tabId, reqPanelIds);
+    if (tabId === 'export') requestExportPreview();
   });
 });
 $('respTabs').querySelectorAll('.tab').forEach((tab) => {
@@ -1174,6 +1213,32 @@ window.addEventListener('message', (event: MessageEvent) => {
       hideLoading();
       setSendingState(false);
       break;
+    case 'exportComplete': {
+      if (msg.action === 'copy') {
+        const btn = $('exportCopyBtn');
+        const orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      }
+      break;
+    }
+    case 'exportPreview': {
+      // Ignore stale responses from superseded requests
+      if (msg.seq !== undefined && msg.seq !== _exportSeq) break;
+      clearTimeout(_exportTimeoutTimer);
+      clearTimeout(_exportSpinnerTimer);
+      $('exportSpinner').style.display = 'none';
+      if (msg.lang) {
+        try {
+          $('exportPreview').innerHTML = hljs.highlight(msg.content, { language: msg.lang }).value;
+        } catch {
+          $('exportPreview').textContent = msg.content;
+        }
+      } else {
+        $('exportPreview').textContent = msg.content;
+      }
+      break;
+    }
     case 'languageChanged':
       setCurrentLang(msg.language);
       ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
@@ -1363,6 +1428,64 @@ $('saveExampleBtn').addEventListener('click', () => {
   const req = buildRequest();
   vscode.postMessage({ type: 'saveExample', request: req, response: getLastResponse() });
 });
+// ── Export tab ──────────────────────────────────
+function getExportOptions() {
+  return {
+    format: ($('exportFormat') as HTMLSelectElement).value,
+    includeHeaders: ($('exportIncludeHeaders') as HTMLInputElement).checked,
+    includeAuth: ($('exportIncludeAuth') as HTMLInputElement).checked,
+    resolveVariables: ($('exportResolveVars') as HTMLInputElement).checked,
+  };
+}
+
+let _exportSeq = 0;
+let _exportTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
+let _exportSpinnerTimer: ReturnType<typeof setTimeout> | undefined;
+function requestExportPreview(): void {
+  const seq = ++_exportSeq;
+  const opts = getExportOptions();
+  // Delay showing spinner — if the response arrives fast, no flicker
+  clearTimeout(_exportSpinnerTimer);
+  _exportSpinnerTimer = setTimeout(() => {
+    if (_exportSeq === seq) $('exportSpinner').style.display = '';
+  }, 150);
+  const req = buildRequest();
+  vscode.postMessage({ type: 'exportRequest', request: req, ...opts, action: 'preview', seq });
+  // Safety timeout — if no response within 5s, hide spinner and show retry link
+  clearTimeout(_exportTimeoutTimer);
+  _exportTimeoutTimer = setTimeout(() => {
+    if (_exportSeq === seq) {
+      clearTimeout(_exportSpinnerTimer);
+      $('exportSpinner').style.display = 'none';
+      $('exportPreview').innerHTML = '<span class="export-generating">Generation timed out. <a href="#" id="exportRetryLink">Retry</a></span>';
+      document.getElementById('exportRetryLink')?.addEventListener('click', (e) => { e.preventDefault(); requestExportPreview(); });
+    }
+  }, 5000);
+}
+
+let _exportPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+function requestExportPreviewDebounced(): void {
+  clearTimeout(_exportPreviewTimer);
+  _exportPreviewTimer = setTimeout(requestExportPreview, 50);
+}
+
+$('exportFormat').addEventListener('change', requestExportPreviewDebounced);
+$('exportIncludeHeaders').addEventListener('change', requestExportPreviewDebounced);
+$('exportIncludeAuth').addEventListener('change', requestExportPreviewDebounced);
+$('exportResolveVars').addEventListener('change', requestExportPreviewDebounced);
+
+$('exportCopyBtn').addEventListener('click', () => {
+  const opts = getExportOptions();
+  const req = buildRequest();
+  vscode.postMessage({ type: 'exportRequest', request: req, ...opts, action: 'copy' });
+});
+
+$('exportSaveBtn').addEventListener('click', () => {
+  const opts = getExportOptions();
+  const req = buildRequest();
+  vscode.postMessage({ type: 'exportRequest', request: req, ...opts, action: 'save' });
+});
+
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());

@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
-import { type HttpClient, requestLog } from '../services/httpClient';
+import { type HttpClient, requestLog, type ResolvedRequest } from '../services/httpClient';
+import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -10,7 +11,6 @@ import type { SecretService } from '../services/secretService';
 import { readFolderFile } from '../services/yamlParser';
 import { detectUnresolvedVars } from '../services/unresolvedVars';
 import { migrateRequest } from '../services/migrations';
-import { resolveInheritedAuth } from '../services/authResolver';
 import { BaseEditorProvider, type EditorContext } from './basePanel';
 
 /**
@@ -30,6 +30,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
   private _unresolvedVarsResolver: ((result: Map<string, string> | undefined) => void) | null = null;
   // Pending resolver for CLI auth approval prompt
   private _cliApprovalResolver: ((approved: boolean) => void) | null = null;
+  // Generation counter for export preview — newer request supersedes older ones
+  private _exportSeq = 0;
+  // Cache of folder defaults per file path (avoids async disk reads during export)
+  private static _folderDefaultsCache = new Map<string, RequestDefaults | undefined>();
+  // Cache of collection per file path (avoids missed lookups during refresh cycles)
+  private static _collectionCache = new Map<string, MissioCollection>();
 
   static postMessageToPanel(filePath: string, message: any): boolean {
     const panel = RequestEditorProvider._panels.get(filePath.toLowerCase());
@@ -119,12 +125,30 @@ export class RequestEditorProvider extends BaseEditorProvider {
     webviewPanel: vscode.WebviewPanel,
     _disposables: vscode.Disposable[],
   ): void {
-    RequestEditorProvider._panels.set(document.uri.fsPath.toLowerCase(), webviewPanel);
+    const fp = document.uri.fsPath;
+    const key = fp.toLowerCase();
+    RequestEditorProvider._panels.set(key, webviewPanel);
+    // Eagerly cache collection + folder defaults so export can read them synchronously
+    const refreshCache = () => {
+      const col = this._findCollection(fp);
+      if (col) {
+        RequestEditorProvider._collectionCache.set(key, col);
+        this._getFolderDefaults(fp, col).then(fd => {
+          RequestEditorProvider._folderDefaultsCache.set(key, fd);
+        }).catch(() => {});
+      }
+    };
+    refreshCache();
+    // Re-populate caches when collection/folder config changes on disk
+    _disposables.push(this._collectionService.onDidChange(() => refreshCache()));
   }
 
   protected _onPanelDisposed(document: vscode.TextDocument): void {
     this._resolvePendingPromptsOnClose();
-    RequestEditorProvider._panels.delete(document.uri.fsPath.toLowerCase());
+    const key = document.uri.fsPath.toLowerCase();
+    RequestEditorProvider._panels.delete(key);
+    RequestEditorProvider._folderDefaultsCache.delete(key);
+    RequestEditorProvider._collectionCache.delete(key);
   }
 
   protected async _getFolderDefaults(filePath: string, collection: MissioCollection): Promise<RequestDefaults | undefined> {
@@ -197,11 +221,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
         if (collection.data.config?.forceAuthInherit) {
           effectiveAuth = collection.data.request?.auth;
         } else {
-          effectiveAuth = resolveInheritedAuth(
-            msg.request?.runtime?.auth,
-            folderDefaults?.auth,
-            collection.data.request?.auth,
-          );
+          effectiveAuth = msg.request?.runtime?.auth;
+          if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth ?? 'inherit';
+          if (effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
         }
         if (effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2') {
           const auth = effectiveAuth as any;
@@ -217,6 +239,40 @@ export class RequestEditorProvider extends BaseEditorProvider {
       }
       case 'saveExample': {
         await this._saveExample(webview, msg, ctx);
+        return true;
+      }
+      case 'exportRequest': {
+        const seq = msg.seq as number | undefined;
+        if (seq !== undefined) this._exportSeq = seq;
+        try {
+          const cacheKey = filePath.toLowerCase();
+          // Use cached collection (falls back to live lookup)
+          const collection = RequestEditorProvider._collectionCache.get(cacheKey) ?? this._findCollection(filePath);
+          if (!collection) {
+            webview.postMessage({ type: 'exportPreview', content: 'Error: Collection not found', format: msg.format ?? '', lang: '', seq });
+            return true;
+          }
+          // Keep cache fresh
+          RequestEditorProvider._collectionCache.set(cacheKey, collection);
+          // Use cached folder defaults (populated on panel open) to avoid async disk reads.
+          // Falls back to async read if cache miss.
+          let folderDefaults = RequestEditorProvider._folderDefaultsCache.get(cacheKey);
+          if (!RequestEditorProvider._folderDefaultsCache.has(cacheKey)) {
+            folderDefaults = await this._getFolderDefaults(filePath, collection);
+            RequestEditorProvider._folderDefaultsCache.set(cacheKey, folderDefaults);
+            if (seq !== undefined && seq !== this._exportSeq) return true;
+          }
+          await this._exportRequest(webview, msg.request, collection, folderDefaults, {
+            format: msg.format ?? 'shell:curl',
+            includeAuth: !!msg.includeAuth,
+            includeHeaders: msg.includeHeaders !== false,
+            resolveVariables: msg.resolveVariables !== false,
+            action: msg.action ?? 'preview',
+            seq,
+          });
+        } catch (e: any) {
+          webview.postMessage({ type: 'exportPreview', content: `Error: ${e?.message ?? e}`, format: msg.format ?? '', lang: '', seq });
+        }
         return true;
       }
       case 'unresolvedVarsResponse': {
@@ -343,11 +399,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
     if (collection.data.config?.forceAuthInherit) {
       effectiveAuth = collection.data.request?.auth;
     } else {
-      effectiveAuth = resolveInheritedAuth(
-        requestData.runtime?.auth,
-        folderDefaults?.auth,
-        collection.data.request?.auth,
-      );
+      effectiveAuth = requestData.runtime?.auth;
+      if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth ?? 'inherit';
+      if (effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
     }
     const isOAuth2 = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'oauth2';
     const isCli = effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'cli';
@@ -403,6 +457,100 @@ export class RequestEditorProvider extends BaseEditorProvider {
           response: _buildErrorResponse(e, durationMs),
         });
       }
+    }
+  }
+
+  private async _exportRequest(
+    webview: vscode.Webview,
+    requestData: HttpRequest,
+    collection: MissioCollection,
+    folderDefaults: RequestDefaults | undefined,
+    opts: { format: string; includeAuth: boolean; includeHeaders: boolean; resolveVariables: boolean; action: string; seq?: number },
+  ): Promise<void> {
+    try {
+      let resolved: ResolvedRequest;
+
+      // Resolve effective auth for CLI placeholder detection (shared by both branches)
+      let effectiveAuth = requestData.runtime?.auth;
+      if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth;
+      if (!effectiveAuth || effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
+      if (collection.data.config?.forceAuthInherit) {
+        effectiveAuth = collection.data.request?.auth ?? effectiveAuth;
+      }
+      const isCliAuth = opts.includeAuth && effectiveAuth && effectiveAuth !== 'inherit' && (effectiveAuth as any).type === 'cli';
+
+      if (opts.resolveVariables) {
+        // For export, don't prompt for unresolved variables — just leave them as {{template}} syntax.
+        resolved = await this._httpClient.buildResolvedRequest(
+          requestData, collection, folderDefaults, new Map(),
+          undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth },
+        );
+
+        // If a newer export request arrived while we were resolving, bail out
+        if (opts.seq !== undefined && opts.seq !== this._exportSeq) return;
+      } else {
+        // Build without variable resolution — use raw template values
+        const details = requestData.http;
+        const headers: Record<string, string> = {};
+        if (opts.includeHeaders) {
+          // Inherit: collection → folder → request (each layer overrides)
+          for (const h of (collection.data.request?.headers ?? [])) {
+            if (!h.disabled) headers[h.name] = h.value;
+          }
+          if (folderDefaults?.headers) {
+            for (const h of folderDefaults.headers) {
+              if (!h.disabled) headers[h.name] = h.value;
+            }
+          }
+          for (const h of (details?.headers ?? [])) {
+            if (!h.disabled) headers[h.name] = h.value;
+          }
+        }
+        resolved = {
+          method: (details?.method ?? 'GET').toUpperCase(),
+          url: details?.url ?? '',
+          headers,
+          body: details?.body && !Array.isArray(details.body) && typeof details.body.data === 'string' ? details.body.data : undefined,
+        };
+      }
+
+      // Inject CLI auth placeholder (applies to both resolved and unresolved paths)
+      if (isCliAuth) {
+        const cliAuth = effectiveAuth as import('../models/types').AuthCli;
+        const headerName = cliAuth.tokenHeader || 'Authorization';
+        const prefix = cliAuth.tokenPrefix !== undefined ? cliAuth.tokenPrefix : 'Bearer';
+        resolved.headers[headerName] = prefix ? `${prefix} {{cli_token}}` : '{{cli_token}}';
+      }
+
+      if (!opts.includeHeaders) {
+        resolved = { ...resolved, headers: {} };
+      }
+
+      const output = exportRequest(resolved, opts.format);
+      const target = findTarget(opts.format);
+      const lang = target?.lang ?? '';
+      const ext = target?.ext ?? 'txt';
+
+      if (opts.action === 'copy') {
+        await vscode.env.clipboard.writeText(output);
+        vscode.window.showInformationMessage('Copied to clipboard');
+        webview.postMessage({ type: 'exportComplete', action: 'copy' });
+      } else if (opts.action === 'save') {
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(`request.${ext}`),
+          filters: { [ext.toUpperCase()]: [ext], 'All Files': ['*'] },
+        });
+        if (uri) {
+          await vscode.workspace.fs.writeFile(uri, Buffer.from(output, 'utf-8'));
+          vscode.window.showInformationMessage(`Saved to ${uri.fsPath}`);
+        }
+        webview.postMessage({ type: 'exportComplete', action: 'save' });
+      } else {
+        // Preview — send content back to webview
+        webview.postMessage({ type: 'exportPreview', content: output, format: opts.format, lang, seq: opts.seq });
+      }
+    } catch (e: any) {
+      webview.postMessage({ type: 'exportPreview', content: `Error: ${e.message ?? e}`, format: opts.format, lang: '', seq: opts.seq });
     }
   }
 
@@ -505,6 +653,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="headers">Headers <span class="badge" id="headersBadge">0</span></div>
         <div class="tab" data-tab="params">Params <span class="badge" id="paramsBadge">0</span></div>
         <div class="tab" data-tab="settings">Settings</div>
+        <div class="tab" data-tab="export">Export</div>
       </div>
       <div class="tab-content">
         <!-- Params -->
@@ -590,6 +739,25 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <label>Max Redirects</label>
               <input type="number" id="settingMaxRedirects" value="5" />
             </div>
+          </div>
+        </div>
+        <!-- Export -->
+        <div class="tab-panel" id="panel-export">
+          <div class="export-toolbar">
+            <select class="export-format-select" id="exportFormat">
+              ${EXPORT_TARGETS.map(t => `<option value="${t.id}"${t.id === 'shell:curl' ? ' selected' : ''}>${t.label}</option>`).join('\n              ')}
+            </select>
+            <label class="export-checkbox"><input type="checkbox" id="exportIncludeHeaders" checked /> Headers</label>
+            <label class="export-checkbox"><input type="checkbox" id="exportIncludeAuth" /> Auth</label>
+            <label class="export-checkbox"><input type="checkbox" id="exportResolveVars" checked /> Resolve Variables</label>
+            <div class="export-inline-spinner" id="exportSpinner" style="display:none;"><div class="spinner"></div></div>
+            <div class="export-actions">
+              <button class="btn btn-primary" id="exportCopyBtn" title="Copy to clipboard">Copy</button>
+              <button class="btn btn-secondary" id="exportSaveBtn" title="Save to file">Save</button>
+            </div>
+          </div>
+          <div class="export-preview-wrap">
+            <pre class="export-preview" id="exportPreview">Click a format or switch options to preview the export.</pre>
           </div>
         </div>
       </div>

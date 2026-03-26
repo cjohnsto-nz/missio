@@ -5,7 +5,6 @@ import { EnvironmentService } from '../../services/environmentService';
 import { HttpClient } from '../../services/httpClient';
 import { readFolderFile } from '../../services/yamlParser';
 import { detectUnresolvedVars } from '../../services/unresolvedVars';
-import { resolveInheritedAuth } from '../../services/authResolver';
 import { varPatternGlobal } from '../../models/varPattern';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -238,7 +237,10 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         return collectionAuth;
       }
     }
-    return resolveInheritedAuth(request.runtime?.auth, folderDefaults?.auth, collectionAuth);
+    let auth = request.runtime?.auth;
+    if (auth === 'inherit') auth = folderDefaults?.auth ?? 'inherit';
+    if (auth === 'inherit') auth = collectionAuth;
+    return auth;
   }
 
   private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
@@ -356,7 +358,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       if (resolvedBody) {
         switch (resolvedBody.type) {
           case 'json':
-            body = this._environmentService.interpolate(resolvedBody.data, variables);
+            body = this._environmentService.interpolateJson(resolvedBody.data, variables);
             break;
           case 'text':
           case 'xml':
