@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 import { HttpClient } from '../src/services/httpClient';
 import type { AuthOAuth2, MissioCollection } from '../src/models/types';
 
@@ -107,5 +109,135 @@ describe('HttpClient CLI cache expiry', () => {
     expect(expiresAt).toBe(3_000_000 + 30_000 - 3_000);
     expect(expiresAt).toBeGreaterThan(3_000_000);
     nowSpy.mockRestore();
+  });
+});
+
+// ── buildResolvedRequest — binary file body ───────────────────────────────────
+
+/** Minimal env service sufficient for buildResolvedRequest */
+function makeEnvService() {
+  return {
+    resolveVariables: vi.fn().mockResolvedValue(new Map<string, string>()),
+    interpolate: (v: string) => v,
+  } as any;
+}
+
+function makeFileCollection(rootDir: string): MissioCollection {
+  return {
+    id: 'file-collection',
+    filePath: path.join(rootDir, 'opencollection.yml'),
+    rootDir,
+    data: {
+      opencollection: '1.0.0',
+      info: { name: 'Test' },
+      request: {},
+      config: { environments: [] },
+    },
+  } as MissioCollection;
+}
+
+describe('buildResolvedRequest — file body', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads a relative file path within the collection root', async () => {
+    const rootDir = path.normalize('/tmp/my-collection');
+    const fileContent = Buffer.from('hello binary');
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(fileContent as any);
+
+    const client = new HttpClient(makeEnvService());
+    const result = await client.buildResolvedRequest(
+      {
+        http: {
+          method: 'POST',
+          url: 'https://example.com/upload',
+          body: {
+            type: 'file',
+            data: [{ filePath: 'fixtures/sample.txt', contentType: 'text/plain', selected: true }],
+          },
+        },
+      },
+      makeFileCollection(rootDir),
+    );
+
+    expect(Buffer.isBuffer(result.body)).toBe(true);
+    expect(result.body).toEqual(fileContent);
+    expect(result.headers['Content-Type']).toBe('text/plain');
+  });
+
+  it('blocks a relative path that escapes the collection root via ../', async () => {
+    const rootDir = path.normalize('/tmp/my-collection');
+    const client = new HttpClient(makeEnvService());
+
+    await expect(
+      client.buildResolvedRequest(
+        {
+          http: {
+            method: 'POST',
+            url: 'https://example.com/upload',
+            body: {
+              type: 'file',
+              data: [{ filePath: '../../etc/passwd', contentType: 'text/plain', selected: true }],
+            },
+          },
+        },
+        makeFileCollection(rootDir),
+      ),
+    ).rejects.toThrow(/escapes the collection root/);
+  });
+
+  it('allows an absolute path regardless of collection root', async () => {
+    const rootDir = path.normalize('/tmp/my-collection');
+    const absolutePath = path.normalize('/home/user/downloads/payload.bin');
+    const fileContent = Buffer.from([0x00, 0x01, 0x02]);
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(fileContent as any);
+
+    const client = new HttpClient(makeEnvService());
+    const result = await client.buildResolvedRequest(
+      {
+        http: {
+          method: 'POST',
+          url: 'https://example.com/upload',
+          body: {
+            type: 'file',
+            data: [{ filePath: absolutePath, contentType: 'application/octet-stream', selected: true }],
+          },
+        },
+      },
+      makeFileCollection(rootDir),
+    );
+
+    expect(Buffer.isBuffer(result.body)).toBe(true);
+  });
+
+  it('does not add Content-Type when a case-variant already exists in headers', async () => {
+    const rootDir = path.normalize('/tmp/my-collection');
+    vi.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('data') as any);
+
+    const client = new HttpClient(makeEnvService());
+    const result = await client.buildResolvedRequest(
+      {
+        http: {
+          method: 'POST',
+          url: 'https://example.com/upload',
+          // User has already set a content-type header (lowercase)
+          headers: [{ name: 'content-type', value: 'application/pdf' }],
+          body: {
+            type: 'file',
+            data: [{ filePath: 'fixtures/sample.pdf', contentType: 'image/png', selected: true }],
+          },
+        },
+      },
+      makeFileCollection(rootDir),
+    );
+
+    // The user-supplied 'content-type: application/pdf' must not be overwritten
+    // and no duplicate 'Content-Type' header should be added.
+    const ctHeaders = Object.keys(result.headers).filter(
+      k => k.toLowerCase() === 'content-type',
+    );
+    expect(ctHeaders).toHaveLength(1);
+    expect(result.headers[ctHeaders[0]]).toBe('application/pdf');
   });
 });
