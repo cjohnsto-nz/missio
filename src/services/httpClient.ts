@@ -305,7 +305,7 @@ export class HttpClient implements vscode.Disposable {
 
       this._activeRequests.set(requestId, req);
 
-      if (body) {
+      if (body !== undefined) {
         const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf-8');
         req.setHeader('Content-Length', bodyBuffer.length);
         _log(`  body: ${bodyBuffer.length} bytes`);
