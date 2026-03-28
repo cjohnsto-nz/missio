@@ -746,7 +746,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
           </div>
           <div id="bodyBinaryEditor" style="display:none;">
             <div class="binary-row">
-              <input type="text" id="binaryFilePath" class="binary-path-input" readonly placeholder="(no file selected)" />
+              <input type="text" id="binaryFilePath" class="binary-path-input" placeholder="(no file selected)" />
               <button class="btn btn-secondary" id="chooseBinaryFileBtn">Choose File…</button>
             </div>
             <div class="binary-row binary-type-row">
