@@ -78,7 +78,7 @@ export class HttpClient implements vscode.Disposable {
     extraVariables?: Map<string, string>,
     environmentName?: string,
     cliApprovalPrompt?: CliApprovalPrompt,
-    options?: { includeAuth?: boolean },
+    options?: { includeAuth?: boolean; includeBody?: boolean },
   ): Promise<ResolvedRequest> {
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     if (extraVariables) {
@@ -176,7 +176,9 @@ export class HttpClient implements vscode.Disposable {
     const resolvedBody = this._resolveBody(details.body);
     if (resolvedBody) {
       if (resolvedBody.type === 'file') {
-        const variant = resolvedBody.data.find(v => v.selected) ?? resolvedBody.data[0];
+        const variant = options?.includeBody !== false
+          ? (resolvedBody.data.find(v => v.selected) ?? resolvedBody.data[0])
+          : undefined;
         if (variant?.filePath) {
           body = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
           const ct = variant.contentType || 'application/octet-stream';

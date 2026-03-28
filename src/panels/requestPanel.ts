@@ -524,7 +524,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         // For export, don't prompt for unresolved variables — just leave them as {{template}} syntax.
         resolved = await this._httpClient.buildResolvedRequest(
           requestData, collection, folderDefaults, new Map(),
-          undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth },
+          undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth, includeBody: opts.includeBody },
         );
 
         // If a newer export request arrived while we were resolving, bail out
@@ -559,12 +559,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
             .map(e => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
             .join('&');
         } else if (bodyDef?.type === 'file') {
-          const variant = bodyDef.data.find(v => v.selected);
-          if (variant?.filePath && !variant.filePath.includes('{{')) {
-            rawBody = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
-            const ct = variant.contentType || 'application/octet-stream';
-            const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
-            if (!hasContentType) { headers['Content-Type'] = ct; }
+          if (opts.includeBody) {
+            const variant = bodyDef.data.find(v => v.selected);
+            if (variant?.filePath && !variant.filePath.includes('{{')) {
+              rawBody = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
+              const ct = variant.contentType || 'application/octet-stream';
+              const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
+              if (!hasContentType) { headers['Content-Type'] = ct; }
+            }
           }
         }
         // multipart-form bodies cannot be serialized without resolving
