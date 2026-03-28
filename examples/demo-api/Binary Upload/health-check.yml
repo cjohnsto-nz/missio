@@ -3,19 +3,16 @@ info:
   type: http
   seq: 1
   description: Verify the local demo server is running.
-
 http:
   method: GET
-  url: "http://localhost:3456/health"
+  url: "{{baseUrl}}/health"
   headers: []
   params: []
-
 settings:
   encodeUrl: true
   timeout: 5000
   followRedirects: true
   maxRedirects: 5
-
 runtime:
   assertions:
     - expression: res.status

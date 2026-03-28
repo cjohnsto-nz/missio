@@ -7,7 +7,7 @@ info:
     demo server first: node examples/demo-api/server.js
 http:
   method: POST
-  url: http://localhost:3456/upload/text
+  url: "{{baseUrl}}/upload/text"
   headers: []
   params: []
   body:

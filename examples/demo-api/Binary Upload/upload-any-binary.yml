@@ -3,15 +3,12 @@ info:
   type: http
   seq: 4
   description: >
-    Generic binary upload to POST /upload.
-    The server accepts any Content-Type and returns metadata:
-    actualBytes, contentType, and whether the Content-Length header
-    matched the real body size.
-    Start the demo server first: node examples/demo-api/server.js
-
+    Generic binary upload to POST /upload. The server accepts any Content-Type and returns metadata: actualBytes,
+    contentType, and whether the Content-Length header matched the real body size. Start the demo server first: node
+    examples/demo-api/server.js
 http:
   method: POST
-  url: "http://localhost:3456/upload"
+  url: "{{baseUrl}}/upload"
   headers: []
   params: []
   body:
@@ -20,13 +17,11 @@ http:
       - filePath: fixtures/sample.png
         contentType: application/octet-stream
         selected: true
-
 settings:
   encodeUrl: true
   timeout: 10000
   followRedirects: true
   maxRedirects: 5
-
 runtime:
   assertions:
     - expression: res.status
