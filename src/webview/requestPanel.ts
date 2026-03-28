@@ -572,6 +572,10 @@ $('binaryContentType').addEventListener('input', () => {
   syncAutoHeaders();
   scheduleDocumentUpdate();
 });
+$('binaryFilePath').addEventListener('input', () => {
+  syncAutoHeaders();
+  scheduleDocumentUpdate();
+});
 
 // ── Syntax Highlighting (body editor) ────────────
 function updateLineNumbers(): void {
@@ -1484,6 +1488,7 @@ function getExportOptions() {
     format: ($('exportFormat') as HTMLSelectElement).value,
     includeHeaders: ($('exportIncludeHeaders') as HTMLInputElement).checked,
     includeAuth: ($('exportIncludeAuth') as HTMLInputElement).checked,
+    includeBody: ($('exportIncludeBody') as HTMLInputElement).checked,
     resolveVariables: ($('exportResolveVars') as HTMLInputElement).checked,
   };
 }
@@ -1522,6 +1527,7 @@ function requestExportPreviewDebounced(): void {
 $('exportFormat').addEventListener('change', requestExportPreviewDebounced);
 $('exportIncludeHeaders').addEventListener('change', requestExportPreviewDebounced);
 $('exportIncludeAuth').addEventListener('change', requestExportPreviewDebounced);
+$('exportIncludeBody').addEventListener('change', requestExportPreviewDebounced);
 $('exportResolveVars').addEventListener('change', requestExportPreviewDebounced);
 
 $('exportCopyBtn').addEventListener('click', () => {
