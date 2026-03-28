@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
@@ -15,6 +14,7 @@ import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
 import type { CliAuthApprovalService } from './cliAuthApproval';
+import { resolveFileVariantToBuffer } from './fileBodyHelper';
 
 const execAsync = promisify(exec);
 
@@ -178,25 +178,7 @@ export class HttpClient implements vscode.Disposable {
       if (resolvedBody.type === 'file') {
         const variant = resolvedBody.data.find(v => v.selected) ?? resolvedBody.data[0];
         if (variant?.filePath) {
-          let absPath: string;
-          if (path.isAbsolute(variant.filePath)) {
-            // Absolute paths come from the user's own file picker — allow freely.
-            absPath = variant.filePath;
-          } else {
-            // Relative paths are collection-authored. Constrain within the
-            // collection root to prevent ../../../ traversal attacks in shared
-            // or untrusted collections.
-            const collectionRoot = path.resolve(collection.rootDir);
-            absPath = path.resolve(collectionRoot, variant.filePath);
-            if (!absPath.startsWith(collectionRoot + path.sep) &&
-                absPath !== collectionRoot) {
-              throw new Error(
-                `Security: relative file path "${variant.filePath}" escapes the collection root. ` +
-                `Use an absolute path or keep the file inside the collection folder.`
-              );
-            }
-          }
-          body = await fs.promises.readFile(absPath);
+          body = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
           const ct = variant.contentType || 'application/octet-stream';
           const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
           if (!hasContentType) {

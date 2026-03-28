@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
 import { type HttpClient, requestLog, type ResolvedRequest } from '../services/httpClient';
 import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
+import { resolveFileVariantToBuffer } from '../services/fileBodyHelper';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -560,17 +561,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         } else if (bodyDef?.type === 'file') {
           const variant = bodyDef.data.find(v => v.selected);
           if (variant?.filePath && !variant.filePath.includes('{{')) {
-            let absPath: string;
-            if (path.isAbsolute(variant.filePath)) {
-              absPath = variant.filePath;
-            } else {
-              const collectionRoot = path.resolve(collection.rootDir);
-              absPath = path.resolve(collectionRoot, variant.filePath);
-              if (!absPath.startsWith(collectionRoot + path.sep) && absPath !== collectionRoot) {
-                throw new Error(`Security: relative file path "${variant.filePath}" escapes the collection root`);
-              }
-            }
-            rawBody = await fs.promises.readFile(absPath);
+            rawBody = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
             const ct = variant.contentType || 'application/octet-stream';
             const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
             if (!hasContentType) { headers['Content-Type'] = ct; }
