@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { exportRequest, findTarget, EXPORT_TARGETS } from '../src/services/snippetExporter';
+import { exportRequest, findTarget, EXPORT_TARGETS, toHar } from '../src/services/snippetExporter';
 import type { ResolvedRequest } from '../src/services/httpClient';
 
 // ── findTarget ────────────────────────────────────────────────────────
@@ -166,8 +166,6 @@ describe('exportRequest', () => {
   });
 
   it('sets bodySize to the raw byte length for a Buffer body', () => {
-    // Verify indirectly: exportRequest must not throw when bodySize is set,
-    // meaning the HAR construction with a binary body is internally consistent.
     const data = Buffer.alloc(64, 0xab);
     const req: ResolvedRequest = {
       method: 'POST',
@@ -175,8 +173,21 @@ describe('exportRequest', () => {
       headers: { 'Content-Type': 'application/octet-stream' },
       body: data,
     };
-    // If toHar() set bodySize wrong the httpsnippet library would throw.
-    expect(() => exportRequest(req, 'shell:curl')).not.toThrow();
+    const har = toHar(req);
+    expect(har.bodySize).toBe(64);
+  });
+
+  it('encodes a Buffer body as base64 in the HAR postData', () => {
+    const data = Buffer.from([0x01, 0x02, 0x03]);
+    const req: ResolvedRequest = {
+      method: 'POST',
+      url: 'https://example.com/upload',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: data,
+    };
+    const har = toHar(req);
+    expect((har.postData as any).encoding).toBe('base64');
+    expect((har.postData as any).text).toBe(data.toString('base64'));
   });
 
   it('sets bodySize correctly for a plain text body', () => {
@@ -186,7 +197,9 @@ describe('exportRequest', () => {
       headers: { 'Content-Type': 'application/json' },
       body: '{"key":"value"}',
     };
-    // Verify no throw and body appears in output
+    const har = toHar(req);
+    expect(har.bodySize).toBe(Buffer.byteLength('{"key":"value"}'));
+    // Verify the text body is present in export output too
     const output = exportRequest(req, 'shell:curl');
     expect(output).toContain('{"key":"value"}');
   });

@@ -101,8 +101,8 @@ function restoreVars(s: string, map: Map<string, string>): string {
   return s;
 }
 
-/** Convert a ResolvedRequest to a HAR Request object. */
-function toHar(req: ResolvedRequest): HarRequest {
+/** Convert a ResolvedRequest to a HAR Request object. @internal exported for testing */
+export function toHar(req: ResolvedRequest): HarRequest {
   const headers = Object.entries(req.headers).map(([name, value]) => ({ name, value }));
 
   let queryString: { name: string; value: string }[] = [];
