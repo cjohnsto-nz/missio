@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { HttpClient } from '../src/services/httpClient';
 import type { AuthOAuth2, MissioCollection } from '../src/models/types';
@@ -7,8 +8,8 @@ import type { AuthOAuth2, MissioCollection } from '../src/models/types';
 function makeCollection(): MissioCollection {
   return {
     id: 'collection-1',
-    filePath: '/tmp/opencollection.yml',
-    rootDir: '/tmp',
+    filePath: path.join(os.tmpdir(), 'opencollection.yml'),
+    rootDir: os.tmpdir(),
     data: {
       opencollection: '1.0.0',
       info: { name: 'Test' },
@@ -142,7 +143,7 @@ describe('buildResolvedRequest — file body', () => {
   });
 
   it('reads a relative file path within the collection root', async () => {
-    const rootDir = path.normalize('/tmp/my-collection');
+    const rootDir = path.join(os.tmpdir(), 'missio-test-collection');
     const fileContent = Buffer.from('hello binary');
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(fileContent as any);
 
@@ -167,7 +168,7 @@ describe('buildResolvedRequest — file body', () => {
   });
 
   it('blocks a relative path that escapes the collection root via ../', async () => {
-    const rootDir = path.normalize('/tmp/my-collection');
+    const rootDir = path.join(os.tmpdir(), 'missio-test-collection');
     const client = new HttpClient(makeEnvService());
 
     await expect(
@@ -188,8 +189,8 @@ describe('buildResolvedRequest — file body', () => {
   });
 
   it('allows an absolute path regardless of collection root', async () => {
-    const rootDir = path.normalize('/tmp/my-collection');
-    const absolutePath = path.normalize('/home/user/downloads/payload.bin');
+    const rootDir = path.join(os.tmpdir(), 'missio-test-collection');
+    const absolutePath = path.join(os.tmpdir(), 'payload.bin');
     const fileContent = Buffer.from([0x00, 0x01, 0x02]);
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(fileContent as any);
 
@@ -212,7 +213,7 @@ describe('buildResolvedRequest — file body', () => {
   });
 
   it('does not add Content-Type when a case-variant already exists in headers', async () => {
-    const rootDir = path.normalize('/tmp/my-collection');
+    const rootDir = path.join(os.tmpdir(), 'missio-test-collection');
     vi.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('data') as any);
 
     const client = new HttpClient(makeEnvService());
