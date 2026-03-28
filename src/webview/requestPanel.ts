@@ -466,8 +466,12 @@ function syncAutoHeaders(): void {
   if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
     ct = _autoContentTypes[currentBodyType] ?? null;
   } else if (currentBodyType === 'file') {
-    // Use the user-supplied content type from the binary editor (or default)
-    ct = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
+    // Only advertise a Content-Type when a file has actually been selected;
+    // an empty path means no body will be sent, so no header is appropriate.
+    const filePath = ($('binaryFilePath') as HTMLInputElement).value.trim();
+    if (filePath) {
+      ct = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
+    }
   } else {
     ct = currentLang ? (_autoContentTypes[currentLang] ?? null) : null;
   }
