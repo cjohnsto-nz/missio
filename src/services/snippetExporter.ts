@@ -123,7 +123,7 @@ export function toHar(req: ResolvedRequest): HarRequest {
     postData: { mimeType: '' },
   };
 
-  if (req.body) {
+  if (req.body !== undefined) {
     const ct = req.headers['Content-Type'] || req.headers['content-type'] || 'application/octet-stream';
     if (Buffer.isBuffer(req.body)) {
       // HAR text must be a string. Encode binary bodies as base64 using the
