@@ -15,10 +15,10 @@ export interface WorkspaceEntry {
 export class CollectionService implements vscode.Disposable {
   private _collections: Map<string, MissioCollection> = new Map();
   private _workspaces: Map<string, OpenCollectionWorkspace> = new Map();
-  private _pinnedCollectionsByPath: Map<string, Map<string, MissioCollection>> = new Map();
   private _activePinnedCollections: Map<string, MissioCollection> = new Map();
   private _pinnedFailedPaths: Set<string> = new Set();
   private _activeWorkspaceKey: string | null = null;
+  private _loadToken = 0; // incremented on each load to detect stale concurrent loads
   private _pinnedWatchers: vscode.FileSystemWatcher[] = [];
   private _watchers: vscode.FileSystemWatcher[] = [];
   private _disposables: vscode.Disposable[] = [];
@@ -204,15 +204,8 @@ export class CollectionService implements vscode.Disposable {
     _log.appendLine(`_scanWorkspaceFolders: findWorkspaces=${(t1 - t0).toFixed(1)}ms, findCollections=${(t2 - t1).toFixed(1)}ms, resolveWsRefs=${(t3 - t2).toFixed(1)}ms`);
   }
 
-  private async _loadPinnedPath(): Promise<void> {
-    // Legacy entry point — delegates to active workspace loader
-    await this._loadActivePinnedWorkspace();
-  }
-
   private async _loadActivePinnedWorkspace(): Promise<void> {
-    this._activePinnedCollections.clear();
-    this._pinnedFailedPaths.clear();
-    this._pinnedCollectionsByPath.clear();
+    const token = ++this._loadToken; // capture token; bail if superseded
 
     // Reset active key if it's been removed from config (e.g. via removePinnedWorkspace)
     if (this._activeWorkspaceKey !== null) {
@@ -225,33 +218,35 @@ export class CollectionService implements vscode.Disposable {
 
     const rawPath = this._activeWorkspaceKey;
     if (rawPath === null) {
-      // Current VS Code workspace is active — nothing to load for pinned
-      this._setupPinnedWatchers([]);
+      if (token !== this._loadToken) return;
+      this._activePinnedCollections.clear();
+      this._pinnedFailedPaths.clear();
+      this._setupPinnedWatchers(null);
       return;
     }
 
     const expanded = this._expandHome(rawPath);
-    const pinnedUri = vscode.Uri.file(expanded);
 
     try {
-      await vscode.workspace.fs.stat(pinnedUri);
+      await vscode.workspace.fs.stat(vscode.Uri.file(expanded));
     } catch {
+      if (token !== this._loadToken) return;
       _log.appendLine(`[pinned] Path not found or inaccessible: ${expanded}`);
+      this._activePinnedCollections.clear();
+      this._pinnedFailedPaths.clear();
       this._pinnedFailedPaths.add(rawPath);
-      this._setupPinnedWatchers([]);
+      this._setupPinnedWatchers(null);
       return;
     }
 
-    this._setupPinnedWatchers([rawPath]);
-
     const collectionPatterns = ['**/opencollection.yml', '**/opencollection.yaml', '**/collection.yml', '**/collection.yaml'];
     const workspacePatterns = ['**/workspace.yml', '**/workspace.yaml'];
-    const pathMap = this._activePinnedCollections;
-    this._pinnedCollectionsByPath.set(rawPath, pathMap);
+    const newCollections = new Map<string, MissioCollection>();
+    const newFailedPaths = new Set<string>();
 
     const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
     for (const pattern of workspacePatterns) {
-      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(pinnedUri, pattern), '**/node_modules/**');
+      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(expanded, pattern), '**/node_modules/**');
       for (const uri of files) {
         try {
           const data = await readWorkspaceFile(uri.fsPath);
@@ -261,9 +256,9 @@ export class CollectionService implements vscode.Disposable {
     }
 
     for (const pattern of collectionPatterns) {
-      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(pinnedUri, pattern), '**/node_modules/**');
+      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(expanded, pattern), '**/node_modules/**');
       for (const uri of files) {
-        await this._loadPinnedCollectionFile(uri.fsPath, pathMap);
+        await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
       }
     }
 
@@ -276,16 +271,22 @@ export class CollectionService implements vscode.Disposable {
           path.resolve(wsDir, ref.path, 'collection.yml'),
           path.resolve(wsDir, ref.path, 'collection.yaml'),
         ];
-        const alreadyLoaded = candidates.some(c => pathMap.has(c));
+        const alreadyLoaded = candidates.some(c => newCollections.has(c));
         if (!alreadyLoaded) {
           for (const candidate of candidates) {
-            try { await this._loadPinnedCollectionFile(candidate, pathMap); break; } catch { /* try next */ }
+            try { await this._loadPinnedCollectionFile(candidate, newCollections); break; } catch { /* try next */ }
           }
         }
       }
     }
 
-    _log.appendLine(`[pinned] Loaded ${pathMap.size} collections from: ${expanded}`);
+    // Bail if another load started while we were awaiting
+    if (token !== this._loadToken) return;
+
+    this._activePinnedCollections = newCollections;
+    this._pinnedFailedPaths = newFailedPaths;
+    this._setupPinnedWatchers(rawPath);
+    _log.appendLine(`[pinned] Loaded ${newCollections.size} collections from: ${expanded}`);
   }
 
   private async _loadPinnedCollectionFile(filePath: string, pathMap: Map<string, MissioCollection>): Promise<void> {
@@ -306,19 +307,18 @@ export class CollectionService implements vscode.Disposable {
     return p;
   }
 
-  private _setupPinnedWatchers(folderPaths: string[]): void {
+  private _setupPinnedWatchers(rawPath: string | null): void {
     for (const w of this._pinnedWatchers) w.dispose();
     this._pinnedWatchers = [];
 
-    if (folderPaths.length === 0) return;
-    // Only watch the single active pinned path
-    const rawPath = folderPaths[0];
     if (!rawPath) return;
-    const debounceRefreshPinned = this._debounce(() => this.refreshPinned(), 500);
     const expanded = this._expandHome(rawPath);
-    const base = vscode.Uri.file(expanded);
+    const debounceRefreshPinned = this._debounce(
+      () => { void this.refreshPinned().catch(err => _log.appendLine(`[pinned] Refresh failed: ${String(err)}`)); },
+      500,
+    );
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(base, '**/*.{yml,yaml}'),
+      new vscode.RelativePattern(expanded, '**/*.{yml,yaml}'),
     );
     watcher.onDidChange(debounceRefreshPinned);
     watcher.onDidCreate(debounceRefreshPinned);
@@ -431,16 +431,12 @@ export class CollectionService implements vscode.Disposable {
       vscode.workspace.onDidDeleteFiles(() => debounceRefresh()),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('missio.pinnedWorkspacePaths')) {
-          const rawPaths = vscode.workspace.getConfiguration('missio').get<string[]>('pinnedWorkspacePaths', []);
-          this._setupPinnedWatchers(rawPaths);
-          this.refreshPinned();
+          void this._loadActivePinnedWorkspace().then(() => this._onDidChange.fire()).catch(
+            err => _log.appendLine(`[pinned] Config reload failed: ${String(err)}`),
+          );
         }
       }),
     );
-
-    // Set up the initial pinned watchers if configured
-    const rawPaths = vscode.workspace.getConfiguration('missio').get<string[]>('pinnedWorkspacePaths', []);
-    this._setupPinnedWatchers(rawPaths);
   }
 
   private _startPolling(): void {
