@@ -165,7 +165,13 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       const current = config.get<string[]>('pinnedWorkspacePaths', []);
       const updated = current.map((p: string) => p === oldPath ? newPath : p);
       await config.update('pinnedWorkspacePaths', updated, vscode.ConfigurationTarget.Global);
-      await collectionService.refreshPinned();
+      // If the active pinned workspace was the one we just relocated, update it to the new path
+      // so the config change handler doesn't reset the selection back to null.
+      if (collectionService.getActiveWorkspaceKey() === oldPath) {
+        collectionService.setActiveWorkspace(newPath);
+      }
+      // The config update triggers the configuration change handler which reloads pinned state;
+      // no need for an extra refreshPinned() call.
     }),
 
     vscode.commands.registerCommand('missio.addPinnedWorkspace', async () => {
