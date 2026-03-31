@@ -749,6 +749,33 @@ td.var-cell .var-overlay {
 .body-type-pills .pill:hover { background: var(--m-hover-overlay); }
 .body-type-pills .pill.active { background: var(--btn-bg); color: var(--btn-fg); }
 
+/* ── Binary Body Editor ─────────────────── */
+#bodyBinaryEditor { padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.binary-row { display: flex; align-items: center; gap: 8px; }
+.binary-path-input {
+  flex: 1;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  min-width: 0;
+}
+.binary-type-row { margin-top: 2px; }
+.binary-label { font-size: 12px; color: var(--m-subtext-color, var(--fg)); white-space: nowrap; min-width: 80px; }
+.binary-type-input {
+  flex: 1;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
 /* ── Language Select ───────────────────── */
 .lang-select {
   background-color: var(--input-bg);

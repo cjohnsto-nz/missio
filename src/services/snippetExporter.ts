@@ -101,8 +101,8 @@ function restoreVars(s: string, map: Map<string, string>): string {
   return s;
 }
 
-/** Convert a ResolvedRequest to a HAR Request object. */
-function toHar(req: ResolvedRequest): HarRequest {
+/** Convert a ResolvedRequest to a HAR Request object. @internal exported for testing */
+export function toHar(req: ResolvedRequest): HarRequest {
   const headers = Object.entries(req.headers).map(([name, value]) => ({ name, value }));
 
   let queryString: { name: string; value: string }[] = [];
@@ -123,9 +123,22 @@ function toHar(req: ResolvedRequest): HarRequest {
     postData: { mimeType: '' },
   };
 
-  if (req.body) {
+  if (req.body !== undefined) {
     const ct = req.headers['Content-Type'] || req.headers['content-type'] || 'application/octet-stream';
-    har.postData = { mimeType: ct, text: req.body };
+    if (Buffer.isBuffer(req.body)) {
+      // HAR text must be a string. Encode binary bodies as base64 using the
+      // de-facto 'encoding' field convention (used by Chrome DevTools, etc.)
+      // so httpsnippet can generate correct code snippets (e.g. --data-binary).
+      har.postData = {
+        mimeType: ct,
+        text: req.body.toString('base64'),
+        encoding: 'base64',
+      } as any;
+      har.bodySize = req.body.length;
+    } else {
+      har.postData = { mimeType: ct, text: req.body };
+      har.bodySize = Buffer.byteLength(req.body);
+    }
   }
 
   return har;

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
+import * as path from 'path';
 import { URL } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -13,6 +14,7 @@ import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
 import type { SecretService } from './secretService';
 import type { CliAuthApprovalService } from './cliAuthApproval';
+import { resolveFileVariantToBuffer } from './fileBodyHelper';
 
 const execAsync = promisify(exec);
 
@@ -28,7 +30,8 @@ export interface ResolvedRequest {
   method: string;
   url: string;
   headers: Record<string, string>;
-  body?: string;
+  /** String for text bodies; Buffer for binary file bodies. */
+  body?: string | Buffer;
 }
 
 interface CliTokenCacheEntry {
@@ -75,7 +78,7 @@ export class HttpClient implements vscode.Disposable {
     extraVariables?: Map<string, string>,
     environmentName?: string,
     cliApprovalPrompt?: CliApprovalPrompt,
-    options?: { includeAuth?: boolean },
+    options?: { includeAuth?: boolean; includeBody?: boolean },
   ): Promise<ResolvedRequest> {
     const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
     if (extraVariables) {
@@ -169,10 +172,24 @@ export class HttpClient implements vscode.Disposable {
     }
 
     // Body
-    let body: string | undefined;
+    let body: string | Buffer | undefined;
     const resolvedBody = this._resolveBody(details.body);
     if (resolvedBody) {
-      body = this._buildBody(resolvedBody, headers, variables);
+      if (resolvedBody.type === 'file') {
+        const variant = options?.includeBody !== false
+          ? (resolvedBody.data.find(v => v.selected) ?? resolvedBody.data[0])
+          : undefined;
+        if (variant?.filePath) {
+          body = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
+          const ct = variant.contentType || 'application/octet-stream';
+          const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
+          if (!hasContentType) {
+            headers['Content-Type'] = ct;
+          }
+        }
+      } else {
+        body = this._buildBody(resolvedBody, headers, variables);
+      }
     }
 
     // Resolve $secret references
@@ -183,7 +200,7 @@ export class HttpClient implements vscode.Disposable {
         const resolved = await this._secretService.resolveSecretReferences(v, providers, variables);
         if (resolved !== v) headers[k] = resolved;
       }
-      if (body) {
+      if (body && typeof body === 'string') {
         body = await this._secretService.resolveSecretReferences(body, providers, variables);
       }
     }
@@ -288,8 +305,8 @@ export class HttpClient implements vscode.Disposable {
 
       this._activeRequests.set(requestId, req);
 
-      if (body) {
-        const bodyBuffer = Buffer.from(body, 'utf-8');
+      if (body !== undefined) {
+        const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf-8');
         req.setHeader('Content-Length', bodyBuffer.length);
         _log(`  body: ${bodyBuffer.length} bytes`);
         req.write(bodyBuffer);

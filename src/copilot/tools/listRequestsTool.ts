@@ -141,6 +141,12 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
               }
             }
             break;
+          case 'file':
+            // filePath entries may contain variable references
+            for (const variant of b.data ?? []) {
+              if (variant.filePath) extractFromString(variant.filePath, 'body');
+            }
+            break;
         }
       };
       if (body) {
