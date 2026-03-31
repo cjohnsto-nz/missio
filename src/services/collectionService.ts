@@ -262,6 +262,17 @@ export class CollectionService implements vscode.Disposable {
       } catch { /* ignore */ }
     }
 
+    // Also discover .code-workspace files and treat their folder list as
+    // additional collection folder references (like workspace.yml but read-only).
+    const codeWorkspaceUris: vscode.Uri[] = [];
+    await this._findCodeWorkspaces(rootUri, codeWorkspaceUris);
+    for (const codeWsUri of codeWorkspaceUris) {
+      const refs = await this._parseCodeWorkspaceFolders(codeWsUri.fsPath);
+      if (refs.length) {
+        pinnedWorkspaces.set(codeWsUri.fsPath, { collections: refs });
+      }
+    }
+
     const collectionUris: vscode.Uri[] = [];
     await this._walkDir(rootUri, collectionFileNames, collectionUris);
     for (const uri of collectionUris) {
@@ -325,6 +336,39 @@ export class CollectionService implements vscode.Disposable {
     }
   }
 
+  private async _findCodeWorkspaces(dir: vscode.Uri, results: vscode.Uri[]): Promise<void> {
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dir);
+    } catch {
+      return;
+    }
+    for (const [name, type] of entries) {
+      if ((type & vscode.FileType.Directory) !== 0) {
+        if (name === 'node_modules' || name === '.git') continue;
+        await this._findCodeWorkspaces(vscode.Uri.joinPath(dir, name), results);
+      } else if ((type & vscode.FileType.File) !== 0 && name.endsWith('.code-workspace')) {
+        results.push(vscode.Uri.joinPath(dir, name));
+      }
+    }
+  }
+
+  private async _parseCodeWorkspaceFolders(codeWsPath: string): Promise<{ name: string; path: string }[]> {
+    try {
+      const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(codeWsPath));
+      const parsed = JSON.parse(Buffer.from(raw).toString('utf8'));
+      const folders: { path: string; name?: string }[] = parsed?.folders ?? [];
+      const codeWsDir = path.dirname(codeWsPath);
+      return folders.map(f => ({
+        name: f.name ?? path.basename(path.resolve(codeWsDir, f.path)),
+        path: f.path,
+      }));
+    } catch {
+      _log.appendLine(`[pinned] Could not parse .code-workspace: ${codeWsPath}`);
+      return [];
+    }
+  }
+
   private _expandHome(p: string): string {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
     if (p === '~') return home;
@@ -349,6 +393,15 @@ export class CollectionService implements vscode.Disposable {
     watcher.onDidCreate(debounceRefreshPinned);
     watcher.onDidDelete(debounceRefreshPinned);
     this._pinnedWatchers.push(watcher);
+
+    // Watch .code-workspace files so folder list changes trigger a re-scan
+    const codeWsWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(expanded, '**/*.code-workspace'),
+    );
+    codeWsWatcher.onDidChange(debounceRefreshPinned);
+    codeWsWatcher.onDidCreate(debounceRefreshPinned);
+    codeWsWatcher.onDidDelete(debounceRefreshPinned);
+    this._pinnedWatchers.push(codeWsWatcher);
   }
 
   private async _loadCollectionFile(filePath: string): Promise<void> {
