@@ -13,7 +13,7 @@ class WorkspaceEntryNode extends vscode.TreeItem {
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
       this.tooltip = entry.error;
     } else {
-      this.description = isActive ? '● Active' : (entry.folderPath ?? '(editor workspace)');
+      this.description = isActive ? '● Active' : '';
       this.iconPath = new vscode.ThemeIcon(entry.key === null ? 'project' : 'pin');
     }
     this.contextValue = entry.key === null ? 'workspaceEntryCurrent' : (entry.error ? 'workspaceEntryPinnedError' : (isActive ? 'workspaceEntryPinnedActive' : 'workspaceEntryPinned'));
