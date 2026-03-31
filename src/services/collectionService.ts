@@ -314,10 +314,12 @@ export class CollectionService implements vscode.Disposable {
       return; // unreadable — skip
     }
     for (const [name, type] of entries) {
-      if (type === vscode.FileType.Directory) {
+      // Use bitwise checks: FileType is a bitmask (e.g. SymbolicLink|Directory),
+      // so strict equality misses symlinked folders/files.
+      if ((type & vscode.FileType.Directory) !== 0) {
         if (name === 'node_modules' || name === '.git') continue;
         await this._walkDir(vscode.Uri.joinPath(dir, name), fileNames, results);
-      } else if (type === vscode.FileType.File && fileNames.has(name)) {
+      } else if ((type & vscode.FileType.File) !== 0 && fileNames.has(name)) {
         results.push(vscode.Uri.joinPath(dir, name));
       }
     }
