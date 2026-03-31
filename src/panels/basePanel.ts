@@ -111,12 +111,27 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 
     const sendVariables = () => this._sendVariables(webviewPanel.webview, document.uri.fsPath);
 
+    const sendIndentation = () => {
+      const config = vscode.workspace.getConfiguration('editor', document.uri);
+      webviewPanel.webview.postMessage({
+        type: 'indentation',
+        insertSpaces: config.get<boolean>('insertSpaces', true),
+        tabSize: config.get<number>('tabSize', 2),
+      });
+    };
+
     // Live-reload variables when collection or environment data changes
     disposables.push(
       this._collectionService.onDidChange(() => sendVariables()),
       this._environmentService.onDidChange(() => {
         this._secretService.clearSecretNamesCache();
         sendVariables();
+      }),
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('editor.insertSpaces', document.uri) ||
+            e.affectsConfiguration('editor.tabSize', document.uri)) {
+          sendIndentation();
+        }
       }),
     );
 
@@ -126,6 +141,7 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
         if (msg.type === 'ready') {
           this._sendDocumentToWebview(webviewPanel.webview, document);
           await sendVariables();
+          sendIndentation();
           return;
         }
         if (msg.type === 'getTokenStatus' || msg.type === 'getToken' || msg.type === 'deleteToken') {
