@@ -215,7 +215,9 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     }),
 
     vscode.commands.registerCommand('missio.refreshPinnedCollections', () => {
-      collectionService.refreshPinned();
+      void collectionService.refreshPinned().catch(err =>
+        vscode.window.showErrorMessage(`Failed to refresh pinned collections: ${err instanceof Error ? err.message : String(err)}`),
+      );
     }),
 
     vscode.commands.registerCommand('missio.validateCollection', async (nodeOrId?: any) => {

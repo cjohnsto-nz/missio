@@ -636,7 +636,7 @@
           },
           "default": [],
           "scope": "machine",
-          "description": "Folders that are always shown in the 'Pinned Workspace' panel in Missio, regardless of the current VS Code workspace. Supports ~ for the home directory."
+          "description": "Folders that are always shown in the 'Workspaces' view in Missio, regardless of the current VS Code workspace. Supports ~ for the home directory."
         },
         "missio.timeout": {
           "type": "number",
