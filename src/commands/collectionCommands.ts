@@ -18,7 +18,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       return collectionService.getCollection(collectionId);
     }
 
-    const collections = collectionService.getCollections();
+    const collections = collectionService.getAllCollections();
     if (collections.length === 1) {
       return collections[0];
     }
@@ -35,6 +35,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     }
     return undefined;
   };
+
   const revealCollectionInExplorer = async (nodeOrId?: any): Promise<void> => {
     const collection = await resolveCollection(nodeOrId, 'Select a collection to reveal in Explorer');
     if (!collection) return;
@@ -143,6 +144,79 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
     vscode.commands.registerCommand('missio.expandFirstLevelFolders', expandFirstLevelFolders),
     vscode.commands.registerCommand('missio.collapseFirstLevelFolders', collapseFirstLevelFolders),
     vscode.commands.registerCommand('missio.deleteCollection', deleteCollection),
+
+    vscode.commands.registerCommand('missio.selectWorkspace', (key: string | null) => {
+      collectionService.setActiveWorkspace(key ?? null);
+    }),
+
+    vscode.commands.registerCommand('missio.locatePinnedWorkspace', async (node?: any) => {
+      const oldPath: string | undefined = node?.entry?.folderPath;
+      if (!oldPath) return;
+      const result = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Select Workspace Folder',
+        title: `Locate "${path.basename(oldPath)}"`,
+      });
+      if (!result || result.length === 0) return;
+      const newPath = result[0].fsPath;
+      const config = vscode.workspace.getConfiguration('missio');
+      const current = config.get<string[]>('pinnedWorkspacePaths', []);
+      const updated = current.map((p: string) => p === oldPath ? newPath : p);
+      await config.update('pinnedWorkspacePaths', updated, vscode.ConfigurationTarget.Global);
+      await collectionService.refreshPinned();
+    }),
+
+    vscode.commands.registerCommand('missio.addPinnedWorkspace', async () => {
+      const result = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Add as Pinned Workspace',
+        title: 'Select Folder to Pin',
+      });
+      if (!result || result.length === 0) return;
+      const folderPath = result[0].fsPath;
+      const config = vscode.workspace.getConfiguration('missio');
+      const current = config.get<string[]>('pinnedWorkspacePaths', []);
+      if (current.includes(folderPath)) {
+        vscode.window.showInformationMessage(`"${folderPath}" is already pinned.`);
+        return;
+      }
+      await config.update('pinnedWorkspacePaths', [...current, folderPath], vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(`Pinned: ${folderPath}`);
+    }),
+
+    vscode.commands.registerCommand('missio.removePinnedWorkspace', async (node?: any) => {
+      const config = vscode.workspace.getConfiguration('missio');
+      const current = config.get<string[]>('pinnedWorkspacePaths', []);
+
+      // If called from context menu with a specific path, remove it directly
+      if (node?.entry?.folderPath) {
+        const updated = current.filter((p: string) => p !== node.entry.folderPath);
+        await config.update('pinnedWorkspacePaths', updated, vscode.ConfigurationTarget.Global);
+        return;
+      }
+
+      if (current.length === 0) {
+        vscode.window.showInformationMessage('No pinned workspaces to remove.');
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(
+        current.map((p: string) => ({ label: path.basename(p), description: p, value: p })),
+        { placeHolder: 'Select pinned workspaces to remove', canPickMany: true },
+      );
+      if (!pick || pick.length === 0) return;
+      const toRemove = new Set(pick.map((p: any) => p.value));
+      const updated = current.filter((p: string) => !toRemove.has(p));
+      await config.update('pinnedWorkspacePaths', updated, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(`Removed ${pick.length} pinned workspace${pick.length > 1 ? 's' : ''}.`);
+    }),
+
+    vscode.commands.registerCommand('missio.refreshPinnedCollections', () => {
+      collectionService.refreshPinned();
+    }),
 
     vscode.commands.registerCommand('missio.validateCollection', async (nodeOrId?: any) => {
       const collection = await resolveCollection(nodeOrId, 'Select a collection to validate');
