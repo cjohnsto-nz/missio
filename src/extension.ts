@@ -8,6 +8,7 @@ import { CliAuthApprovalService } from './services/cliAuthApproval';
 import { CollectionTreeProvider } from './providers/collectionTreeProvider';
 import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
 import { GlobalsTreeProvider } from './providers/globalsTreeProvider';
+import { WorkspaceSelectorTreeProvider } from './providers/workspaceSelectorProvider';
 import { MissioCodeLensProvider } from './providers/codeLensProvider';
 import { ResponseDocumentProvider } from './providers/responseProvider';
 import { RequestEditorProvider } from './panels/requestPanel';
@@ -67,8 +68,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Tree Views ─────────────────────────────────────────────────
 
   const collectionTreeProvider = new CollectionTreeProvider(collectionService);
+  const workspaceSelectorProvider = new WorkspaceSelectorTreeProvider(collectionService);
   const environmentTreeProvider = new EnvironmentTreeProvider(collectionService, environmentService);
   const globalsTreeProvider = new GlobalsTreeProvider(environmentService);
+
+  const workspaceSelectorView = vscode.window.createTreeView('missio.workspaceSelector', {
+    treeDataProvider: workspaceSelectorProvider,
+  });
 
   const collectionsTreeView = vscode.window.createTreeView('missio.collections', {
     treeDataProvider: collectionTreeProvider,
@@ -81,9 +87,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     collectionTreeProvider,
+    workspaceSelectorProvider,
     environmentTreeProvider,
     globalsTreeProvider,
     collectionsTreeView,
+    workspaceSelectorView,
     vscode.window.registerTreeDataProvider('missio.environments', environmentTreeProvider),
     vscode.window.registerTreeDataProvider('missio.globals', globalsTreeProvider),
   );
