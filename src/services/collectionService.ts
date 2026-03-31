@@ -51,11 +51,6 @@ export class CollectionService implements vscode.Disposable {
     return Array.from(this._activePinnedCollections.values());
   }
 
-  getAllCollections(): MissioCollection[] {
-    // Returns active workspace collections only — inactive pinned workspaces are not loaded
-    return this.getCollections();
-  }
-
   getActiveWorkspaceKey(): string | null {
     return this._activeWorkspaceKey;
   }
@@ -118,7 +113,7 @@ export class CollectionService implements vscode.Disposable {
    */
   resolveCollection(id?: string): MissioCollection | undefined {
     if (id) return this.getCollection(id);
-    const all = this.getAllCollections();
+    const all = this.getCollections();
     return all.length === 1 ? all[0] : undefined;
   }
 
