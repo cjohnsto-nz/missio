@@ -57,6 +57,10 @@ export class CollectionService implements vscode.Disposable {
 
   setActiveWorkspace(key: string | null): void {
     this._activeWorkspaceKey = key;
+    // Clear stale collections immediately so getCollections() doesn't return the previous
+    // workspace's data while the async load for the new key is in flight.
+    this._activePinnedCollections = new Map();
+    this._pinnedFailedPaths = new Set();
     // Fire immediately so the UI responds, then load the pinned workspace in the background
     this._onDidChange.fire();
     void this._loadActivePinnedWorkspace()

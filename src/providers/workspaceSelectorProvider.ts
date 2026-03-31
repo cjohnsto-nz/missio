@@ -29,6 +29,7 @@ export class WorkspaceSelectorTreeProvider implements vscode.TreeDataProvider<Wo
   private _onDidChangeTreeData = new vscode.EventEmitter<WorkspaceEntryNode | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private _disposables: vscode.Disposable[] = [];
+  private _initTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly _collectionService: CollectionService) {
     this._disposables.push(
@@ -36,7 +37,7 @@ export class WorkspaceSelectorTreeProvider implements vscode.TreeDataProvider<Wo
     );
     // Workspace entries come from config (synchronous) — fire on next tick so VS Code
     // has subscribed to onDidChangeTreeData via createTreeView before we signal.
-    setTimeout(() => this._onDidChangeTreeData.fire(undefined), 0);
+    this._initTimer = setTimeout(() => this._onDidChangeTreeData.fire(undefined), 0);
   }
 
   refresh(): void {
@@ -56,6 +57,7 @@ export class WorkspaceSelectorTreeProvider implements vscode.TreeDataProvider<Wo
   }
 
   dispose(): void {
+    clearTimeout(this._initTimer);
     this._disposables.forEach(d => d.dispose());
     this._onDidChangeTreeData.dispose();
   }
