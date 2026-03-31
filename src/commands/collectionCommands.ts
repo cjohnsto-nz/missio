@@ -153,10 +153,11 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       const oldPath: string | undefined = node?.entry?.folderPath;
       if (!oldPath) return;
       const result = await vscode.window.showOpenDialog({
-        canSelectFolders: true,
-        canSelectFiles: false,
+        canSelectFolders: false,
+        canSelectFiles: true,
         canSelectMany: false,
-        openLabel: 'Select Workspace Folder',
+        filters: { 'Workspace files': ['code-workspace', 'yml', 'yaml'] },
+        openLabel: 'Select Workspace File',
         title: `Locate "${path.basename(oldPath)}"`,
       });
       if (!result || result.length === 0) return;
@@ -176,11 +177,12 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
 
     vscode.commands.registerCommand('missio.addPinnedWorkspace', async () => {
       const result = await vscode.window.showOpenDialog({
-        canSelectFolders: true,
-        canSelectFiles: false,
+        canSelectFolders: false,
+        canSelectFiles: true,
         canSelectMany: false,
+        filters: { 'Workspace files': ['code-workspace', 'yml', 'yaml'] },
         openLabel: 'Add as Pinned Workspace',
-        title: 'Select Folder to Pin',
+        title: 'Select Workspace File (.code-workspace or workspace.yml)',
       });
       if (!result || result.length === 0) return;
       const folderPath = result[0].fsPath;
@@ -224,6 +226,12 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       void collectionService.refreshPinned().catch(err =>
         vscode.window.showErrorMessage(`Failed to refresh pinned collections: ${err instanceof Error ? err.message : String(err)}`),
       );
+    }),
+
+    vscode.commands.registerCommand('missio.openPinnedWorkspaceInNewWindow', async (node?: any) => {
+      const filePath: string | undefined = node?.entry?.folderPath;
+      if (!filePath) return;
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(filePath), true);
     }),
 
     vscode.commands.registerCommand('missio.validateCollection', async (nodeOrId?: any) => {

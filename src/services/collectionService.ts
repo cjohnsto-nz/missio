@@ -72,14 +72,21 @@ export class CollectionService implements vscode.Disposable {
     const config = vscode.workspace.getConfiguration('missio');
     const pinnedPaths = config.get<string[]>('pinnedWorkspacePaths', []);
     const wsName = vscode.workspace.name ?? 'Editor Workspace';
+    const currentWsFile = vscode.workspace.workspaceFile?.fsPath;
+    const normCurrent = currentWsFile ? path.normalize(currentWsFile).toLowerCase() : null;
     return [
       { key: null, label: wsName, folderPath: null },
-      ...pinnedPaths.map(p => ({
-        key: p,
-        label: path.basename(p),
-        folderPath: p,
-        error: this._pinnedFailedPaths.has(p) ? `Path not found or inaccessible: ${p}` : undefined,
-      })),
+      ...pinnedPaths
+        .filter(p => {
+          if (!normCurrent) return true;
+          return path.normalize(p).toLowerCase() !== normCurrent;
+        })
+        .map(p => ({
+          key: p,
+          label: path.basename(p, path.extname(p)),
+          folderPath: p,
+          error: this._pinnedFailedPaths.has(p) ? `Path not found or inaccessible: ${p}` : undefined,
+        })),
     ];
   }
 
@@ -233,8 +240,9 @@ export class CollectionService implements vscode.Disposable {
 
     const expanded = this._expandHome(rawPath);
 
+    let statResult: vscode.FileStat;
     try {
-      await vscode.workspace.fs.stat(vscode.Uri.file(expanded));
+      statResult = await vscode.workspace.fs.stat(vscode.Uri.file(expanded));
     } catch {
       if (token !== this._loadToken) return;
       _log.appendLine(`[pinned] Path not found or inaccessible: ${expanded}`);
@@ -245,53 +253,110 @@ export class CollectionService implements vscode.Disposable {
       return;
     }
 
-    const collectionFileNames = new Set(['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml']);
-    const workspaceFileNames = new Set(['workspace.yml', 'workspace.yaml']);
     const newCollections = new Map<string, MissioCollection>();
-    const rootUri = vscode.Uri.file(expanded);
+    const isFile = (statResult.type & vscode.FileType.File) !== 0;
 
-    // Use fs.readDirectory walk instead of findFiles — findFiles only searches within
-    // the open VS Code workspace folders, missing pinned paths outside the workspace.
-    const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
-    const workspaceUris: vscode.Uri[] = [];
-    await this._walkDir(rootUri, workspaceFileNames, workspaceUris);
-    for (const uri of workspaceUris) {
-      try {
-        const data = await readWorkspaceFile(uri.fsPath);
-        pinnedWorkspaces.set(uri.fsPath, data);
-      } catch { /* ignore */ }
-    }
-
-    // Also discover .code-workspace files and treat their folder list as
-    // additional collection folder references (like workspace.yml but read-only).
-    const codeWorkspaceUris: vscode.Uri[] = [];
-    await this._findCodeWorkspaces(rootUri, codeWorkspaceUris);
-    for (const codeWsUri of codeWorkspaceUris) {
-      const refs = await this._parseCodeWorkspaceFolders(codeWsUri.fsPath);
-      if (refs.length) {
-        pinnedWorkspaces.set(codeWsUri.fsPath, { collections: refs });
+    if (isFile) {
+      // Pinned path is a specific workspace file (.code-workspace or workspace.yml)
+      const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
+      const ext = path.extname(expanded).toLowerCase();
+      if (ext === '.code-workspace') {
+        const refs = await this._parseCodeWorkspaceFolders(expanded);
+        if (refs.length) {
+          pinnedWorkspaces.set(expanded, { collections: refs });
+        }
+      } else if (ext === '.yml' || ext === '.yaml') {
+        try {
+          const data = await readWorkspaceFile(expanded);
+          pinnedWorkspaces.set(expanded, data);
+        } catch { /* ignore */ }
       }
-    }
-
-    const collectionUris: vscode.Uri[] = [];
-    await this._walkDir(rootUri, collectionFileNames, collectionUris);
-    for (const uri of collectionUris) {
-      await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
-    }
-
-    for (const [wsPath, ws] of pinnedWorkspaces) {
-      const wsDir = path.dirname(wsPath);
-      for (const ref of ws.collections) {
-        const candidates = [
-          path.resolve(wsDir, ref.path, 'opencollection.yml'),
-          path.resolve(wsDir, ref.path, 'opencollection.yaml'),
-          path.resolve(wsDir, ref.path, 'collection.yml'),
-          path.resolve(wsDir, ref.path, 'collection.yaml'),
-        ];
-        const alreadyLoaded = candidates.some(c => newCollections.has(c));
-        if (!alreadyLoaded) {
+      for (const [wsPath, ws] of pinnedWorkspaces) {
+        const wsDir = path.dirname(wsPath);
+        for (const ref of ws.collections) {
+          const resolvedDir = path.resolve(wsDir, ref.path);
+          const candidates = [
+            path.join(resolvedDir, 'opencollection.yml'),
+            path.join(resolvedDir, 'opencollection.yaml'),
+            path.join(resolvedDir, 'collection.yml'),
+            path.join(resolvedDir, 'collection.yaml'),
+          ];
+          // Try the folder root first as a single collection
+          let loaded = false;
           for (const candidate of candidates) {
-            if (await this._loadPinnedCollectionFile(candidate, newCollections)) break;
+            if (await this._loadPinnedCollectionFile(candidate, newCollections)) { loaded = true; break; }
+          }
+          // If no root-level collection file, walk the folder for nested collections
+          if (!loaded) {
+            const collectionFileNames = new Set(['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml']);
+            const uris: vscode.Uri[] = [];
+            await this._walkDir(vscode.Uri.file(resolvedDir), collectionFileNames, uris);
+            for (const uri of uris) {
+              await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
+            }
+          }
+        }
+      }
+    } else {
+      // Pinned path is a directory — walk it for workspace/collection files
+      const collectionFileNames = new Set(['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml']);
+      const workspaceFileNames = new Set(['workspace.yml', 'workspace.yaml']);
+      const rootUri = vscode.Uri.file(expanded);
+
+      // Use fs.readDirectory walk instead of findFiles — findFiles only searches within
+      // the open VS Code workspace folders, missing pinned paths outside the workspace.
+      const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
+      const workspaceUris: vscode.Uri[] = [];
+      await this._walkDir(rootUri, workspaceFileNames, workspaceUris);
+      for (const uri of workspaceUris) {
+        try {
+          const data = await readWorkspaceFile(uri.fsPath);
+          pinnedWorkspaces.set(uri.fsPath, data);
+        } catch { /* ignore */ }
+      }
+
+      // Also discover .code-workspace files and treat their folder list as
+      // additional collection folder references (like workspace.yml but read-only).
+      const codeWorkspaceUris: vscode.Uri[] = [];
+      await this._findCodeWorkspaces(rootUri, codeWorkspaceUris);
+      for (const codeWsUri of codeWorkspaceUris) {
+        const refs = await this._parseCodeWorkspaceFolders(codeWsUri.fsPath);
+        if (refs.length) {
+          pinnedWorkspaces.set(codeWsUri.fsPath, { collections: refs });
+        }
+      }
+
+      const collectionUris: vscode.Uri[] = [];
+      await this._walkDir(rootUri, collectionFileNames, collectionUris);
+      for (const uri of collectionUris) {
+        await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
+      }
+
+      for (const [wsPath, ws] of pinnedWorkspaces) {
+        const wsDir = path.dirname(wsPath);
+        for (const ref of ws.collections) {
+          const resolvedDir = path.resolve(wsDir, ref.path);
+          const candidates = [
+            path.join(resolvedDir, 'opencollection.yml'),
+            path.join(resolvedDir, 'opencollection.yaml'),
+            path.join(resolvedDir, 'collection.yml'),
+            path.join(resolvedDir, 'collection.yaml'),
+          ];
+          const alreadyLoaded = candidates.some(c => newCollections.has(c));
+          if (!alreadyLoaded) {
+            let loaded = false;
+            for (const candidate of candidates) {
+              if (await this._loadPinnedCollectionFile(candidate, newCollections)) { loaded = true; break; }
+            }
+            // If no root-level collection file, walk the folder for nested collections
+            if (!loaded) {
+              const collectionFileNames = new Set(['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml']);
+              const uris: vscode.Uri[] = [];
+              await this._walkDir(vscode.Uri.file(resolvedDir), collectionFileNames, uris);
+              for (const uri of uris) {
+                await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
+              }
+            }
           }
         }
       }
@@ -382,12 +447,17 @@ export class CollectionService implements vscode.Disposable {
 
     if (!rawPath) return;
     const expanded = this._expandHome(rawPath);
+    // When the pinned path is a file, watch its parent directory
+    const ext = path.extname(expanded).toLowerCase();
+    const watchBase = (ext === '.code-workspace' || ext === '.yml' || ext === '.yaml')
+      ? path.dirname(expanded)
+      : expanded;
     const debounceRefreshPinned = this._debounce(
       () => { void this.refreshPinned().catch(err => _log.appendLine(`[pinned] Refresh failed: ${String(err)}`)); },
       500,
     );
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(expanded, '**/*.{yml,yaml}'),
+      new vscode.RelativePattern(watchBase, '**/*.{yml,yaml}'),
     );
     watcher.onDidChange(debounceRefreshPinned);
     watcher.onDidCreate(debounceRefreshPinned);
@@ -396,7 +466,7 @@ export class CollectionService implements vscode.Disposable {
 
     // Watch .code-workspace files so folder list changes trigger a re-scan
     const codeWsWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(expanded, '**/*.code-workspace'),
+      new vscode.RelativePattern(watchBase, '**/*.code-workspace'),
     );
     codeWsWatcher.onDidChange(debounceRefreshPinned);
     codeWsWatcher.onDidCreate(debounceRefreshPinned);
@@ -430,7 +500,8 @@ export class CollectionService implements vscode.Disposable {
       const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir));
       for (const [name, type] of entries) {
         const fullPath = path.join(dir, name);
-        if (type === vscode.FileType.Directory) {
+        if ((type & vscode.FileType.Directory) !== 0) {
+          if (name === 'node_modules' || name.startsWith('.')) continue;
           const folderItems = await this._scanDirectoryForItems(fullPath);
           const folder: Folder = {
             info: { name, type: 'folder' },
@@ -454,7 +525,7 @@ export class CollectionService implements vscode.Disposable {
           // Tag with the actual directory path for tree operations
           (folder as any)._dirPath = fullPath;
           items.push(folder);
-        } else if (type === vscode.FileType.File && isRequestFile(name)) {
+        } else if ((type & vscode.FileType.File) !== 0 && isRequestFile(name)) {
           try {
             const req = await readRequestFile(fullPath);
             if (req.info || req.http) {
