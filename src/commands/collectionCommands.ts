@@ -18,7 +18,7 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       return collectionService.getCollection(collectionId);
     }
 
-    const collections = collectionService.getAllCollections();
+    const collections = collectionService.getCollections();
     if (collections.length === 1) {
       return collections[0];
     }

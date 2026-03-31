@@ -171,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   function findCollectionForFile(filePath: string) {
-    const collections = collectionService.getAllCollections();
+    const collections = collectionService.getCollections();
     const normalized = filePath.replace(/\\/g, '/');
     return collections.find(c => {
       const root = c.rootDir.replace(/\\/g, '/');

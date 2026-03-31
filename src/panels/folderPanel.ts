@@ -61,7 +61,7 @@ export class FolderEditorProvider extends BaseEditorProvider {
 
   protected _findCollection(filePath: string): MissioCollection | undefined {
     const folderDir = path.dirname(filePath);
-    return this._collectionService.getAllCollections().find(c =>
+    return this._collectionService.getCollections().find(c =>
       folderDir.toLowerCase().startsWith(c.rootDir.toLowerCase()),
     );
   }
