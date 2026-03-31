@@ -359,6 +359,12 @@
         "title": "Refresh Pinned Collections",
         "category": "Missio",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "missio.openPinnedWorkspaceInNewWindow",
+        "title": "Open in New Window",
+        "category": "Missio",
+        "icon": "$(empty-window)"
       }
     ],
     "menus": {
@@ -420,6 +426,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "missio.openPinnedWorkspaceInNewWindow",
+          "when": "view == missio.workspaceSelector && viewItem =~ /^workspaceEntryPinned/",
+          "group": "1_manage@0"
+        },
         {
           "command": "missio.removePinnedWorkspace",
           "when": "view == missio.workspaceSelector && viewItem =~ /^workspaceEntryPinned/",
