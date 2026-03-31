@@ -67,7 +67,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
   // ── BaseEditorProvider implementation ──
 
   protected _findCollection(filePath: string): MissioCollection | undefined {
-    return this._collectionService.getCollections().find(c => c.filePath === filePath);
+    return this._collectionService.getAllCollections().find(c => c.filePath === filePath);
   }
 
   protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
@@ -151,7 +151,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
 
   private _trackEnvRename(document: vscode.TextDocument, newCollection: any): void {
     const filePath = document.uri.fsPath;
-    const collection = this._collectionService.getCollections().find(c => c.filePath === filePath);
+    const collection = this._collectionService.getAllCollections().find(c => c.filePath === filePath);
     if (!collection) return;
 
     const activeName = this._environmentService.getActiveEnvironmentName(collection.id);

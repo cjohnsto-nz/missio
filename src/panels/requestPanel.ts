@@ -90,7 +90,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   protected _findCollection(filePath: string): MissioCollection | undefined {
     const normalized = filePath.replace(/\\/g, '/');
-    return this._collectionService.getCollections().find(c => {
+    return this._collectionService.getAllCollections().find(c => {
       const root = c.rootDir.replace(/\\/g, '/');
       return normalized.startsWith(root + '/') || normalized === root;
     });

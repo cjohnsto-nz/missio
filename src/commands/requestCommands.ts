@@ -10,7 +10,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
   const { collectionService, httpClient, responseProvider } = ctx;
 
   function findCollectionForFile(filePath: string): MissioCollection | undefined {
-    const collections = collectionService.getCollections();
+    const collections = collectionService.getAllCollections();
     const normalized = filePath.replace(/\\/g, '/');
     return collections.find(c => {
       const root = c.rootDir.replace(/\\/g, '/');
