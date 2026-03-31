@@ -5,9 +5,21 @@ import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Fold
 
 const _log = vscode.window.createOutputChannel('Missio');
 
+export interface WorkspaceEntry {
+  key: string | null; // null = current VS Code workspace
+  label: string;
+  folderPath: string | null;
+  error?: string;
+}
+
 export class CollectionService implements vscode.Disposable {
   private _collections: Map<string, MissioCollection> = new Map();
   private _workspaces: Map<string, OpenCollectionWorkspace> = new Map();
+  private _pinnedCollectionsByPath: Map<string, Map<string, MissioCollection>> = new Map();
+  private _activePinnedCollections: Map<string, MissioCollection> = new Map();
+  private _pinnedFailedPaths: Set<string> = new Set();
+  private _activeWorkspaceKey: string | null = null;
+  private _pinnedWatchers: vscode.FileSystemWatcher[] = [];
   private _watchers: vscode.FileSystemWatcher[] = [];
   private _disposables: vscode.Disposable[] = [];
   private _pollTimer: NodeJS.Timeout | undefined;
@@ -20,6 +32,7 @@ export class CollectionService implements vscode.Disposable {
     const t0 = performance.now();
     await this._scanWorkspaceFolders();
     const t1 = performance.now();
+    // Active workspace is null (current VS Code workspace) on startup — no pinned path to load
     this._lastFingerprint = this._computeFingerprintFromCollections();
     this._setupWatchers();
     this._startPolling();
@@ -28,18 +41,70 @@ export class CollectionService implements vscode.Disposable {
   }
 
   getCollections(): MissioCollection[] {
-    return Array.from(this._collections.values());
+    if (this._activeWorkspaceKey === null) {
+      return Array.from(this._collections.values());
+    }
+    return Array.from(this._activePinnedCollections.values());
+  }
+
+  getPinnedCollections(): MissioCollection[] {
+    return Array.from(this._activePinnedCollections.values());
+  }
+
+  getAllCollections(): MissioCollection[] {
+    // Returns active workspace collections only — inactive pinned workspaces are not loaded
+    return this.getCollections();
+  }
+
+  getActiveWorkspaceKey(): string | null {
+    return this._activeWorkspaceKey;
+  }
+
+  setActiveWorkspace(key: string | null): void {
+    this._activeWorkspaceKey = key;
+    // Fire immediately so the UI responds, then load the pinned workspace in the background
+    this._onDidChange.fire();
+    void this._loadActivePinnedWorkspace().then(() => this._onDidChange.fire());
+  }
+
+  getWorkspaceEntries(): WorkspaceEntry[] {
+    const config = vscode.workspace.getConfiguration('missio');
+    const pinnedPaths = config.get<string[]>('pinnedWorkspacePaths', []);
+    const wsName = vscode.workspace.name ?? 'Editor Workspace';
+    return [
+      { key: null, label: wsName, folderPath: null },
+      ...pinnedPaths.map(p => ({
+        key: p,
+        label: path.basename(p),
+        folderPath: p,
+        error: this._pinnedFailedPaths.has(p) ? `Path not found or inaccessible: ${p}` : undefined,
+      })),
+    ];
   }
 
   getCollection(id: string): MissioCollection | undefined {
-    // Exact match first
+    // Exact match in workspace collections first, then active pinned
     let result = this._collections.get(id);
+    if (result) return result;
+    result = this._activePinnedCollections.get(id);
     if (result) return result;
 
     // Normalize path separators and try case-insensitive match
-    // (LLMs often normalise Windows backslashes to forward slashes)
     const norm = path.normalize(id).toLowerCase();
     for (const [key, val] of this._collections) {
+      if (path.normalize(key).toLowerCase() === norm) return val;
+    }
+    for (const [key, val] of this._activePinnedCollections) {
+      if (path.normalize(key).toLowerCase() === norm) return val;
+    }
+    return undefined;
+  }
+
+  getPinnedCollection(id: string): MissioCollection | undefined {
+    const norm = path.normalize(id).toLowerCase();
+    const c = this._activePinnedCollections.get(id);
+    if (c) return c;
+    for (const [key, val] of this._activePinnedCollections) {
       if (path.normalize(key).toLowerCase() === norm) return val;
     }
     return undefined;
@@ -47,13 +112,13 @@ export class CollectionService implements vscode.Disposable {
 
   /**
    * Resolve a collection by optional ID with single-collection auto-selection.
-   * If id is provided, performs a path-normalized lookup.
+   * If id is provided, performs a path-normalized lookup across workspace and pinned.
    * If id is omitted and exactly one collection is loaded, returns it.
    * Used by Copilot tools where collectionId may be omitted.
    */
   resolveCollection(id?: string): MissioCollection | undefined {
     if (id) return this.getCollection(id);
-    const all = this.getCollections();
+    const all = this.getAllCollections();
     return all.length === 1 ? all[0] : undefined;
   }
 
@@ -66,6 +131,11 @@ export class CollectionService implements vscode.Disposable {
     this._workspaces.clear();
     await this._scanWorkspaceFolders();
     this._lastFingerprint = this._computeFingerprintFromCollections();
+    this._onDidChange.fire();
+  }
+
+  async refreshPinned(): Promise<void> {
+    await this._loadActivePinnedWorkspace();
     this._onDidChange.fire();
   }
 
@@ -137,6 +207,128 @@ export class CollectionService implements vscode.Disposable {
     }
     const t3 = performance.now();
     _log.appendLine(`_scanWorkspaceFolders: findWorkspaces=${(t1 - t0).toFixed(1)}ms, findCollections=${(t2 - t1).toFixed(1)}ms, resolveWsRefs=${(t3 - t2).toFixed(1)}ms`);
+  }
+
+  private async _loadPinnedPath(): Promise<void> {
+    // Legacy entry point — delegates to active workspace loader
+    await this._loadActivePinnedWorkspace();
+  }
+
+  private async _loadActivePinnedWorkspace(): Promise<void> {
+    this._activePinnedCollections.clear();
+    this._pinnedFailedPaths.clear();
+    this._pinnedCollectionsByPath.clear();
+
+    // Reset active key if it's been removed from config (e.g. via removePinnedWorkspace)
+    if (this._activeWorkspaceKey !== null) {
+      const config = vscode.workspace.getConfiguration('missio');
+      const rawPaths = config.get<string[]>('pinnedWorkspacePaths', []);
+      if (!rawPaths.includes(this._activeWorkspaceKey)) {
+        this._activeWorkspaceKey = null;
+      }
+    }
+
+    const rawPath = this._activeWorkspaceKey;
+    if (rawPath === null) {
+      // Current VS Code workspace is active — nothing to load for pinned
+      this._setupPinnedWatchers([]);
+      return;
+    }
+
+    const expanded = this._expandHome(rawPath);
+    const pinnedUri = vscode.Uri.file(expanded);
+
+    try {
+      await vscode.workspace.fs.stat(pinnedUri);
+    } catch {
+      _log.appendLine(`[pinned] Path not found or inaccessible: ${expanded}`);
+      this._pinnedFailedPaths.add(rawPath);
+      this._setupPinnedWatchers([]);
+      return;
+    }
+
+    this._setupPinnedWatchers([rawPath]);
+
+    const collectionPatterns = ['**/opencollection.yml', '**/opencollection.yaml', '**/collection.yml', '**/collection.yaml'];
+    const workspacePatterns = ['**/workspace.yml', '**/workspace.yaml'];
+    const pathMap = this._activePinnedCollections;
+    this._pinnedCollectionsByPath.set(rawPath, pathMap);
+
+    const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
+    for (const pattern of workspacePatterns) {
+      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(pinnedUri, pattern), '**/node_modules/**');
+      for (const uri of files) {
+        try {
+          const data = await readWorkspaceFile(uri.fsPath);
+          pinnedWorkspaces.set(uri.fsPath, data);
+        } catch { /* ignore */ }
+      }
+    }
+
+    for (const pattern of collectionPatterns) {
+      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(pinnedUri, pattern), '**/node_modules/**');
+      for (const uri of files) {
+        await this._loadPinnedCollectionFile(uri.fsPath, pathMap);
+      }
+    }
+
+    for (const [wsPath, ws] of pinnedWorkspaces) {
+      const wsDir = path.dirname(wsPath);
+      for (const ref of ws.collections) {
+        const candidates = [
+          path.resolve(wsDir, ref.path, 'opencollection.yml'),
+          path.resolve(wsDir, ref.path, 'opencollection.yaml'),
+          path.resolve(wsDir, ref.path, 'collection.yml'),
+          path.resolve(wsDir, ref.path, 'collection.yaml'),
+        ];
+        const alreadyLoaded = candidates.some(c => pathMap.has(c));
+        if (!alreadyLoaded) {
+          for (const candidate of candidates) {
+            try { await this._loadPinnedCollectionFile(candidate, pathMap); break; } catch { /* try next */ }
+          }
+        }
+      }
+    }
+
+    _log.appendLine(`[pinned] Loaded ${pathMap.size} collections from: ${expanded}`);
+  }
+
+  private async _loadPinnedCollectionFile(filePath: string, pathMap: Map<string, MissioCollection>): Promise<void> {
+    try {
+      const data = await readCollectionFile(filePath);
+      const rootDir = path.dirname(filePath);
+      pathMap.set(filePath, { id: filePath, filePath, rootDir, data });
+    } catch {
+      // Ignore unreadable files
+    }
+  }
+
+  private _expandHome(p: string): string {
+    if (p.startsWith('~/') || p === '~') {
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+      return path.join(home, p.slice(1));
+    }
+    return p;
+  }
+
+  private _setupPinnedWatchers(folderPaths: string[]): void {
+    for (const w of this._pinnedWatchers) w.dispose();
+    this._pinnedWatchers = [];
+
+    if (folderPaths.length === 0) return;
+    // Only watch the single active pinned path
+    const rawPath = folderPaths[0];
+    if (!rawPath) return;
+    const debounceRefreshPinned = this._debounce(() => this.refreshPinned(), 500);
+    const expanded = this._expandHome(rawPath);
+    const base = vscode.Uri.file(expanded);
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(base, '**/*.{yml,yaml}'),
+    );
+    watcher.onDidChange(debounceRefreshPinned);
+    watcher.onDidCreate(debounceRefreshPinned);
+    watcher.onDidDelete(debounceRefreshPinned);
+    this._pinnedWatchers.push(watcher);
   }
 
   private async _loadCollectionFile(filePath: string): Promise<void> {
@@ -242,7 +434,18 @@ export class CollectionService implements vscode.Disposable {
       vscode.workspace.onDidRenameFiles(() => debounceRefresh()),
       vscode.workspace.onDidCreateFiles(() => debounceRefresh()),
       vscode.workspace.onDidDeleteFiles(() => debounceRefresh()),
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('missio.pinnedWorkspacePaths')) {
+          const rawPaths = vscode.workspace.getConfiguration('missio').get<string[]>('pinnedWorkspacePaths', []);
+          this._setupPinnedWatchers(rawPaths);
+          this.refreshPinned();
+        }
+      }),
     );
+
+    // Set up the initial pinned watchers if configured
+    const rawPaths = vscode.workspace.getConfiguration('missio').get<string[]>('pinnedWorkspacePaths', []);
+    this._setupPinnedWatchers(rawPaths);
   }
 
   private _startPolling(): void {
@@ -354,6 +557,7 @@ export class CollectionService implements vscode.Disposable {
 
   dispose(): void {
     if (this._pollTimer) { clearTimeout(this._pollTimer); }
+    this._pinnedWatchers.forEach(w => w.dispose());
     this._watchers.forEach(w => w.dispose());
     this._disposables.forEach(d => d.dispose());
     this._onDidChange.dispose();
