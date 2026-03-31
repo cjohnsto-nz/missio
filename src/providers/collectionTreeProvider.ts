@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { CollectionService } from '../services/collectionService';
 import type { MissioCollection, Item, HttpRequest, HttpRequestExample, Folder } from '../models/types';
 
+
 type TreeNode = CollectionNode | FolderNode | RequestNode | ExampleNode;
 
 const DRAG_MIME = 'application/vnd.code.tree.missio.collections';
@@ -143,7 +144,9 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
   readonly dropMimeTypes = [DRAG_MIME];
   readonly dragMimeTypes = [DRAG_MIME];
 
-  constructor(private readonly _collectionService: CollectionService) {
+  constructor(
+    private readonly _collectionService: CollectionService,
+  ) {
     this._disposables.push(
       this._collectionService.onDidChange(() => {
         this._itemsCache.clear();
@@ -163,7 +166,7 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
 
   async getChildren(element?: TreeNode): Promise<TreeNode[]> {
     if (!element) {
-      // Root: list all collections, sorted by name ascending
+      // Root: list all collections for the active workspace, sorted by name ascending
       const collections = this._collectionService.getCollections()
         .sort((a, b) => {
           const nameA = (a.data.info?.name ?? path.basename(a.rootDir)).toLowerCase();
