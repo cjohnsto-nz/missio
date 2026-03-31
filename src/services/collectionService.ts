@@ -59,7 +59,9 @@ export class CollectionService implements vscode.Disposable {
     this._activeWorkspaceKey = key;
     // Fire immediately so the UI responds, then load the pinned workspace in the background
     this._onDidChange.fire();
-    void this._loadActivePinnedWorkspace().then(() => this._onDidChange.fire());
+    void this._loadActivePinnedWorkspace()
+      .then(() => this._onDidChange.fire())
+      .catch(err => _log.appendLine(`[pinned] setActiveWorkspace load failed: ${String(err)}`));
   }
 
   getWorkspaceEntries(): WorkspaceEntry[] {
@@ -239,27 +241,27 @@ export class CollectionService implements vscode.Disposable {
       return;
     }
 
-    const collectionPatterns = ['**/opencollection.yml', '**/opencollection.yaml', '**/collection.yml', '**/collection.yaml'];
-    const workspacePatterns = ['**/workspace.yml', '**/workspace.yaml'];
+    const collectionFileNames = new Set(['opencollection.yml', 'opencollection.yaml', 'collection.yml', 'collection.yaml']);
+    const workspaceFileNames = new Set(['workspace.yml', 'workspace.yaml']);
     const newCollections = new Map<string, MissioCollection>();
-    const newFailedPaths = new Set<string>();
+    const rootUri = vscode.Uri.file(expanded);
 
+    // Use fs.readDirectory walk instead of findFiles — findFiles only searches within
+    // the open VS Code workspace folders, missing pinned paths outside the workspace.
     const pinnedWorkspaces = new Map<string, OpenCollectionWorkspace>();
-    for (const pattern of workspacePatterns) {
-      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(expanded, pattern), '**/node_modules/**');
-      for (const uri of files) {
-        try {
-          const data = await readWorkspaceFile(uri.fsPath);
-          pinnedWorkspaces.set(uri.fsPath, data);
-        } catch { /* ignore */ }
-      }
+    const workspaceUris: vscode.Uri[] = [];
+    await this._walkDir(rootUri, workspaceFileNames, workspaceUris);
+    for (const uri of workspaceUris) {
+      try {
+        const data = await readWorkspaceFile(uri.fsPath);
+        pinnedWorkspaces.set(uri.fsPath, data);
+      } catch { /* ignore */ }
     }
 
-    for (const pattern of collectionPatterns) {
-      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(expanded, pattern), '**/node_modules/**');
-      for (const uri of files) {
-        await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
-      }
+    const collectionUris: vscode.Uri[] = [];
+    await this._walkDir(rootUri, collectionFileNames, collectionUris);
+    for (const uri of collectionUris) {
+      await this._loadPinnedCollectionFile(uri.fsPath, newCollections);
     }
 
     for (const [wsPath, ws] of pinnedWorkspaces) {
@@ -274,7 +276,7 @@ export class CollectionService implements vscode.Disposable {
         const alreadyLoaded = candidates.some(c => newCollections.has(c));
         if (!alreadyLoaded) {
           for (const candidate of candidates) {
-            try { await this._loadPinnedCollectionFile(candidate, newCollections); break; } catch { /* try next */ }
+            if (await this._loadPinnedCollectionFile(candidate, newCollections)) break;
           }
         }
       }
@@ -284,26 +286,43 @@ export class CollectionService implements vscode.Disposable {
     if (token !== this._loadToken) return;
 
     this._activePinnedCollections = newCollections;
-    this._pinnedFailedPaths = newFailedPaths;
+    this._pinnedFailedPaths = new Set();
     this._setupPinnedWatchers(rawPath);
     _log.appendLine(`[pinned] Loaded ${newCollections.size} collections from: ${expanded}`);
   }
 
-  private async _loadPinnedCollectionFile(filePath: string, pathMap: Map<string, MissioCollection>): Promise<void> {
+  private async _loadPinnedCollectionFile(filePath: string, pathMap: Map<string, MissioCollection>): Promise<boolean> {
     try {
       const data = await readCollectionFile(filePath);
       const rootDir = path.dirname(filePath);
       pathMap.set(filePath, { id: filePath, filePath, rootDir, data });
+      return true;
     } catch {
-      // Ignore unreadable files
+      return false;
+    }
+  }
+
+  private async _walkDir(dir: vscode.Uri, fileNames: Set<string>, results: vscode.Uri[]): Promise<void> {
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dir);
+    } catch {
+      return; // unreadable — skip
+    }
+    for (const [name, type] of entries) {
+      if (type === vscode.FileType.Directory) {
+        if (name === 'node_modules' || name === '.git') continue;
+        await this._walkDir(vscode.Uri.joinPath(dir, name), fileNames, results);
+      } else if (type === vscode.FileType.File && fileNames.has(name)) {
+        results.push(vscode.Uri.joinPath(dir, name));
+      }
     }
   }
 
   private _expandHome(p: string): string {
-    if (p.startsWith('~/') || p === '~') {
-      const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-      return path.join(home, p.slice(1));
-    }
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    if (p === '~') return home;
+    if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(home, p.slice(2));
     return p;
   }
 
