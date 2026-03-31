@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
 import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
+import { execFile } from 'child_process';
 
 const _log = vscode.window.createOutputChannel('Missio');
 
@@ -17,6 +18,7 @@ export class CollectionService implements vscode.Disposable {
   private _workspaces: Map<string, OpenCollectionWorkspace> = new Map();
   private _activePinnedCollections: Map<string, MissioCollection> = new Map();
   private _pinnedFailedPaths: Set<string> = new Set();
+  private _gitBranchCache: Map<string, string> = new Map(); // keyed by git repo root
   private _activeWorkspaceKey: string | null = null;
   private _loadToken = 0; // incremented on each load to detect stale concurrent loads
   private _pinnedWatchers: vscode.FileSystemWatcher[] = [];
@@ -36,6 +38,7 @@ export class CollectionService implements vscode.Disposable {
     this._lastFingerprint = this._computeFingerprintFromCollections();
     this._setupWatchers();
     this._startPolling();
+    this._detectAllGitBranches();
     this._onDidChange.fire();
     _log.appendLine(`initialize: scanWorkspaceFolders=${(t1 - t0).toFixed(1)}ms, total=${(performance.now() - t0).toFixed(1)}ms, collections=${this._collections.size}, workspaces=${this._workspaces.size}`);
   }
@@ -368,6 +371,7 @@ export class CollectionService implements vscode.Disposable {
     this._activePinnedCollections = newCollections;
     this._pinnedFailedPaths = new Set();
     this._setupPinnedWatchers(rawPath);
+    this._detectAllGitBranches();
     _log.appendLine(`[pinned] Loaded ${newCollections.size} collections from: ${expanded}`);
   }
 
@@ -432,6 +436,96 @@ export class CollectionService implements vscode.Disposable {
       _log.appendLine(`[pinned] Could not parse .code-workspace: ${codeWsPath}`);
       return [];
     }
+  }
+
+  /**
+   * Get the cached git status label for a directory (collection rootDir).
+   * Format: repo/branch [↑n] [↓n] [*]
+   */
+  getGitBranch(dir: string): string | undefined {
+    return this._gitBranchCache.get(dir);
+  }
+
+  /**
+   * Detect the git branch, remote sync status, and dirty state for a directory.
+   * Uses `git fetch` then `git status --porcelain=v2 --branch` to get all info in one pass.
+   */
+  private _detectGitBranch(dir: string): void {
+    // Fetch first so ahead/behind reflect actual remote state, then parse status
+    _log.appendLine(`[git] fetch: ${dir}`);
+    execFile('git', ['fetch', '--quiet'], { cwd: dir }, (fetchErr, _fetchStdout, fetchStderr) => {
+      if (fetchErr) _log.appendLine(`[git] fetch error: ${fetchStderr.trim() || fetchErr.message}`);
+      execFile('git', ['status', '--porcelain=v2', '--branch'], { cwd: dir }, (err, stdout, stderr) => {
+        if (err) {
+          _log.appendLine(`[git] status error in ${dir}: ${stderr.trim() || err.message}`);
+          const prev = this._gitBranchCache.get(dir);
+          this._gitBranchCache.delete(dir);
+          if (prev) this._onDidChange.fire();
+          return;
+        }
+        _log.appendLine(`[git] status output for ${dir}:\n${stdout}`);
+        const lines = stdout.split('\n');
+        let branch = '';
+        let ahead = 0;
+        let behind = 0;
+        let dirty = false;
+        for (const line of lines) {
+          if (line.startsWith('# branch.head ')) {
+            branch = line.slice('# branch.head '.length).trim();
+          } else if (line.startsWith('# branch.ab ')) {
+            const m = line.match(/\+(\d+)\s+-(\d+)/);
+            if (m) { ahead = parseInt(m[1], 10); behind = parseInt(m[2], 10); }
+          } else if (line.length > 0 && !line.startsWith('#')) {
+            dirty = true;
+          }
+        }
+        if (!branch || branch === '(detached)') {
+          const prev = this._gitBranchCache.get(dir);
+          this._gitBranchCache.delete(dir);
+          if (prev) this._onDidChange.fire();
+          return;
+        }
+        const parts: string[] = [`⎇ ${branch}`];
+        if (ahead > 0) parts.push(`↑${ahead}`);
+        if (behind > 0) parts.push(`↓${behind}`);
+        if (dirty) parts.push('●');
+        const label = parts.join(' ');
+        const prev = this._gitBranchCache.get(dir);
+        this._gitBranchCache.set(dir, label);
+        if (label !== prev) this._onDidChange.fire();
+      });
+    });
+  }
+
+  /**
+   * Detect git branches for all currently loaded collections.
+   */
+  private _detectAllGitBranches(): void {
+    const seen = new Set<string>();
+    const allCollections = [...this._collections.values(), ...this._activePinnedCollections.values()];
+    for (const c of allCollections) {
+      if (!seen.has(c.rootDir)) {
+        seen.add(c.rootDir);
+        this._detectGitBranch(c.rootDir);
+      }
+    }
+  }
+
+  /**
+   * Run `git pull` in the given directory.
+   */
+  async gitPull(cwd: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      execFile('git', ['pull'], { cwd }, (err, stdout, stderr) => {
+        if (err) {
+          reject(new Error(stderr.trim() || err.message));
+        } else {
+          _log.appendLine(`[git pull] ${cwd}: ${stdout.trim()}`);
+          this._detectGitBranch(cwd);
+          resolve();
+        }
+      });
+    });
   }
 
   private _expandHome(p: string): string {

@@ -234,6 +234,24 @@ export function registerCollectionCommands(ctx: CommandContext): vscode.Disposab
       await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(filePath), true);
     }),
 
+    vscode.commands.registerCommand('missio.gitPullPinnedWorkspace', async (node?: any) => {
+      const collection = await resolveCollection(node, 'Select a collection to pull');
+      if (!collection) return;
+      const name = collection.data.info?.name ?? path.basename(collection.rootDir);
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Git pull: ${name}...` },
+        async () => {
+          try {
+            await collectionService.gitPull(collection.rootDir);
+            void collectionService.refreshPinned();
+            vscode.window.showInformationMessage(`Git pull complete: ${name}`);
+          } catch (err) {
+            vscode.window.showErrorMessage(`Git pull failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        },
+      );
+    }),
+
     vscode.commands.registerCommand('missio.validateCollection', async (nodeOrId?: any) => {
       const collection = await resolveCollection(nodeOrId, 'Select a collection to validate');
       if (!collection) return;

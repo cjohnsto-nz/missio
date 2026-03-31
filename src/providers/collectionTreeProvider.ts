@@ -8,7 +8,7 @@ type TreeNode = CollectionNode | FolderNode | RequestNode | ExampleNode;
 const DRAG_MIME = 'application/vnd.code.tree.missio.collections';
 
 class CollectionNode extends vscode.TreeItem {
-  constructor(public readonly collection: MissioCollection, expanded: boolean) {
+  constructor(public readonly collection: MissioCollection, expanded: boolean, gitBranch?: string) {
     super(
       collection.data.info?.name ?? path.basename(collection.rootDir),
       expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
@@ -17,7 +17,7 @@ class CollectionNode extends vscode.TreeItem {
     this.contextValue = 'collection';
     this.iconPath = new vscode.ThemeIcon('folder-library');
     this.tooltip = collection.data.info?.summary ?? collection.filePath;
-    this.description = collection.data.opencollection ? `v${collection.data.opencollection}` : '';
+    this.description = gitBranch ?? '';
   }
 }
 
@@ -176,7 +176,7 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
         const id = `collection:${c.id}`;
         // Default to expanded for collections (expanded unless explicitly collapsed)
         const expanded = this._expandedIds.has(id) || !this._collapsedIds.has(id);
-        return new CollectionNode(c, expanded);
+        return new CollectionNode(c, expanded, this._collectionService.getGitBranch(c.rootDir));
       });
     }
 

@@ -365,6 +365,12 @@
         "title": "Open in New Window",
         "category": "Missio",
         "icon": "$(empty-window)"
+      },
+      {
+        "command": "missio.gitPullPinnedWorkspace",
+        "title": "Git Pull",
+        "category": "Missio",
+        "icon": "$(cloud-download)"
       }
     ],
     "menus": {
@@ -470,6 +476,11 @@
           "command": "missio.validateCollection",
           "when": "view == missio.collections && viewItem == collection",
           "group": "1_open@4"
+        },
+        {
+          "command": "missio.gitPullPinnedWorkspace",
+          "when": "view == missio.collections && viewItem == collection",
+          "group": "1_open@5"
         },
         {
           "command": "missio.deleteCollection",
