@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.7.3",
+  "version": "0.7.6",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -44,6 +44,12 @@
     },
     "views": {
       "missio": [
+        {
+          "id": "missio.workspaceSelector",
+          "name": "Workspaces",
+          "icon": "$(layers)",
+          "initiallyCollapsed": true
+        },
         {
           "id": "missio.collections",
           "name": "Collections",
@@ -323,10 +329,50 @@
         "title": "Clear Approved CLI Auth Commands",
         "category": "Missio",
         "icon": "$(shield)"
+      },
+      {
+        "command": "missio.locatePinnedWorkspace",
+        "title": "Locate Workspace Folder",
+        "category": "Missio",
+        "icon": "$(search)"
+      },
+      {
+        "command": "missio.selectWorkspace",
+        "title": "Select Workspace",
+        "category": "Missio",
+        "icon": "$(check)"
+      },
+      {
+        "command": "missio.addPinnedWorkspace",
+        "title": "Add Pinned Workspace",
+        "category": "Missio",
+        "icon": "$(add)"
+      },
+      {
+        "command": "missio.removePinnedWorkspace",
+        "title": "Remove Pinned Workspace",
+        "category": "Missio",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "missio.refreshPinnedCollections",
+        "title": "Refresh Pinned Collections",
+        "category": "Missio",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "missio.refreshPinnedCollections",
+          "when": "view == missio.workspaceSelector",
+          "group": "navigation@1"
+        },
+        {
+          "command": "missio.addPinnedWorkspace",
+          "when": "view == missio.workspaceSelector",
+          "group": "navigation@2"
+        },
         {
           "command": "missio.refreshCollections",
           "when": "view == missio.collections",
@@ -374,6 +420,16 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "missio.removePinnedWorkspace",
+          "when": "view == missio.workspaceSelector && viewItem =~ /^workspaceEntryPinned/",
+          "group": "1_manage@1"
+        },
+        {
+          "command": "missio.locatePinnedWorkspace",
+          "when": "view == missio.workspaceSelector && viewItem == workspaceEntryPinnedError",
+          "group": "inline"
+        },
         {
           "command": "missio.openCollection",
           "when": "view == missio.collections && viewItem == collection",
@@ -573,6 +629,15 @@
     "configuration": {
       "title": "Missio",
       "properties": {
+        "missio.pinnedWorkspacePaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "description": "Folders that are always shown in the 'Pinned Workspace' panel in Missio, regardless of the current VS Code workspace. Supports ~ for the home directory."
+        },
         "missio.timeout": {
           "type": "number",
           "default": 30000,
