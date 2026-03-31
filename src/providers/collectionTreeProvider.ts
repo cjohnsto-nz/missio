@@ -3,7 +3,6 @@ import * as path from 'path';
 import type { CollectionService } from '../services/collectionService';
 import type { MissioCollection, Item, HttpRequest, HttpRequestExample, Folder } from '../models/types';
 
-
 type TreeNode = CollectionNode | FolderNode | RequestNode | ExampleNode;
 
 const DRAG_MIME = 'application/vnd.code.tree.missio.collections';
