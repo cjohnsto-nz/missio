@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
 import { type HttpClient, requestLog, type ResolvedRequest } from '../services/httpClient';
 import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
+import { resolveFileVariantToBuffer } from '../services/fileBodyHelper';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
 import type { OAuth2Service } from '../services/oauth2Service';
@@ -209,6 +211,44 @@ export class RequestEditorProvider extends BaseEditorProvider {
         await this._openInBrowser(msg.bodyBase64, msg.contentType);
         return true;
       }
+      case 'chooseFile': {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Select Binary File',
+        });
+        if (uris && uris[0]) {
+          const chosen = uris[0].fsPath;
+          const ext = path.extname(chosen).toLowerCase().replace(/^\./, '');
+          const extToMime: Record<string, string> = {
+            // Images
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+            webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon',
+            svg: 'image/svg+xml', tif: 'image/tiff', tiff: 'image/tiff',
+            // Text
+            txt: 'text/plain', html: 'text/html', htm: 'text/html',
+            css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
+            md: 'text/markdown', csv: 'text/csv',
+            // Data/structured
+            json: 'application/json', xml: 'application/xml',
+            yaml: 'application/yaml', yml: 'application/yaml',
+            // Documents
+            pdf: 'application/pdf',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            // Archives
+            zip: 'application/zip', gz: 'application/gzip',
+            tar: 'application/x-tar', '7z': 'application/x-7z-compressed',
+            // Media
+            mp4: 'video/mp4', webm: 'video/webm', avi: 'video/x-msvideo',
+            mov: 'video/quicktime', mp3: 'audio/mpeg',
+            wav: 'audio/wav', ogg: 'audio/ogg',
+          };
+          const contentType = extToMime[ext] ?? 'application/octet-stream';
+          webview.postMessage({ type: 'fileChosen', filePath: chosen, contentType });
+        }
+        return true;
+      }
       case 'refreshOAuthAndRetry': {
         const collection = this._findCollection(filePath);
         if (!collection) {
@@ -266,6 +306,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             format: msg.format ?? 'shell:curl',
             includeAuth: !!msg.includeAuth,
             includeHeaders: msg.includeHeaders !== false,
+            includeBody: msg.includeBody !== false,
             resolveVariables: msg.resolveVariables !== false,
             action: msg.action ?? 'preview',
             seq,
@@ -465,7 +506,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
     requestData: HttpRequest,
     collection: MissioCollection,
     folderDefaults: RequestDefaults | undefined,
-    opts: { format: string; includeAuth: boolean; includeHeaders: boolean; resolveVariables: boolean; action: string; seq?: number },
+    opts: { format: string; includeAuth: boolean; includeHeaders: boolean; includeBody: boolean; resolveVariables: boolean; action: string; seq?: number },
   ): Promise<void> {
     try {
       let resolved: ResolvedRequest;
@@ -483,7 +524,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         // For export, don't prompt for unresolved variables — just leave them as {{template}} syntax.
         resolved = await this._httpClient.buildResolvedRequest(
           requestData, collection, folderDefaults, new Map(),
-          undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth },
+          undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth, includeBody: opts.includeBody },
         );
 
         // If a newer export request arrived while we were resolving, bail out
@@ -506,11 +547,34 @@ export class RequestEditorProvider extends BaseEditorProvider {
             if (!h.disabled) headers[h.name] = h.value;
           }
         }
+        const bodyDef = Array.isArray(details?.body)
+          ? details.body.find(v => v.selected)?.body
+          : details?.body;
+        let rawBody: string | Buffer | undefined;
+        if (bodyDef?.type === 'json' || bodyDef?.type === 'text' || bodyDef?.type === 'xml' || bodyDef?.type === 'sparql') {
+          rawBody = bodyDef.data; // RawBody — data is already a string
+        } else if (bodyDef?.type === 'form-urlencoded') {
+          rawBody = bodyDef.data
+            .filter(e => !e.disabled)
+            .map(e => `${encodeURIComponent(e.name)}=${encodeURIComponent(e.value)}`)
+            .join('&');
+        } else if (bodyDef?.type === 'file') {
+          if (opts.includeBody) {
+            const variant = bodyDef.data.find(v => v.selected);
+            if (variant?.filePath && !variant.filePath.includes('{{')) {
+              rawBody = await resolveFileVariantToBuffer(collection.rootDir, variant.filePath);
+              const ct = variant.contentType || 'application/octet-stream';
+              const hasContentType = Object.keys(headers).some(h => h.toLowerCase() === 'content-type');
+              if (!hasContentType) { headers['Content-Type'] = ct; }
+            }
+          }
+        }
+        // multipart-form bodies cannot be serialized without resolving
         resolved = {
           method: (details?.method ?? 'GET').toUpperCase(),
           url: details?.url ?? '',
           headers,
-          body: details?.body && !Array.isArray(details.body) && typeof details.body.data === 'string' ? details.body.data : undefined,
+          body: rawBody,
         };
       }
 
@@ -524,6 +588,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
       if (!opts.includeHeaders) {
         resolved = { ...resolved, headers: {} };
+      }
+
+      if (!opts.includeBody) {
+        resolved = { ...resolved, body: undefined };
       }
 
       const output = exportRequest(resolved, opts.format);
@@ -682,6 +750,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <button class="pill" data-body-type="raw">Raw</button>
               <button class="pill" data-body-type="form-urlencoded">Form Encoded</button>
               <button class="pill" data-body-type="multipart-form">Multipart</button>
+              <button class="pill" data-body-type="file">Binary</button>
             </div>
             <select class="lang-select" id="bodyLangMode">
               <option value="json">JSON</option>
@@ -704,6 +773,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <tbody id="bodyFormBody"></tbody>
             </table>
             <button class="add-row-btn" id="addFormFieldBtn">+ Add Field</button>
+          </div>
+          <div id="bodyBinaryEditor" style="display:none;">
+            <div class="binary-row">
+              <input type="text" id="binaryFilePath" class="binary-path-input" placeholder="(no file selected)" />
+              <button class="btn btn-secondary" id="chooseBinaryFileBtn">Choose File…</button>
+            </div>
+            <div class="binary-row binary-type-row">
+              <label class="binary-label">Content-Type</label>
+              <input type="text" id="binaryContentType" class="binary-type-input" placeholder="application/octet-stream" />
+            </div>
           </div>
         </div>
         <!-- Auth -->
@@ -749,6 +828,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             </select>
             <label class="export-checkbox"><input type="checkbox" id="exportIncludeHeaders" checked /> Headers</label>
             <label class="export-checkbox"><input type="checkbox" id="exportIncludeAuth" /> Auth</label>
+            <label class="export-checkbox"><input type="checkbox" id="exportIncludeBody" checked /> Body</label>
             <label class="export-checkbox"><input type="checkbox" id="exportResolveVars" checked /> Resolve Variables</label>
             <div class="export-inline-spinner" id="exportSpinner" style="display:none;"><div class="spinner"></div></div>
             <div class="export-actions">

@@ -448,6 +448,7 @@ function _getBodySize(): number {
     return new TextEncoder().encode(params.toString()).length;
   }
   if (currentBodyType === 'multipart-form') return 0; // boundary is dynamic, can't predict
+  if (currentBodyType === 'file') return 0; // file size unknown in webview
   // Raw body types
   const data = ($('bodyData') as HTMLTextAreaElement).value;
   return new TextEncoder().encode(data).length;
@@ -461,19 +462,25 @@ function syncAutoHeaders(): void {
   if (currentBodyType === 'none') return;
 
   // Content-Type
-  let typeKey: string | null = null;
+  let ct: string | null = null;
   if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
-    typeKey = currentBodyType;
+    ct = _autoContentTypes[currentBodyType] ?? null;
+  } else if (currentBodyType === 'file') {
+    // Only advertise a Content-Type when a file has actually been selected;
+    // an empty path means no body will be sent, so no header is appropriate.
+    const filePath = ($('binaryFilePath') as HTMLInputElement).value.trim();
+    if (filePath) {
+      ct = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
+    }
   } else {
-    typeKey = currentLang;
+    ct = currentLang ? (_autoContentTypes[currentLang] ?? null) : null;
   }
-  const ct = typeKey ? _autoContentTypes[typeKey] : null;
   if (ct && !_hasUserHeader('content-type')) {
     tbody.insertBefore(_makeAutoRow('Content-Type', ct), tbody.firstChild);
   }
 
-  // Content-Length (not for multipart — boundary is dynamic)
-  if (currentBodyType !== 'multipart-form' && !_hasUserHeader('content-length')) {
+  // Content-Length (not for multipart or file — size unknown in webview)
+  if (currentBodyType !== 'multipart-form' && currentBodyType !== 'file' && !_hasUserHeader('content-length')) {
     const size = _getBodySize();
     tbody.insertBefore(_makeAutoRow('Content-Length', String(size)), tbody.firstChild);
   }
@@ -525,20 +532,29 @@ function setBodyType(type: string): void {
   });
   const raw = $('bodyRawEditor');
   const form = $('bodyFormEditor');
+  const binary = $('bodyBinaryEditor');
   const langSelect = $('bodyLangMode');
   if (type === 'none') {
     raw.style.display = 'none';
     form.style.display = 'none';
+    binary.style.display = 'none';
     langSelect.style.display = 'none';
   } else if (type === 'form-urlencoded' || type === 'multipart-form') {
     raw.style.display = 'none';
     form.style.display = 'block';
+    binary.style.display = 'none';
+    langSelect.style.display = 'none';
+  } else if (type === 'file') {
+    raw.style.display = 'none';
+    form.style.display = 'none';
+    binary.style.display = 'flex';
     langSelect.style.display = 'none';
   } else {
     raw.style.display = 'flex';
     raw.style.flexDirection = 'column';
     raw.style.flex = '1';
     form.style.display = 'none';
+    binary.style.display = 'none';
     langSelect.style.display = 'block';
     syncHighlight();
   }
@@ -550,6 +566,19 @@ document.querySelectorAll('#bodyTypePills .pill').forEach((pill) => {
     setBodyType((pill as HTMLElement).dataset.bodyType!);
     scheduleDocumentUpdate();
   });
+});
+
+// ── Binary file chooser ──────────────────
+$('chooseBinaryFileBtn').addEventListener('click', () => {
+  vscode.postMessage({ type: 'chooseFile' });
+});
+$('binaryContentType').addEventListener('input', () => {
+  syncAutoHeaders();
+  scheduleDocumentUpdate();
+});
+$('binaryFilePath').addEventListener('input', () => {
+  syncAutoHeaders();
+  scheduleDocumentUpdate();
 });
 
 // ── Syntax Highlighting (body editor) ────────────
@@ -882,6 +911,13 @@ function buildRequest(): any {
         });
       });
       req.http.body = { type: currentBodyType, data };
+    } else if (currentBodyType === 'file') {
+      const filePath = ($('binaryFilePath') as HTMLInputElement).value.trim();
+      const contentType = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
+      req.http.body = {
+        type: 'file',
+        data: filePath ? [{ filePath, contentType, selected: true }] : [],
+      };
     } else {
       req.http.body = { type: currentLang, data: ($('bodyData') as HTMLTextAreaElement).value };
     }
@@ -983,6 +1019,12 @@ function loadRequest(req: any): void {
         setBodyType(body.type);
         $('bodyFormBody').innerHTML = '';
         (body.data || []).forEach((f: any) => addFormField(f.name, f.value, f.disabled));
+      } else if (body.type === 'file') {
+        setBodyType('file');
+        const variant = (body.data || []).find((v: any) => v.selected) ?? body.data?.[0];
+        ($('binaryFilePath') as HTMLInputElement).value = variant?.filePath ?? '';
+        ($('binaryContentType') as HTMLInputElement).value = variant?.contentType ?? '';
+        syncAutoHeaders();
       } else {
         setBodyType('raw');
         setCurrentLang(body.type || 'json');
@@ -1287,6 +1329,22 @@ window.addEventListener('message', (event: MessageEvent) => {
       ($('bodyData') as HTMLTextAreaElement).value = msg.content;
       syncHighlight();
       break;
+    case 'fileChosen': {
+      ($('binaryFilePath') as HTMLInputElement).value = msg.filePath ?? '';
+      if (msg.contentType) {
+        const ctInput = $('binaryContentType') as HTMLInputElement;
+        const currentCt = ctInput.value.trim();
+        // Always apply a specific detected type; only apply the generic fallback
+        // if the field is currently empty or already holds the generic fallback.
+        if (msg.contentType !== 'application/octet-stream' ||
+            currentCt === '' || currentCt === 'application/octet-stream') {
+          ctInput.value = msg.contentType;
+        }
+      }
+      syncAutoHeaders();
+      scheduleDocumentUpdate();
+      break;
+    }
     case 'examplesUpdated':
       if (currentRequest) currentRequest.examples = msg.examples || [];
       break;
@@ -1476,6 +1534,7 @@ function getExportOptions() {
     format: ($('exportFormat') as HTMLSelectElement).value,
     includeHeaders: ($('exportIncludeHeaders') as HTMLInputElement).checked,
     includeAuth: ($('exportIncludeAuth') as HTMLInputElement).checked,
+    includeBody: ($('exportIncludeBody') as HTMLInputElement).checked,
     resolveVariables: ($('exportResolveVars') as HTMLInputElement).checked,
   };
 }
@@ -1514,6 +1573,7 @@ function requestExportPreviewDebounced(): void {
 $('exportFormat').addEventListener('change', requestExportPreviewDebounced);
 $('exportIncludeHeaders').addEventListener('change', requestExportPreviewDebounced);
 $('exportIncludeAuth').addEventListener('change', requestExportPreviewDebounced);
+$('exportIncludeBody').addEventListener('change', requestExportPreviewDebounced);
 $('exportResolveVars').addEventListener('change', requestExportPreviewDebounced);
 
 $('exportCopyBtn').addEventListener('click', () => {

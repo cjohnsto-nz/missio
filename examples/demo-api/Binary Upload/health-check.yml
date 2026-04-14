@@ -1,0 +1,23 @@
+info:
+  name: Health Check
+  type: http
+  seq: 1
+  description: Verify the local demo server is running.
+http:
+  method: GET
+  url: "{{baseUrl}}/health"
+  headers: []
+  params: []
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+runtime:
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.status
+      operator: equals
+      value: ok
