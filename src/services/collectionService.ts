@@ -382,7 +382,8 @@ export class CollectionService implements vscode.Disposable {
     }
   }
 
-  private async _walkDir(dir: vscode.Uri, fileNames: Set<string>, results: vscode.Uri[]): Promise<void> {
+  private async _walkDir(dir: vscode.Uri, fileNames: Set<string>, results: vscode.Uri[], depth = 0): Promise<void> {
+    if (depth > 20) return; // guard against symlink cycles
     let entries: [string, vscode.FileType][];
     try {
       entries = await vscode.workspace.fs.readDirectory(dir);
@@ -394,14 +395,15 @@ export class CollectionService implements vscode.Disposable {
       // so strict equality misses symlinked folders/files.
       if ((type & vscode.FileType.Directory) !== 0) {
         if (name === 'node_modules' || name === '.git') continue;
-        await this._walkDir(vscode.Uri.joinPath(dir, name), fileNames, results);
+        await this._walkDir(vscode.Uri.joinPath(dir, name), fileNames, results, depth + 1);
       } else if ((type & vscode.FileType.File) !== 0 && fileNames.has(name)) {
         results.push(vscode.Uri.joinPath(dir, name));
       }
     }
   }
 
-  private async _findCodeWorkspaces(dir: vscode.Uri, results: vscode.Uri[]): Promise<void> {
+  private async _findCodeWorkspaces(dir: vscode.Uri, results: vscode.Uri[], depth = 0): Promise<void> {
+    if (depth > 20) return; // guard against symlink cycles
     let entries: [string, vscode.FileType][];
     try {
       entries = await vscode.workspace.fs.readDirectory(dir);
@@ -411,7 +413,7 @@ export class CollectionService implements vscode.Disposable {
     for (const [name, type] of entries) {
       if ((type & vscode.FileType.Directory) !== 0) {
         if (name === 'node_modules' || name === '.git') continue;
-        await this._findCodeWorkspaces(vscode.Uri.joinPath(dir, name), results);
+        await this._findCodeWorkspaces(vscode.Uri.joinPath(dir, name), results, depth + 1);
       } else if ((type & vscode.FileType.File) !== 0 && name.endsWith('.code-workspace')) {
         results.push(vscode.Uri.joinPath(dir, name));
       }
@@ -456,8 +458,11 @@ export class CollectionService implements vscode.Disposable {
       () => { void this.refreshPinned().catch(err => _log.appendLine(`[pinned] Refresh failed: ${String(err)}`)); },
       500,
     );
+    // If the pinned path is itself a file, watch only that file; otherwise watch recursively.
+    const isFilePath = watchBase !== expanded;
+    const ymlPattern = isFilePath ? path.basename(expanded) : '**/*.{yml,yaml}';
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(watchBase, '**/*.{yml,yaml}'),
+      new vscode.RelativePattern(watchBase, ymlPattern),
     );
     watcher.onDidChange(debounceRefreshPinned);
     watcher.onDidCreate(debounceRefreshPinned);
@@ -465,8 +470,11 @@ export class CollectionService implements vscode.Disposable {
     this._pinnedWatchers.push(watcher);
 
     // Watch .code-workspace files so folder list changes trigger a re-scan
+    const codeWsPattern = isFilePath && path.extname(expanded).toLowerCase() === '.code-workspace'
+      ? path.basename(expanded)
+      : '**/*.code-workspace';
     const codeWsWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(watchBase, '**/*.code-workspace'),
+      new vscode.RelativePattern(watchBase, codeWsPattern),
     );
     codeWsWatcher.onDidChange(debounceRefreshPinned);
     codeWsWatcher.onDidCreate(debounceRefreshPinned);
