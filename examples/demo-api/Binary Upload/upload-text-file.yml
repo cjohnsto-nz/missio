@@ -1,0 +1,31 @@
+info:
+  name: Upload Text File
+  type: http
+  seq: 2
+  description: >
+    POST fixtures/sample.txt as a binary body. The server returns the byte count and first line of the file. Start the
+    demo server first: node examples/demo-api/server.js
+http:
+  method: POST
+  url: "{{baseUrl}}/upload/text"
+  headers: []
+  params: []
+  body:
+    type: file
+    data:
+      - filePath: fixtures/sample.txt
+        contentType: text/plain
+        selected: true
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+runtime:
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.received
+      operator: equals
+      value: "true"

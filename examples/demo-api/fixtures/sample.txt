@@ -1,0 +1,2 @@
+Hello from Missio!
+This file is used to test binary (file) request bodies.
