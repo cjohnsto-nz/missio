@@ -16,12 +16,17 @@ export class EnvironmentService implements vscode.Disposable {
     private readonly _context: vscode.ExtensionContext,
     private readonly _secretService: SecretService,
   ) {
-    // Restore persisted active environments
-    const saved = this._context.workspaceState.get<Record<string, string>>('missio.activeEnvironments', {});
+    // Restore persisted active environments from globalState (survives across windows/workspaces).
+    // Fall back to workspaceState for migration from older installs.
+    const saved =
+      this._context.globalState.get<Record<string, string>>('missio.activeEnvironments') ??
+      this._context.workspaceState.get<Record<string, string>>('missio.activeEnvironments', {});
     for (const [k, v] of Object.entries(saved)) {
       this._activeEnvironments.set(k, v);
     }
-    this._globalEnvironment = this._context.workspaceState.get<string>('missio.globalEnvironment');
+    this._globalEnvironment =
+      this._context.globalState.get<string>('missio.globalEnvironment') ??
+      this._context.workspaceState.get<string>('missio.globalEnvironment');
   }
 
   getActiveEnvironmentName(collectionId: string): string | undefined {
@@ -482,8 +487,8 @@ export class EnvironmentService implements vscode.Disposable {
     for (const [k, v] of this._activeEnvironments) {
       obj[k] = v;
     }
-    await this._context.workspaceState.update('missio.activeEnvironments', obj);
-    await this._context.workspaceState.update('missio.globalEnvironment', this._globalEnvironment);
+    await this._context.globalState.update('missio.activeEnvironments', obj);
+    await this._context.globalState.update('missio.globalEnvironment', this._globalEnvironment);
   }
 
   // ── Secret variable storage (identity-based, VS Code SecretStorage) ──
