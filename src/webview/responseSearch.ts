@@ -3,6 +3,8 @@
 import {
   clearVirtualizedResponseSearch,
   getLastResponseBody,
+  getLastResponseLines,
+  getLastResponseLowerLines,
   revealVirtualizedResponseSearchMatch,
   type ResponseSearchMatch,
   setVirtualizedResponseSearch,
@@ -33,7 +35,6 @@ function getElements() {
   };
 }
 
-/** Open the search bar and focus the input */
 export function openSearch(): void {
   if (!getLastResponseBody()) {
     return;
@@ -47,7 +48,6 @@ export function openSearch(): void {
   input.select();
 }
 
-/** Close the search bar and clear highlights */
 export function closeSearch(): void {
   const { bar, input, section } = getElements();
   bar.style.display = 'none';
@@ -66,14 +66,15 @@ export function isSearchOpen(): boolean {
 }
 
 function buildMatches(query: string): ResponseSearchMatch[] {
-  const lines = getLastResponseBody().split('\n');
+  const lines = getLastResponseLines();
+  const lowerLines = getLastResponseLowerLines();
   const lowerQuery = query.toLowerCase();
   const found: ResponseSearchMatch[] = [];
   let matchNumber = 0;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
-    const lowerLine = line.toLowerCase();
+    const lowerLine = lowerLines[lineIndex] ?? line.toLowerCase();
     let searchFrom = 0;
 
     while (searchFrom < lowerLine.length) {
@@ -93,7 +94,7 @@ function buildMatches(query: string): ResponseSearchMatch[] {
   return found;
 }
 
-function syncVirtualizedSearchResults(): void {
+function syncSearchResults(): void {
   if (matches.length === 0 || currentMatch < 0) {
     clearVirtualizedResponseSearch();
     return;
@@ -103,7 +104,6 @@ function syncVirtualizedSearchResults(): void {
   revealVirtualizedResponseSearchMatch(matches[currentMatch]);
 }
 
-/** Update the match count display */
 function updateCount(): void {
   const { count } = getElements();
   if (matches.length === 0 && lastQuery) {
@@ -116,8 +116,8 @@ function updateCount(): void {
 }
 
 /**
- * Perform the search across the text content of respBodyPre.
- * We use a TreeWalker to find text nodes, then wrap matches with <mark> elements.
+ * Build line-based matches for the current response body and sync them to the
+ * renderer, which applies <mark> highlights for the active search state.
  */
 function performSearch(query: string): void {
   clearVirtualizedResponseSearch();
@@ -134,31 +134,28 @@ function performSearch(query: string): void {
 
   if (matches.length > 0) {
     currentMatch = 0;
-    syncVirtualizedSearchResults();
+    syncSearchResults();
   }
 
   updateCount();
 }
 
-/** Navigate to the next match */
 function goToNext(): void {
   if (matches.length === 0) return;
 
   currentMatch = (currentMatch + 1) % matches.length;
-  syncVirtualizedSearchResults();
+  syncSearchResults();
   updateCount();
 }
 
-/** Navigate to the previous match */
 function goToPrev(): void {
   if (matches.length === 0) return;
 
   currentMatch = (currentMatch - 1 + matches.length) % matches.length;
-  syncVirtualizedSearchResults();
+  syncSearchResults();
   updateCount();
 }
 
-/** Initialize the search bar event listeners. Call once after DOM is ready. */
 export function initResponseSearch(): void {
   const { input, prev, next, close } = getElements();
 
@@ -182,7 +179,6 @@ export function initResponseSearch(): void {
     if (e.key === 'Escape') {
       e.preventDefault();
       closeSearch();
-      // Return focus to the response body
       const pre = document.getElementById('respBodyPre');
       if (pre) pre.focus();
     }

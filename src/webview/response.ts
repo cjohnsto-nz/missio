@@ -13,6 +13,8 @@ export type ResponseSearchMatch = {
 let lastResponse: any = null;
 let lastResponseBody = '';
 let lastContentType = '';
+let lastResponseLines: string[] = [];
+let lastResponseLowerLines: string[] = [];
 let lastBlobUrl: string | undefined;
 let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let loadingStartTime = 0;
@@ -45,9 +47,11 @@ const VIRT_MAX_HIGHLIGHT_CACHE = 5000;
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 export function getLastContentType(): string { return lastContentType; }
+export function getLastResponseLines(): readonly string[] { return lastResponseLines; }
+export function getLastResponseLowerLines(): readonly string[] { return lastResponseLowerLines; }
 export function isResponseVirtualized(): boolean { return virtLines !== null; }
 
-function renderFullResponseLines(lines: string[], lang: string): void {
+function renderFullResponseLines(lines: string[]): void {
   $('respBodyPre').innerHTML = lines.map((line: string, idx: number) =>
     `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>'
   ).join('');
@@ -180,6 +184,8 @@ export function clearResponse(): void {
   $('respEmpty').style.display = 'block';
   lastResponse = null;
   lastResponseBody = '';
+  lastResponseLines = [];
+  lastResponseLowerLines = [];
   lastResponseLang = 'text';
 
   // Clear virtualization state
@@ -253,6 +259,62 @@ function getRenderedLineHtml(idx: number, line: string): string {
   return applySearchHighlights(base, lineMatches, virtCurrentSearchIndex);
 }
 
+function getLineForMatchIndex(
+  matchesByLine: Map<number, ResponseSearchMatch[]> | null,
+  currentIndex: number,
+): number | null {
+  if (!matchesByLine || currentIndex < 0) return null;
+
+  for (const [lineIndex, matches] of matchesByLine) {
+    if (matches.some((match) => match.index === currentIndex)) {
+      return lineIndex;
+    }
+  }
+
+  return null;
+}
+
+function haveSameMatchLayout(
+  prevMatchesByLine: Map<number, ResponseSearchMatch[]> | null,
+  nextMatchesByLine: Map<number, ResponseSearchMatch[]>,
+): boolean {
+  if (!prevMatchesByLine || prevMatchesByLine.size !== nextMatchesByLine.size) {
+    return false;
+  }
+
+  for (const [lineIndex, nextMatches] of nextMatchesByLine) {
+    const prevMatches = prevMatchesByLine.get(lineIndex);
+    if (!prevMatches || prevMatches.length !== nextMatches.length) {
+      return false;
+    }
+
+    for (let idx = 0; idx < nextMatches.length; idx++) {
+      const prevMatch = prevMatches[idx];
+      const nextMatch = nextMatches[idx];
+      if (
+        prevMatch.index !== nextMatch.index
+        || prevMatch.start !== nextMatch.start
+        || prevMatch.end !== nextMatch.end
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function rerenderNonVirtualizedLines(lineIndices: Iterable<number>): void {
+  for (const lineIndex of lineIndices) {
+    const lineEl = document.querySelector(`.code-line[data-line="${lineIndex + 1}"]`);
+    if (!(lineEl instanceof HTMLElement)) {
+      continue;
+    }
+
+    lineEl.innerHTML = getRenderedLineHtml(lineIndex, lastResponseLines[lineIndex] ?? '');
+  }
+}
+
 function renderVirtualized(scrollTop: number): void {
   if (!virtLines) return;
 
@@ -319,7 +381,7 @@ function setupVirtualization(lines: string[], lang: string): void {
   // Initial render
   renderVirtualized(0);
 
-  // Scroll event → schedule one rAF → render. Only reads scrollTop (no reflow).
+  // Scroll event ��� schedule one rAF ��� render. Only reads scrollTop (no reflow).
   virtScrollHandler = () => {
     if (virtRafPending) return;
     virtRafPending = true;
@@ -334,6 +396,8 @@ function setupVirtualization(lines: string[], lang: string): void {
 }
 
 export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], currentIndex: number): void {
+  const prevMatchesByLine = virtSearchMatchesByLine;
+  const prevCurrentIndex = virtCurrentSearchIndex;
   const byLine = new Map<number, ResponseSearchMatch[]>();
   for (const match of matches) {
     const existing = byLine.get(match.line);
@@ -349,11 +413,23 @@ export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], cur
     return;
   }
 
-  renderFullResponseLines(lastResponseBody.split('\n'), lastResponseLang);
+  const linesToUpdate = new Set<number>();
+  if (!haveSameMatchLayout(prevMatchesByLine, byLine)) {
+    prevMatchesByLine?.forEach((_, lineIndex) => linesToUpdate.add(lineIndex));
+    byLine.forEach((_, lineIndex) => linesToUpdate.add(lineIndex));
+  }
+
+  const prevCurrentLine = getLineForMatchIndex(prevMatchesByLine, prevCurrentIndex);
+  const currentLine = getLineForMatchIndex(byLine, currentIndex);
+  if (prevCurrentLine !== null) linesToUpdate.add(prevCurrentLine);
+  if (currentLine !== null) linesToUpdate.add(currentLine);
+
+  rerenderNonVirtualizedLines(linesToUpdate);
 }
 
 export function clearVirtualizedResponseSearch(): void {
   if (!virtLines && !virtSearchMatchesByLine) return;
+  const prevMatchesByLine = virtSearchMatchesByLine;
   virtSearchMatchesByLine = null;
   virtCurrentSearchIndex = -1;
   virtSearchRevision++;
@@ -362,8 +438,8 @@ export function clearVirtualizedResponseSearch(): void {
     return;
   }
 
-  if (lastResponseBody) {
-    renderFullResponseLines(lastResponseBody.split('\n'), lastResponseLang);
+  if (lastResponseLines.length > 0) {
+    rerenderNonVirtualizedLines(prevMatchesByLine?.keys() ?? []);
   }
 }
 
@@ -395,7 +471,7 @@ export function revealVirtualizedResponseSearchMatch(match: ResponseSearchMatch)
 
 function updateRespLineNumbers(): void {
   // Line numbers are now rendered via CSS counter on .code-line::before
-  // No JS measurement needed — gutter is part of each line element
+  // No JS measurement needed ��� gutter is part of each line element
   $('respLineNumbers').style.display = 'none';
 }
 
@@ -441,7 +517,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     oauthRetryBtn.style.display = (cat === 4 && usedOAuth2) ? '' : 'none';
   }
 
-  // Body — detect language from content-type and apply highlighting
+  // Body ��� detect language from content-type and apply highlighting
   let bodyText = resp.body || '';
   let ct = '';
   if (resp.headers) {
@@ -459,8 +535,11 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     lang = 'html';
   }
 
+  const isBinary = !!resp.bodyBase64;
   lastResponseBody = bodyText;
   lastContentType = ct;
+  lastResponseLines = isBinary ? [] : bodyText.split('\n');
+  lastResponseLowerLines = lastResponseLines.map((line: string) => line.toLowerCase());
   lastResponseLang = lang;
 
   // Show/hide Preview tab for previewable content types
@@ -480,7 +559,6 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   }
 
   // Binary content: show overlay instead of raw body
-  const isBinary = !!resp.bodyBase64;
   const binaryOverlay = document.getElementById('respBinaryOverlay');
   const bodyWrap = document.getElementById('respBodyWrap');
   if (binaryOverlay && bodyWrap) {
@@ -501,7 +579,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   const lastRenderEnd = (): number => (renderTiming.length > 0 ? renderTiming[renderTiming.length - 1].end : rBase);
 
   let rPhase = Date.now();
-  const lines = isBinary ? [] : bodyText.split('\n');
+  const lines = lastResponseLines;
   const splitEnd = Date.now();
   if (!isBinary) {
     renderTiming.push({ label: 'Split Lines', start: rBase, end: rBase + (splitEnd - rPhase) });
@@ -523,7 +601,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     }
 
     rPhase = Date.now();
-    renderFullResponseLines(lines, lang);
+    renderFullResponseLines(lines);
     {
       const lastEnd = lastRenderEnd();
       renderTiming.push({ label: 'DOM Update', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });
