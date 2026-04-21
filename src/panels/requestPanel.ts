@@ -866,6 +866,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="resp-headers">Headers</div>
         <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
+      <div class="resp-search-bar" id="respSearchBar" style="display:none;">
+        <input type="text" id="respSearchInput" class="resp-search-input" placeholder="Find in response…" />
+        <span class="resp-search-count" id="respSearchCount"></span>
+        <button class="resp-search-nav" id="respSearchPrev" title="Previous match (Shift+Enter)">&#x2191;</button>
+        <button class="resp-search-nav" id="respSearchNext" title="Next match (Enter)">&#x2193;</button>
+        <button class="resp-search-close" id="respSearchClose" title="Close (Escape)">&times;</button>
+      </div>
       <div class="response-body">
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
@@ -878,7 +885,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             <button class="copy-btn" id="copyRespBtn" title="Copy to clipboard">Copy</button>
             <div class="code-wrap resp-code-wrap">
               <div class="line-numbers" id="respLineNumbers"></div>
-              <pre class="code-highlight" id="respBodyPre"></pre>
+              <pre class="code-highlight" id="respBodyPre" contenteditable="plaintext-only" spellcheck="false"></pre>
             </div>
           </div>
         </div>

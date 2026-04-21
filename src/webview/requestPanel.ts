@@ -73,6 +73,7 @@ import {
   getLastResponse, getLastResponseBody, setLoadingText,
   renderPreview,
 } from './response';
+import { initResponseSearch, openSearch, closeSearch, isSearchOpen } from './responseSearch';
 
 // ── Document update scheduling ───────────────────
 function scheduleDocumentUpdate(): void {
@@ -1262,6 +1263,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
+      if (isSearchOpen()) closeSearch();
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
       setSendingState(false);
       tokenStatusCtrl.requestStatus();
@@ -1357,6 +1359,7 @@ window.addEventListener('message', (event: MessageEvent) => {
             headers[h.name] = h.value;
           }
         }
+        if (isSearchOpen()) closeSearch();
         showResponse({
           status: ex.response.status,
           statusText: ex.response.statusText,
@@ -1373,6 +1376,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     }
     case 'clearExample':
+      if (isSearchOpen()) closeSearch();
       clearResponse();
       $('exampleIndicator').style.display = 'none';
       break;
@@ -1459,7 +1463,7 @@ document.getElementById('panel-resp-preview')!.addEventListener('contextmenu', (
 
   const menu = document.createElement('div');
   menu.id = 'previewContextMenu';
-  menu.style.cssText = 'position:fixed;z-index:9999;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
+  menu.style.cssText = 'position:absolute;z-index:1002;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
 
   const addItem = (label: string, onClick: () => void) => {
     const item = document.createElement('div');
@@ -1609,6 +1613,83 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     saveRequest();
+  }
+});
+
+// ── Response body keyboard shortcuts ─────────────
+// Ctrl+A inside the response body selects only the response text
+// Ctrl+F inside the response body opens the search bar
+initResponseSearch();
+
+// Make contenteditable pre read-only: block all input and prevent paste/drop
+const respPre = document.getElementById('respBodyPre');
+if (respPre) {
+  respPre.addEventListener('beforeinput', (e) => e.preventDefault());
+  respPre.addEventListener('paste', (e) => e.preventDefault());
+  respPre.addEventListener('drop', (e) => e.preventDefault());
+  // Block typing but allow Ctrl+A, Ctrl+C, Ctrl+F, arrows, etc.
+  respPre.addEventListener('keydown', (e: KeyboardEvent) => {
+    const allow = e.ctrlKey || e.metaKey || e.altKey
+      || e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End'
+      || e.key === 'PageUp' || e.key === 'PageDown'
+      || e.key === 'Escape' || e.key === 'Tab'
+      || e.key === 'F5' || e.key === 'F12';
+    if (!allow) {
+      e.preventDefault();
+    }
+  });
+}
+
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+
+  const pre = document.getElementById('respBodyPre');
+  const respBodyWrap = document.getElementById('respBodyWrap');
+  const respBodyTab = document.getElementById('panel-resp-body');
+
+  // Check if the response body panel is visible
+  const isRespBodyVisible = respBodyWrap && respBodyWrap.style.display !== 'none'
+    && respBodyTab && respBodyTab.classList.contains('active');
+
+  // Check if focus is within the response section (not in request-side inputs/textareas)
+  const respSection = document.getElementById('responseSection');
+  const activeEl = document.activeElement;
+  const isInRequestInput = activeEl instanceof HTMLInputElement && !activeEl.classList.contains('resp-search-input');
+  const isInTextArea = activeEl instanceof HTMLTextAreaElement;
+  const isFocusInResponse = pre && respSection && (
+    activeEl === pre
+    || pre.contains(activeEl)
+    || (respSection.contains(activeEl) && !isInRequestInput && !isInTextArea)
+  );
+
+  if (e.key === 'a' && isFocusInResponse && isRespBodyVisible) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Select only the response body text
+    const selection = window.getSelection();
+    if (selection && pre) {
+      selection.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      selection.addRange(range);
+    }
+    return;
+  }
+
+  if (e.key === 'f' && isFocusInResponse && isRespBodyVisible) {
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+}, true);
+
+// Also close search when Escape is pressed anywhere (not just in the input)
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isSearchOpen()) {
+    e.preventDefault();
+    closeSearch();
+    const pre = document.getElementById('respBodyPre');
+    if (pre) pre.focus();
   }
 });
 
