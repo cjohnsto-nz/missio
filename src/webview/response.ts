@@ -62,7 +62,7 @@ export function isResponseVirtualized(): boolean { return virtLines !== null; }
 
 function renderFullResponseLines(lines: string[]): void {
   $('respBodyPre').innerHTML = lines.map((line: string, idx: number) =>
-    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>\n'
+    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>'
   ).join('');
 }
 
@@ -352,7 +352,7 @@ function renderVirtualized(scrollTop: number): void {
 
   const linesHtml = slice.map((line: string, idx: number) => {
     const absIdx = start + idx;
-    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>\n`;
+    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>`;
   }).join('');
 
   // Use a fixed-height canvas to ensure correct scroll range, and position

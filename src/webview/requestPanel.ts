@@ -1624,6 +1624,25 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
 // Ctrl+F inside the response body opens the search bar
 initResponseSearch();
 
+function getSelectedResponseText(selection: Selection): string {
+  if (selection.rangeCount === 0) {
+    return '';
+  }
+
+  const fragment = selection.getRangeAt(0).cloneContents();
+  const container = document.createElement('div');
+  container.appendChild(fragment);
+  const selectedLines = Array.from(container.querySelectorAll('.code-line'));
+
+  if (selectedLines.length === 0) {
+    return selection.toString();
+  }
+
+  return selectedLines
+    .map((line) => line.textContent ?? '')
+    .join('\n');
+}
+
 // Make contenteditable pre read-only: block all input and prevent paste/drop
 const respPre = document.getElementById('respBodyPre');
 if (respPre) {
@@ -1640,6 +1659,25 @@ if (respPre) {
     if (!allow) {
       e.preventDefault();
     }
+  });
+  respPre.addEventListener('copy', (e: ClipboardEvent) => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!respPre.contains(range.commonAncestorContainer)) {
+      return;
+    }
+
+    const selectedText = getSelectedResponseText(selection);
+    if (!selectedText) {
+      return;
+    }
+
+    e.preventDefault();
+    e.clipboardData?.setData('text/plain', selectedText);
   });
 }
 
