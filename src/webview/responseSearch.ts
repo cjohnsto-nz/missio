@@ -1,9 +1,16 @@
 // Response body search — Ctrl+F find-in-response for the webview.
 
-import { getLastResponseBody } from './response';
+import {
+  clearVirtualizedResponseSearch,
+  getLastResponseBody,
+  isResponseVirtualized,
+  revealVirtualizedResponseSearchMatch,
+  type ResponseSearchMatch,
+  setVirtualizedResponseSearch,
+} from './response';
 
 let isOpen = false;
-let matches: { start: number; end: number }[] = [];
+let matches: ResponseSearchMatch[] = [];
 let currentMatch = -1;
 let lastQuery = '';
 let highlightedElements: HTMLElement[] = [];
@@ -23,6 +30,10 @@ function getElements() {
 
 /** Open the search bar and focus the input */
 export function openSearch(): void {
+  if (!getLastResponseBody()) {
+    return;
+  }
+
   const { bar, input, section } = getElements();
   bar.style.display = 'flex';
   section?.classList.add('resp-search-open');
@@ -40,6 +51,7 @@ export function closeSearch(): void {
   input.value = '';
   lastQuery = '';
   clearHighlights();
+  clearVirtualizedResponseSearch();
   matches = [];
   currentMatch = -1;
   updateCount();
@@ -51,16 +63,64 @@ export function isSearchOpen(): boolean {
 
 /** Clear all search highlight marks from the response body */
 function clearHighlights(): void {
+  const parentsToNormalize = new Set<Node>();
+
   for (const el of highlightedElements) {
-    // Replace mark with its text content
     const parent = el.parentNode;
     if (parent) {
       const text = document.createTextNode(el.textContent || '');
       parent.replaceChild(text, el);
-      parent.normalize();
+      parentsToNormalize.add(parent);
     }
   }
+
+  for (const parent of parentsToNormalize) {
+    parent.normalize();
+  }
+
   highlightedElements = [];
+}
+
+function buildMatches(query: string): ResponseSearchMatch[] {
+  const lines = getLastResponseBody().split('\n');
+  const lowerQuery = query.toLowerCase();
+  const found: ResponseSearchMatch[] = [];
+  let matchNumber = 0;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const lowerLine = line.toLowerCase();
+    let searchFrom = 0;
+
+    while (searchFrom < lowerLine.length) {
+      const idx = lowerLine.indexOf(lowerQuery, searchFrom);
+      if (idx === -1) break;
+
+      found.push({
+        line: lineIndex,
+        start: idx,
+        end: idx + query.length,
+        index: matchNumber++,
+      });
+      searchFrom = idx + Math.max(query.length, 1);
+    }
+  }
+
+  return found;
+}
+
+function syncVirtualizedSearchResults(): void {
+  if (!isResponseVirtualized()) {
+    return;
+  }
+
+  if (matches.length === 0 || currentMatch < 0) {
+    clearVirtualizedResponseSearch();
+    return;
+  }
+
+  setVirtualizedResponseSearch(matches, currentMatch);
+  revealVirtualizedResponseSearchMatch(matches[currentMatch]);
 }
 
 /** Update the match count display */
@@ -81,11 +141,24 @@ function updateCount(): void {
  */
 function performSearch(query: string): void {
   clearHighlights();
+  clearVirtualizedResponseSearch();
   matches = [];
   currentMatch = -1;
   lastQuery = query;
 
   if (!query) {
+    updateCount();
+    return;
+  }
+
+  if (isResponseVirtualized()) {
+    matches = buildMatches(query);
+
+    if (matches.length > 0) {
+      currentMatch = 0;
+      syncVirtualizedSearchResults();
+    }
+
     updateCount();
     return;
   }
@@ -115,7 +188,7 @@ function performSearch(query: string): void {
       const idx = lowerText.indexOf(lowerQuery, searchFrom);
       if (idx === -1) break;
       nodeMatches.push({ start: idx, end: idx + query.length });
-      searchFrom = idx + 1;
+      searchFrom = idx + Math.max(query.length, 1);
     }
 
     if (nodeMatches.length === 0) continue;
@@ -150,7 +223,7 @@ function performSearch(query: string): void {
   }
 
   highlightedElements = marks;
-  matches = marks.map(() => ({ start: 0, end: 0 })); // We just need the count; navigation uses the marks array
+  matches = marks.map((_, index) => ({ line: -1, start: 0, end: 0, index }));
 
   if (marks.length > 0) {
     currentMatch = 0;
@@ -168,6 +241,15 @@ function scrollToMatch(mark: HTMLElement): void {
 
 /** Navigate to the next match */
 function goToNext(): void {
+  if (matches.length === 0) return;
+
+  if (isResponseVirtualized()) {
+    currentMatch = (currentMatch + 1) % matches.length;
+    syncVirtualizedSearchResults();
+    updateCount();
+    return;
+  }
+
   if (highlightedElements.length === 0) return;
   highlightedElements[currentMatch]?.classList.remove('resp-search-current');
   currentMatch = (currentMatch + 1) % highlightedElements.length;
@@ -178,6 +260,15 @@ function goToNext(): void {
 
 /** Navigate to the previous match */
 function goToPrev(): void {
+  if (matches.length === 0) return;
+
+  if (isResponseVirtualized()) {
+    currentMatch = (currentMatch - 1 + matches.length) % matches.length;
+    syncVirtualizedSearchResults();
+    updateCount();
+    return;
+  }
+
   if (highlightedElements.length === 0) return;
   highlightedElements[currentMatch]?.classList.remove('resp-search-current');
   currentMatch = (currentMatch - 1 + highlightedElements.length) % highlightedElements.length;

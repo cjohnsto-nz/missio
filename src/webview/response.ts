@@ -3,6 +3,13 @@
 import { $ } from './state';
 import { highlightResponse } from './highlight';
 
+export type ResponseSearchMatch = {
+  line: number;
+  start: number;
+  end: number;
+  index: number;
+};
+
 let lastResponse: any = null;
 let lastResponseBody = '';
 let lastContentType = '';
@@ -22,6 +29,11 @@ let virtRafPending = false;
 let virtViewportHeight = 0;
 let virtHighlightCache: Map<number, string> | null = null;
 let virtHighlightCacheOrder: number[] | null = null;
+let lastResponseLang = 'text';
+let virtSearchMatchesByLine: Map<number, ResponseSearchMatch[]> | null = null;
+let virtCurrentSearchIndex = -1;
+let virtSearchRevision = 0;
+let virtLastSearchRevision = -1;
 
 const VIRT_MIN_CHARS = 1_000_000;
 const VIRT_MIN_LINES = 20_000;
@@ -33,6 +45,96 @@ const VIRT_MAX_HIGHLIGHT_CACHE = 5000;
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 export function getLastContentType(): string { return lastContentType; }
+export function isResponseVirtualized(): boolean { return virtLines !== null; }
+
+function renderFullResponseLines(lines: string[], lang: string): void {
+  $('respBodyPre').innerHTML = lines.map((line: string) =>
+    '<div class="code-line">' + highlightResponse(line, lang) + '</div>'
+  ).join('');
+}
+
+function revealMatchHorizontally(): void {
+  const current = document.querySelector('.resp-search-current');
+  const codeWrap = document.querySelector('.resp-code-wrap') as HTMLElement | null;
+  if (!(current instanceof HTMLElement) || !codeWrap) {
+    return;
+  }
+
+  const markRect = current.getBoundingClientRect();
+  const wrapRect = codeWrap.getBoundingClientRect();
+  const horizontalPadding = 24;
+
+  if (markRect.right > wrapRect.right - horizontalPadding) {
+    codeWrap.scrollLeft += (markRect.right - wrapRect.right) + horizontalPadding;
+  } else if (markRect.left < wrapRect.left + horizontalPadding) {
+    codeWrap.scrollLeft -= (wrapRect.left - markRect.left) + horizontalPadding;
+  }
+}
+
+function applySearchHighlights(html: string, lineMatches: ResponseSearchMatch[], currentIndex: number): string {
+  if (lineMatches.length === 0) return html;
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let globalOffset = 0;
+  let matchIndex = 0;
+  let textNode: Text | null;
+
+  while ((textNode = walker.nextNode() as Text | null)) {
+    const text = textNode.textContent || '';
+    const nodeStart = globalOffset;
+    const nodeEnd = nodeStart + text.length;
+    globalOffset = nodeEnd;
+
+    while (matchIndex < lineMatches.length && lineMatches[matchIndex].end <= nodeStart) {
+      matchIndex++;
+    }
+    if (matchIndex >= lineMatches.length || lineMatches[matchIndex].start >= nodeEnd) {
+      continue;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let localMatchIndex = matchIndex;
+
+    while (localMatchIndex < lineMatches.length && lineMatches[localMatchIndex].start < nodeEnd) {
+      const match = lineMatches[localMatchIndex];
+      const segmentStart = Math.max(cursor, match.start - nodeStart);
+      const segmentEnd = Math.min(text.length, match.end - nodeStart);
+
+      if (segmentStart > cursor) {
+        fragment.appendChild(document.createTextNode(text.substring(cursor, segmentStart)));
+      }
+
+      if (segmentEnd > segmentStart) {
+        const mark = document.createElement('mark');
+        mark.className = 'resp-search-match';
+        if (match.index === currentIndex) {
+          mark.classList.add('resp-search-current');
+        }
+        mark.textContent = text.substring(segmentStart, segmentEnd);
+        fragment.appendChild(mark);
+        cursor = segmentEnd;
+      }
+
+      if (match.end <= nodeEnd) {
+        localMatchIndex++;
+      } else {
+        break;
+      }
+    }
+
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.substring(cursor)));
+    }
+
+    textNode.parentNode?.replaceChild(fragment, textNode);
+  }
+
+  return container.innerHTML;
+}
 
 /** Content types that support rich preview in a separate tab */
 function isPreviewable(ct: string): boolean {
@@ -84,6 +186,7 @@ export function clearResponse(): void {
   $('respEmpty').style.display = 'block';
   lastResponse = null;
   lastResponseBody = '';
+  lastResponseLang = 'text';
 
   // Clear virtualization state
   teardownVirtualization();
@@ -97,6 +200,10 @@ function teardownVirtualization(): void {
   virtRafPending = false;
   virtHighlightCache = null;
   virtHighlightCacheOrder = null;
+  virtSearchMatchesByLine = null;
+  virtCurrentSearchIndex = -1;
+  virtSearchRevision = 0;
+  virtLastSearchRevision = -1;
   if (virtScrollerEl && virtScrollHandler) {
     virtScrollerEl.removeEventListener('scroll', virtScrollHandler);
   }
@@ -141,6 +248,15 @@ function getVirtHighlightedLine(idx: number, line: string): string {
   return v;
 }
 
+function getRenderedLineHtml(idx: number, line: string): string {
+  const base = getVirtHighlightedLine(idx, line);
+  const lineMatches = virtSearchMatchesByLine?.get(idx);
+  if (!lineMatches || lineMatches.length === 0) {
+    return base;
+  }
+  return applySearchHighlights(base, lineMatches, virtCurrentSearchIndex);
+}
+
 function renderVirtualized(scrollTop: number): void {
   if (!virtLines) return;
 
@@ -148,7 +264,6 @@ function renderVirtualized(scrollTop: number): void {
   if (!pre) return;
 
   const total = virtLines.length;
-  // Use cached viewport height — never read clientHeight in the hot path
   const viewportLines = Math.max(1, Math.floor(virtViewportHeight / virtLineHeight));
   const firstVisible = Math.floor(scrollTop / virtLineHeight);
 
@@ -159,9 +274,10 @@ function renderVirtualized(scrollTop: number): void {
   const start = Math.max(0, firstVisibleCheckpoint - VIRT_OVERSCAN_LINES);
   const end = Math.min(total, start + Math.max(VIRT_WINDOW_LINES, viewportLines + (VIRT_OVERSCAN_LINES * 2)));
 
-  if (start === virtLastStart && end === virtLastEnd) return;
+  if (start === virtLastStart && end === virtLastEnd && virtSearchRevision === virtLastSearchRevision) return;
   virtLastStart = start;
   virtLastEnd = end;
+  virtLastSearchRevision = virtSearchRevision;
 
   const slice = virtLines.slice(start, end);
   const topOffsetPx = start * virtLineHeight;
@@ -169,7 +285,7 @@ function renderVirtualized(scrollTop: number): void {
 
   const linesHtml = slice.map((line: string, idx: number) => {
     const absIdx = start + idx;
-    return `<span class="code-line" data-line="${absIdx + 1}">` + getVirtHighlightedLine(absIdx, line) + `\n</span>`;
+    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>`;
   }).join('');
 
   // Use a fixed-height canvas to ensure correct scroll range, and position
@@ -219,6 +335,44 @@ function setupVirtualization(lines: string[], lang: string): void {
     });
   };
   scroller.addEventListener('scroll', virtScrollHandler, { passive: true });
+}
+
+export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], currentIndex: number): void {
+  if (!virtLines) return;
+
+  const byLine = new Map<number, ResponseSearchMatch[]>();
+  for (const match of matches) {
+    const existing = byLine.get(match.line);
+    if (existing) existing.push(match);
+    else byLine.set(match.line, [match]);
+  }
+
+  virtSearchMatchesByLine = byLine;
+  virtCurrentSearchIndex = currentIndex;
+  virtSearchRevision++;
+  renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+}
+
+export function clearVirtualizedResponseSearch(): void {
+  if (!virtLines && !virtSearchMatchesByLine) return;
+  virtSearchMatchesByLine = null;
+  virtCurrentSearchIndex = -1;
+  virtSearchRevision++;
+  if (virtLines) {
+    renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+  }
+}
+
+export function revealVirtualizedResponseSearchMatch(match: ResponseSearchMatch): void {
+  if (!virtLines || !virtScrollerEl) return;
+
+  const centeredTop = Math.max(0, (match.line * virtLineHeight) - Math.max(0, (virtViewportHeight - virtLineHeight) / 2));
+  virtScrollerEl.scrollTop = centeredTop;
+  renderVirtualized(centeredTop);
+
+  requestAnimationFrame(() => {
+    revealMatchHorizontally();
+  });
 }
 
 function updateRespLineNumbers(): void {
@@ -289,6 +443,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
 
   lastResponseBody = bodyText;
   lastContentType = ct;
+  lastResponseLang = lang;
 
   // Show/hide Preview tab for previewable content types
   const previewTab = document.getElementById('respPreviewTab');
@@ -344,16 +499,13 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     const lastEnd = lastRenderEnd();
     renderTiming.push({ label: 'Virtualize', start: lastEnd, end: lastEnd + (vEnd - vStart) });
   } else {
-    const html = lines.map((line: string) =>
-      '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
-    ).join('');
     {
       const lastEnd = lastRenderEnd();
       renderTiming.push({ label: 'Highlight', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });
     }
 
     rPhase = Date.now();
-    $('respBodyPre').innerHTML = html;
+    renderFullResponseLines(lines, lang);
     {
       const lastEnd = lastRenderEnd();
       renderTiming.push({ label: 'DOM Update', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });

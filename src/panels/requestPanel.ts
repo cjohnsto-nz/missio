@@ -867,11 +867,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
       <div class="resp-search-bar" id="respSearchBar" style="display:none;">
-        <input type="text" id="respSearchInput" class="resp-search-input" placeholder="Find in response…" />
+        <input type="text" id="respSearchInput" class="resp-search-input" placeholder="Find in response…" aria-label="Find in response" />
         <span class="resp-search-count" id="respSearchCount"></span>
-        <button class="resp-search-nav" id="respSearchPrev" title="Previous match (Shift+Enter)">&#x2191;</button>
-        <button class="resp-search-nav" id="respSearchNext" title="Next match (Enter)">&#x2193;</button>
-        <button class="resp-search-close" id="respSearchClose" title="Close (Escape)">&times;</button>
+        <button class="resp-search-nav" id="respSearchPrev" title="Previous match (Shift+Enter)" aria-label="Previous match">&#x2191;</button>
+        <button class="resp-search-nav" id="respSearchNext" title="Next match (Enter)" aria-label="Next match">&#x2193;</button>
+        <button class="resp-search-close" id="respSearchClose" title="Close (Escape)" aria-label="Close search">&times;</button>
       </div>
       <div class="response-body">
         <div class="tab-panel active" id="panel-resp-body">
