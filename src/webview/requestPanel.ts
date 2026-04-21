@@ -110,6 +110,9 @@ $('respTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     const tabId = (tab as HTMLElement).dataset.tab!;
     switchTab($('respTabs'), tabId, respPanelIds);
+    if (tabId !== 'resp-body' && isSearchOpen()) {
+      closeSearch();
+    }
     if (tabId === 'resp-preview') renderPreview();
   });
 });
@@ -1654,15 +1657,17 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   // Check if focus is within the response section (not in request-side inputs/textareas)
   const respSection = document.getElementById('responseSection');
   const activeEl = document.activeElement;
-  const isInRequestInput = activeEl instanceof HTMLInputElement && !activeEl.classList.contains('resp-search-input');
+  const isInResponseSearchInput = activeEl instanceof HTMLInputElement && activeEl.classList.contains('resp-search-input');
+  const isInRequestInput = activeEl instanceof HTMLInputElement && !isInResponseSearchInput;
   const isInTextArea = activeEl instanceof HTMLTextAreaElement;
   const isFocusInResponse = pre && respSection && (
     activeEl === pre
     || pre.contains(activeEl)
     || (respSection.contains(activeEl) && !isInRequestInput && !isInTextArea)
   );
+  const isFocusInResponseForSelectAll = isFocusInResponse && !isInResponseSearchInput;
 
-  if (e.key === 'a' && isFocusInResponse && isRespBodyVisible) {
+  if (e.key === 'a' && isFocusInResponseForSelectAll && isRespBodyVisible) {
     e.preventDefault();
     e.stopPropagation();
     // Select only the response body text

@@ -48,9 +48,34 @@ export function getLastContentType(): string { return lastContentType; }
 export function isResponseVirtualized(): boolean { return virtLines !== null; }
 
 function renderFullResponseLines(lines: string[], lang: string): void {
-  $('respBodyPre').innerHTML = lines.map((line: string) =>
-    '<div class="code-line">' + highlightResponse(line, lang) + '</div>'
+  $('respBodyPre').innerHTML = lines.map((line: string, idx: number) =>
+    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>'
   ).join('');
+}
+
+type TextPosition = {
+  node: Text;
+  offset: number;
+};
+
+function findTextPosition(root: Node, targetOffset: number): TextPosition | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let traversed = 0;
+  let textNode: Text | null;
+
+  while ((textNode = walker.nextNode() as Text | null)) {
+    const textLength = textNode.textContent?.length ?? 0;
+    const nextTraversed = traversed + textLength;
+    if (targetOffset <= nextTraversed) {
+      return {
+        node: textNode,
+        offset: Math.min(targetOffset - traversed, textLength),
+      };
+    }
+    traversed = nextTraversed;
+  }
+
+  return null;
 }
 
 function revealMatchHorizontally(): void {
@@ -77,60 +102,29 @@ function applySearchHighlights(html: string, lineMatches: ResponseSearchMatch[],
   const container = document.createElement('div');
   container.innerHTML = html;
 
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let globalOffset = 0;
-  let matchIndex = 0;
-  let textNode: Text | null;
-
-  while ((textNode = walker.nextNode() as Text | null)) {
-    const text = textNode.textContent || '';
-    const nodeStart = globalOffset;
-    const nodeEnd = nodeStart + text.length;
-    globalOffset = nodeEnd;
-
-    while (matchIndex < lineMatches.length && lineMatches[matchIndex].end <= nodeStart) {
-      matchIndex++;
-    }
-    if (matchIndex >= lineMatches.length || lineMatches[matchIndex].start >= nodeEnd) {
+  for (let index = lineMatches.length - 1; index >= 0; index--) {
+    const match = lineMatches[index];
+    const startPos = findTextPosition(container, match.start);
+    const endPos = findTextPosition(container, match.end);
+    if (!startPos || !endPos) {
       continue;
     }
 
-    const fragment = document.createDocumentFragment();
-    let cursor = 0;
-    let localMatchIndex = matchIndex;
-
-    while (localMatchIndex < lineMatches.length && lineMatches[localMatchIndex].start < nodeEnd) {
-      const match = lineMatches[localMatchIndex];
-      const segmentStart = Math.max(cursor, match.start - nodeStart);
-      const segmentEnd = Math.min(text.length, match.end - nodeStart);
-
-      if (segmentStart > cursor) {
-        fragment.appendChild(document.createTextNode(text.substring(cursor, segmentStart)));
-      }
-
-      if (segmentEnd > segmentStart) {
-        const mark = document.createElement('mark');
-        mark.className = 'resp-search-match';
-        if (match.index === currentIndex) {
-          mark.classList.add('resp-search-current');
-        }
-        mark.textContent = text.substring(segmentStart, segmentEnd);
-        fragment.appendChild(mark);
-        cursor = segmentEnd;
-      }
-
-      if (match.end <= nodeEnd) {
-        localMatchIndex++;
-      } else {
-        break;
-      }
+    const range = document.createRange();
+    range.setStart(startPos.node, startPos.offset);
+    range.setEnd(endPos.node, endPos.offset);
+    if (range.collapsed) {
+      continue;
     }
 
-    if (cursor < text.length) {
-      fragment.appendChild(document.createTextNode(text.substring(cursor)));
+    const mark = document.createElement('mark');
+    mark.className = 'resp-search-match';
+    if (match.index === currentIndex) {
+      mark.classList.add('resp-search-current');
     }
 
-    textNode.parentNode?.replaceChild(fragment, textNode);
+    mark.appendChild(range.extractContents());
+    range.insertNode(mark);
   }
 
   return container.innerHTML;
@@ -231,14 +225,16 @@ function measureLineHeight(lang: string): number {
 }
 
 function getVirtHighlightedLine(idx: number, line: string): string {
+  const highlightLang = virtLines ? virtLang : lastResponseLang;
+
   if (!virtHighlightCache || !virtHighlightCacheOrder) {
-    return highlightResponse(line, virtLang);
+    return highlightResponse(line, highlightLang);
   }
 
   const cached = virtHighlightCache.get(idx);
   if (cached !== undefined) return cached;
 
-  const v = highlightResponse(line, virtLang);
+  const v = highlightResponse(line, highlightLang);
   virtHighlightCache.set(idx, v);
   virtHighlightCacheOrder.push(idx);
   if (virtHighlightCacheOrder.length > VIRT_MAX_HIGHLIGHT_CACHE) {
@@ -338,8 +334,6 @@ function setupVirtualization(lines: string[], lang: string): void {
 }
 
 export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], currentIndex: number): void {
-  if (!virtLines) return;
-
   const byLine = new Map<number, ResponseSearchMatch[]>();
   for (const match of matches) {
     const existing = byLine.get(match.line);
@@ -350,7 +344,12 @@ export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], cur
   virtSearchMatchesByLine = byLine;
   virtCurrentSearchIndex = currentIndex;
   virtSearchRevision++;
-  renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+  if (virtLines) {
+    renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+    return;
+  }
+
+  renderFullResponseLines(lastResponseBody.split('\n'), lastResponseLang);
 }
 
 export function clearVirtualizedResponseSearch(): void {
@@ -360,11 +359,30 @@ export function clearVirtualizedResponseSearch(): void {
   virtSearchRevision++;
   if (virtLines) {
     renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+    return;
+  }
+
+  if (lastResponseBody) {
+    renderFullResponseLines(lastResponseBody.split('\n'), lastResponseLang);
   }
 }
 
 export function revealVirtualizedResponseSearchMatch(match: ResponseSearchMatch): void {
-  if (!virtLines || !virtScrollerEl) return;
+  if (!virtLines || !virtScrollerEl) {
+    const activeLine = document.querySelector(`.code-line[data-line="${match.line + 1}"] .resp-search-current`);
+    const fallbackLine = document.querySelector(`.code-line[data-line="${match.line + 1}"]`);
+    const target = activeLine instanceof HTMLElement ? activeLine : fallbackLine;
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
+      requestAnimationFrame(() => {
+        revealMatchHorizontally();
+      });
+    }
+    return;
+  }
 
   const centeredTop = Math.max(0, (match.line * virtLineHeight) - Math.max(0, (virtViewportHeight - virtLineHeight) / 2));
   virtScrollerEl.scrollTop = centeredTop;
