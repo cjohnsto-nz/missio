@@ -14,7 +14,7 @@ let lastResponse: any = null;
 let lastResponseBody = '';
 let lastContentType = '';
 let lastResponseLines: string[] = [];
-let lastResponseLowerLines: string[] = [];
+let lastResponseLowerLines: Array<string | undefined> = [];
 let lastBlobUrl: string | undefined;
 let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let loadingStartTime = 0;
@@ -48,12 +48,21 @@ export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 export function getLastContentType(): string { return lastContentType; }
 export function getLastResponseLines(): readonly string[] { return lastResponseLines; }
-export function getLastResponseLowerLines(): readonly string[] { return lastResponseLowerLines; }
+export function getLastResponseLowerLine(index: number): string {
+  const cached = lastResponseLowerLines[index];
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const computed = (lastResponseLines[index] ?? '').toLowerCase();
+  lastResponseLowerLines[index] = computed;
+  return computed;
+}
 export function isResponseVirtualized(): boolean { return virtLines !== null; }
 
 function renderFullResponseLines(lines: string[]): void {
   $('respBodyPre').innerHTML = lines.map((line: string, idx: number) =>
-    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>'
+    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>\n'
   ).join('');
 }
 
@@ -343,7 +352,7 @@ function renderVirtualized(scrollTop: number): void {
 
   const linesHtml = slice.map((line: string, idx: number) => {
     const absIdx = start + idx;
-    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>`;
+    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>\n`;
   }).join('');
 
   // Use a fixed-height canvas to ensure correct scroll range, and position
@@ -381,7 +390,7 @@ function setupVirtualization(lines: string[], lang: string): void {
   // Initial render
   renderVirtualized(0);
 
-  // Scroll event ��� schedule one rAF ��� render. Only reads scrollTop (no reflow).
+  // Scroll event: schedule one rAF to render. Only reads scrollTop.
   virtScrollHandler = () => {
     if (virtRafPending) return;
     virtRafPending = true;
@@ -471,7 +480,7 @@ export function revealVirtualizedResponseSearchMatch(match: ResponseSearchMatch)
 
 function updateRespLineNumbers(): void {
   // Line numbers are now rendered via CSS counter on .code-line::before
-  // No JS measurement needed ��� gutter is part of each line element
+  // No JS measurement needed; gutter is part of each line element.
   $('respLineNumbers').style.display = 'none';
 }
 
@@ -517,7 +526,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     oauthRetryBtn.style.display = (cat === 4 && usedOAuth2) ? '' : 'none';
   }
 
-  // Body ��� detect language from content-type and apply highlighting
+  // Body: detect language from content-type and apply highlighting.
   let bodyText = resp.body || '';
   let ct = '';
   if (resp.headers) {
@@ -539,7 +548,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   lastResponseBody = bodyText;
   lastContentType = ct;
   lastResponseLines = isBinary ? [] : bodyText.split('\n');
-  lastResponseLowerLines = lastResponseLines.map((line: string) => line.toLowerCase());
+  lastResponseLowerLines = [];
   lastResponseLang = lang;
 
   // Show/hide Preview tab for previewable content types

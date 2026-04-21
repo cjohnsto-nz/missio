@@ -4,7 +4,7 @@ import {
   clearVirtualizedResponseSearch,
   getLastResponseBody,
   getLastResponseLines,
-  getLastResponseLowerLines,
+  getLastResponseLowerLine,
   revealVirtualizedResponseSearchMatch,
   type ResponseSearchMatch,
   setVirtualizedResponseSearch,
@@ -67,14 +67,13 @@ export function isSearchOpen(): boolean {
 
 function buildMatches(query: string): ResponseSearchMatch[] {
   const lines = getLastResponseLines();
-  const lowerLines = getLastResponseLowerLines();
   const lowerQuery = query.toLowerCase();
   const found: ResponseSearchMatch[] = [];
   let matchNumber = 0;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
-    const lowerLine = lowerLines[lineIndex] ?? line.toLowerCase();
+    const lowerLine = getLastResponseLowerLine(lineIndex);
     let searchFrom = 0;
 
     while (searchFrom < lowerLine.length) {
