@@ -218,6 +218,12 @@
         "category": "Missio"
       },
       {
+        "command": "missio.formatRequestBody",
+        "title": "Format Request Body",
+        "category": "Missio",
+        "icon": "$(symbol-string)"
+      },
+      {
         "command": "missio.openCollection",
         "title": "Configure Collection",
         "category": "Missio",
@@ -365,6 +371,13 @@
         "title": "Open in New Window",
         "category": "Missio",
         "icon": "$(empty-window)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "missio.formatRequestBody",
+        "key": "shift+alt+f",
+        "when": "activeCustomEditorId == missio.requestEditor"
       }
     ],
     "menus": {

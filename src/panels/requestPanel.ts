@@ -316,6 +316,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
         }
         return true;
       }
+      case 'showError': {
+        if (msg.message) {
+          vscode.window.showErrorMessage(String(msg.message));
+        }
+        return true;
+      }
       case 'unresolvedVarsResponse': {
         if (this._unresolvedVarsResolver) {
           if (msg.cancelled) {
@@ -752,13 +758,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <button class="pill" data-body-type="multipart-form">Multipart</button>
               <button class="pill" data-body-type="file">Binary</button>
             </div>
-            <select class="lang-select" id="bodyLangMode">
-              <option value="json">JSON</option>
-              <option value="xml">XML</option>
-              <option value="html">HTML</option>
-              <option value="yaml">YAML</option>
-              <option value="text">Text</option>
-            </select>
+            <div class="body-toolbar-actions">
+              <select class="lang-select" id="bodyLangMode">
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+                <option value="html">HTML</option>
+                <option value="yaml">YAML</option>
+                <option value="text">Text</option>
+              </select>
+              <button class="btn btn-secondary body-format-btn" id="bodyFormatBtn" type="button" title="Format request body">Format</button>
+            </div>
           </div>
           <div id="bodyRawEditor" style="display:none;">
             <div class="code-wrap">

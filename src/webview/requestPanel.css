@@ -735,6 +735,7 @@ td.var-cell .var-overlay {
 /* ── Body Type Pills ────────────────────── */
 .body-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; justify-content: space-between; }
 .body-type-pills { display: flex; border: 1px solid var(--input-border); border-radius: 4px; overflow: hidden; }
+.body-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .body-type-pills .pill {
   padding: 5px 12px;
   background: transparent;
@@ -794,6 +795,16 @@ td.var-cell .var-overlay {
   background-position: right 6px center;
 }
 .lang-select option { background: var(--input-bg); color: var(--input-fg); }
+.body-format-btn {
+  display: none;
+  padding: 4px 10px;
+  min-width: 68px;
+  font-weight: 400;
+}
+.body-format-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .code-wrap {
   position: relative;
   flex: 1;

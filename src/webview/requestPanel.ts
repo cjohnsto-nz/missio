@@ -74,6 +74,7 @@ import {
   renderPreview,
 } from './response';
 import { initResponseSearch, openSearch, closeSearch, isSearchOpen } from './responseSearch';
+import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
 
 // ── Document update scheduling ───────────────────
 function scheduleDocumentUpdate(): void {
@@ -88,6 +89,18 @@ function scheduleDocumentUpdate(): void {
 // ── Tab switching ──────────────────────────────
 const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings', 'export'];
 const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
+
+function updateBodyFormatterState(): void {
+  const button = $('bodyFormatBtn') as HTMLButtonElement;
+  const isRawBody = currentBodyType === 'raw';
+  const canFormat = isRawBody && canFormatRawBody(currentLang);
+
+  button.style.display = isRawBody ? 'inline-flex' : 'none';
+  button.disabled = !canFormat;
+  button.title = canFormat
+    ? 'Format request body'
+    : 'Formatting is available for JSON, XML, HTML, and YAML raw bodies';
+}
 
 function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void {
   tabBar.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -562,6 +575,7 @@ function setBodyType(type: string): void {
     langSelect.style.display = 'block';
     syncHighlight();
   }
+  updateBodyFormatterState();
   syncAutoContentType();
 }
 
@@ -623,6 +637,34 @@ function syncHighlight(): void {
     updateLineNumbers();
   } catch {
     // prevent highlighting errors from breaking UI
+  }
+}
+
+function applyFormattedBody(formatted: string): void {
+  const textarea = $('bodyData') as HTMLTextAreaElement;
+  textarea.value = formatted;
+  syncHighlight();
+  syncAutoContentType();
+  scheduleDocumentUpdate();
+}
+
+function formatCurrentBody(): void {
+  if (currentBodyType !== 'raw' || !canFormatRawBody(currentLang)) {
+    return;
+  }
+
+  const textarea = $('bodyData') as HTMLTextAreaElement;
+
+  try {
+    const formatted = formatRawBody(textarea.value, currentLang, _indentChar);
+    if (formatted === textarea.value) {
+      return;
+    }
+
+    applyFormattedBody(formatted);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to format request body';
+    vscode.postMessage({ type: 'showError', message: `Could not format ${currentLang.toUpperCase()} body: ${message}` });
   }
 }
 
@@ -1033,6 +1075,7 @@ function loadRequest(req: any): void {
         setBodyType('raw');
         setCurrentLang(body.type || 'json');
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        updateBodyFormatterState();
         syncAutoContentType();
         ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
         syncHighlight();
@@ -1328,11 +1371,15 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'languageChanged':
       setCurrentLang(msg.language);
       ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+      updateBodyFormatterState();
       syncHighlight();
       break;
     case 'bodyUpdated':
       ($('bodyData') as HTMLTextAreaElement).value = msg.content;
       syncHighlight();
+      break;
+    case 'formatBody':
+      formatCurrentBody();
       break;
     case 'fileChosen': {
       ($('binaryFilePath') as HTMLInputElement).value = msg.filePath ?? '';
@@ -1583,6 +1630,8 @@ $('exportIncludeAuth').addEventListener('change', requestExportPreviewDebounced)
 $('exportIncludeBody').addEventListener('change', requestExportPreviewDebounced);
 $('exportResolveVars').addEventListener('change', requestExportPreviewDebounced);
 
+$('bodyFormatBtn').addEventListener('click', () => formatCurrentBody());
+
 $('exportCopyBtn').addEventListener('click', () => {
   const opts = getExportOptions();
   const req = buildRequest();
@@ -1606,6 +1655,7 @@ $('panel-settings').addEventListener('input', scheduleDocumentUpdate);
 $('panel-settings').addEventListener('change', scheduleDocumentUpdate);
 $('bodyLangMode').addEventListener('change', () => {
   setCurrentLang(($('bodyLangMode') as HTMLSelectElement).value);
+  updateBodyFormatterState();
   syncHighlight();
   syncAutoContentType();
   scheduleDocumentUpdate();
@@ -1613,11 +1663,20 @@ $('bodyLangMode').addEventListener('change', () => {
 
 // Ctrl+S / Cmd+S to save
 document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f') {
+    if (currentBodyType === 'raw' && canFormatRawBody(currentLang)) {
+      e.preventDefault();
+      e.stopPropagation();
+      formatCurrentBody();
+    }
+    return;
+  }
+
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     saveRequest();
   }
-});
+}, true);
 
 // ── Response body keyboard shortcuts ─────────────
 // Ctrl+A inside the response body selects only the response text
