@@ -735,6 +735,7 @@ td.var-cell .var-overlay {
 /* ── Body Type Pills ────────────────────── */
 .body-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; justify-content: space-between; }
 .body-type-pills { display: flex; border: 1px solid var(--input-border); border-radius: 4px; overflow: hidden; }
+.body-toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .body-type-pills .pill {
   padding: 5px 12px;
   background: transparent;
@@ -794,6 +795,16 @@ td.var-cell .var-overlay {
   background-position: right 6px center;
 }
 .lang-select option { background: var(--input-bg); color: var(--input-fg); }
+.body-format-btn {
+  display: none;
+  padding: 4px 10px;
+  min-width: 68px;
+  font-weight: 400;
+}
+.body-format-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .code-wrap {
   position: relative;
   flex: 1;
@@ -1229,6 +1240,98 @@ td.var-cell .var-overlay {
 .resp-body-wrap:hover .copy-btn { opacity: 1; }
 .copy-btn:hover { color: var(--fg); border-color: var(--btn-bg); }
 
+/* ── Response Body Focus ─────────────────── */
+.resp-code-wrap .code-highlight:focus {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+  caret-color: var(--fg);
+}
+.resp-code-wrap .code-highlight:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+  caret-color: var(--fg);
+}
+
+/* ── Response Search Bar ─────────────────── */
+.resp-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--vscode-editorWidget-background, var(--input-bg));
+  border: 1px solid var(--vscode-editorWidget-border, var(--border));
+  border-radius: 0 0 0 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.16);
+  position: absolute;
+  top: 74px;
+  right: 16px;
+  z-index: 20;
+  width: min(360px, calc(100% - 32px));
+  max-width: calc(100% - 32px);
+}
+.resp-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--vscode-font-family, system-ui);
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, #ccc);
+  border: 1px solid var(--vscode-input-border, #3c3c3c);
+  border-radius: 3px;
+  outline: none;
+}
+.resp-search-input:focus {
+  border-color: var(--vscode-focusBorder, #007fd4);
+}
+.resp-search-count {
+  font-size: 11px;
+  color: var(--m-fg-muted);
+  min-width: 0;
+  padding: 0 2px;
+  text-align: center;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.resp-search-nav,
+.resp-search-close {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--m-fg-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+  line-height: 1;
+  font-family: inherit;
+}
+.resp-search-nav:hover,
+.resp-search-close:hover {
+  color: var(--fg);
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+.resp-search-nav:active,
+.resp-search-close:active {
+  background: var(--vscode-toolbar-activeBackground, rgba(99, 102, 103, 0.31));
+}
+
+.response-section.resp-search-open .response-body {
+  padding-top: 44px;
+}
+
+/* Search match highlights */
+mark.resp-search-match {
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.33));
+  color: inherit;
+  border-radius: 1px;
+  padding: 0;
+}
+mark.resp-search-match.resp-search-current {
+  background: var(--vscode-editor-findMatchBackground, rgba(81, 92, 106, 0.6));
+  outline: 1px solid var(--vscode-editor-findMatchBorder, #74879f);
+}
+
 /* ── Timing Waterfall Tooltip ─────────────── */
 .has-timing { cursor: pointer; }
 .timing-tooltip {
@@ -1370,7 +1473,7 @@ td.var-cell .var-overlay {
 
 /* ── Variable Tooltip ─────────────────────── */
 .var-tooltip {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   width: 300px;
   background: var(--m-tooltip-bg);
@@ -1577,7 +1680,7 @@ td.var-cell .var-overlay {
 
 /* ── Variable Autocomplete ───────────────── */
 .var-autocomplete {
-  position: fixed;
+  position: absolute;
   z-index: 1001;
   background: var(--m-suggest-bg);
   border: 1px solid var(--m-suggest-border);
@@ -1623,9 +1726,9 @@ td.var-cell .var-overlay {
 
 /* ── Unresolved Variables Modal ─────────── */
 .uv-modal-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 9999;
+  z-index: 1003;
   display: flex;
   align-items: center;
   justify-content: center;

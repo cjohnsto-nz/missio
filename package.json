@@ -2,7 +2,7 @@
   "name": "missio",
   "displayName": "Missio REST Client",
   "description": "A lightweight, OpenCollection-compliant REST API client for VS Code. File-based collections, environments, and external secret providers.",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "publisher": "missio",
   "license": "MIT",
   "repository": {
@@ -218,6 +218,12 @@
         "category": "Missio"
       },
       {
+        "command": "missio.formatRequestBody",
+        "title": "Format Request Body",
+        "category": "Missio",
+        "icon": "$(symbol-string)"
+      },
+      {
         "command": "missio.openCollection",
         "title": "Configure Collection",
         "category": "Missio",
@@ -365,6 +371,13 @@
         "title": "Open in New Window",
         "category": "Missio",
         "icon": "$(empty-window)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "missio.formatRequestBody",
+        "key": "shift+alt+f",
+        "when": "activeCustomEditorId == missio.requestEditor"
       }
     ],
     "menus": {

@@ -316,6 +316,12 @@ export class RequestEditorProvider extends BaseEditorProvider {
         }
         return true;
       }
+      case 'showError': {
+        if (msg.message) {
+          vscode.window.showErrorMessage(String(msg.message));
+        }
+        return true;
+      }
       case 'unresolvedVarsResponse': {
         if (this._unresolvedVarsResolver) {
           if (msg.cancelled) {
@@ -752,13 +758,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <button class="pill" data-body-type="multipart-form">Multipart</button>
               <button class="pill" data-body-type="file">Binary</button>
             </div>
-            <select class="lang-select" id="bodyLangMode">
-              <option value="json">JSON</option>
-              <option value="xml">XML</option>
-              <option value="html">HTML</option>
-              <option value="yaml">YAML</option>
-              <option value="text">Text</option>
-            </select>
+            <div class="body-toolbar-actions">
+              <select class="lang-select" id="bodyLangMode">
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+                <option value="html">HTML</option>
+                <option value="yaml">YAML</option>
+                <option value="text">Text</option>
+              </select>
+              <button class="btn btn-secondary body-format-btn" id="bodyFormatBtn" type="button" title="Format request body">Format</button>
+            </div>
           </div>
           <div id="bodyRawEditor" style="display:none;">
             <div class="code-wrap">
@@ -866,6 +875,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="resp-headers">Headers</div>
         <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
+      <div class="resp-search-bar" id="respSearchBar" style="display:none;">
+        <input type="text" id="respSearchInput" class="resp-search-input" placeholder="Find in response…" aria-label="Find in response" />
+        <span class="resp-search-count" id="respSearchCount"></span>
+        <button class="resp-search-nav" id="respSearchPrev" title="Previous match (Shift+Enter)" aria-label="Previous match">&#x2191;</button>
+        <button class="resp-search-nav" id="respSearchNext" title="Next match (Enter)" aria-label="Next match">&#x2193;</button>
+        <button class="resp-search-close" id="respSearchClose" title="Close (Escape)" aria-label="Close search">&times;</button>
+      </div>
       <div class="response-body">
         <div class="tab-panel active" id="panel-resp-body">
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
@@ -878,7 +894,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             <button class="copy-btn" id="copyRespBtn" title="Copy to clipboard">Copy</button>
             <div class="code-wrap resp-code-wrap">
               <div class="line-numbers" id="respLineNumbers"></div>
-              <pre class="code-highlight" id="respBodyPre"></pre>
+              <pre class="code-highlight" id="respBodyPre" contenteditable="plaintext-only" spellcheck="false"></pre>
             </div>
           </div>
         </div>

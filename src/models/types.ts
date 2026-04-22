@@ -222,7 +222,7 @@ export interface HttpRequestParam {
   disabled?: boolean;
 }
 
-export interface RawBody { type: 'json' | 'text' | 'xml' | 'sparql'; data: string; }
+export interface RawBody { type: 'json' | 'text' | 'xml' | 'html' | 'yaml' | 'sparql'; data: string; }
 export interface FormUrlEncodedEntry { name: string; value: string; description?: Description; disabled?: boolean; }
 export interface FormUrlEncodedBody { type: 'form-urlencoded'; data: FormUrlEncodedEntry[]; }
 export interface MultipartFormEntry { name: string; type: 'text' | 'file'; value: string | string[]; description?: Description; contentType?: string; disabled?: boolean; }

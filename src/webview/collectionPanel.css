@@ -69,7 +69,7 @@
 
 /* ── Add Environment Menu ─────────────── */
 .env-add-menu {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -160,7 +160,7 @@
 
 /* ── Swatch Popover ────────────────────── */
 .swatch-popover {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   background: var(--m-tooltip-bg);
   border: 1px solid var(--m-tooltip-border);

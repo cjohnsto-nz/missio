@@ -73,6 +73,8 @@ import {
   getLastResponse, getLastResponseBody, setLoadingText,
   renderPreview,
 } from './response';
+import { initResponseSearch, openSearch, closeSearch, isSearchOpen } from './responseSearch';
+import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
 
 // ── Document update scheduling ───────────────────
 function scheduleDocumentUpdate(): void {
@@ -87,6 +89,18 @@ function scheduleDocumentUpdate(): void {
 // ── Tab switching ──────────────────────────────
 const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings', 'export'];
 const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
+
+function updateBodyFormatterState(): void {
+  const button = $('bodyFormatBtn') as HTMLButtonElement;
+  const isRawBody = currentBodyType === 'raw';
+  const canFormat = isRawBody && canFormatRawBody(currentLang);
+
+  button.style.display = isRawBody ? 'inline-flex' : 'none';
+  button.disabled = !canFormat;
+  button.title = canFormat
+    ? 'Format request body'
+    : 'Formatting is available for JSON, XML, HTML, and YAML raw bodies';
+}
 
 function switchTab(tabBar: HTMLElement, tabId: string, panelIds: string[]): void {
   tabBar.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
@@ -109,6 +123,9 @@ $('respTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     const tabId = (tab as HTMLElement).dataset.tab!;
     switchTab($('respTabs'), tabId, respPanelIds);
+    if (tabId !== 'resp-body' && isSearchOpen()) {
+      closeSearch();
+    }
     if (tabId === 'resp-preview') renderPreview();
   });
 });
@@ -558,6 +575,7 @@ function setBodyType(type: string): void {
     langSelect.style.display = 'block';
     syncHighlight();
   }
+  updateBodyFormatterState();
   syncAutoContentType();
 }
 
@@ -619,6 +637,34 @@ function syncHighlight(): void {
     updateLineNumbers();
   } catch {
     // prevent highlighting errors from breaking UI
+  }
+}
+
+function applyFormattedBody(formatted: string): void {
+  const textarea = $('bodyData') as HTMLTextAreaElement;
+  textarea.value = formatted;
+  syncHighlight();
+  syncAutoContentType();
+  scheduleDocumentUpdate();
+}
+
+function formatCurrentBody(): void {
+  if (currentBodyType !== 'raw' || !canFormatRawBody(currentLang)) {
+    return;
+  }
+
+  const textarea = $('bodyData') as HTMLTextAreaElement;
+
+  try {
+    const formatted = formatRawBody(textarea.value, currentLang, _indentChar);
+    if (formatted === textarea.value) {
+      return;
+    }
+
+    applyFormattedBody(formatted);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to format request body';
+    vscode.postMessage({ type: 'showError', message: `Could not format ${currentLang.toUpperCase()} body: ${message}` });
   }
 }
 
@@ -1029,6 +1075,7 @@ function loadRequest(req: any): void {
         setBodyType('raw');
         setCurrentLang(body.type || 'json');
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        updateBodyFormatterState();
         syncAutoContentType();
         ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
         syncHighlight();
@@ -1262,6 +1309,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
+      if (isSearchOpen()) closeSearch();
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
       setSendingState(false);
       tokenStatusCtrl.requestStatus();
@@ -1323,11 +1371,15 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'languageChanged':
       setCurrentLang(msg.language);
       ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+      updateBodyFormatterState();
       syncHighlight();
       break;
     case 'bodyUpdated':
       ($('bodyData') as HTMLTextAreaElement).value = msg.content;
       syncHighlight();
+      break;
+    case 'formatBody':
+      formatCurrentBody();
       break;
     case 'fileChosen': {
       ($('binaryFilePath') as HTMLInputElement).value = msg.filePath ?? '';
@@ -1357,6 +1409,7 @@ window.addEventListener('message', (event: MessageEvent) => {
             headers[h.name] = h.value;
           }
         }
+        if (isSearchOpen()) closeSearch();
         showResponse({
           status: ex.response.status,
           statusText: ex.response.statusText,
@@ -1373,6 +1426,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     }
     case 'clearExample':
+      if (isSearchOpen()) closeSearch();
       clearResponse();
       $('exampleIndicator').style.display = 'none';
       break;
@@ -1459,7 +1513,7 @@ document.getElementById('panel-resp-preview')!.addEventListener('contextmenu', (
 
   const menu = document.createElement('div');
   menu.id = 'previewContextMenu';
-  menu.style.cssText = 'position:fixed;z-index:9999;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
+  menu.style.cssText = 'position:absolute;z-index:1002;background:var(--vscode-menu-background,#252526);border:1px solid var(--vscode-menu-border,#454545);border-radius:4px;padding:4px 0;box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:160px;';
 
   const addItem = (label: string, onClick: () => void) => {
     const item = document.createElement('div');
@@ -1576,6 +1630,8 @@ $('exportIncludeAuth').addEventListener('change', requestExportPreviewDebounced)
 $('exportIncludeBody').addEventListener('change', requestExportPreviewDebounced);
 $('exportResolveVars').addEventListener('change', requestExportPreviewDebounced);
 
+$('bodyFormatBtn').addEventListener('click', () => formatCurrentBody());
+
 $('exportCopyBtn').addEventListener('click', () => {
   const opts = getExportOptions();
   const req = buildRequest();
@@ -1599,6 +1655,7 @@ $('panel-settings').addEventListener('input', scheduleDocumentUpdate);
 $('panel-settings').addEventListener('change', scheduleDocumentUpdate);
 $('bodyLangMode').addEventListener('change', () => {
   setCurrentLang(($('bodyLangMode') as HTMLSelectElement).value);
+  updateBodyFormatterState();
   syncHighlight();
   syncAutoContentType();
   scheduleDocumentUpdate();
@@ -1606,9 +1663,135 @@ $('bodyLangMode').addEventListener('change', () => {
 
 // Ctrl+S / Cmd+S to save
 document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'f') {
+    if (currentBodyType === 'raw' && canFormatRawBody(currentLang)) {
+      e.preventDefault();
+      e.stopPropagation();
+      formatCurrentBody();
+    }
+    return;
+  }
+
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     saveRequest();
+  }
+}, true);
+
+// ── Response body keyboard shortcuts ─────────────
+// Ctrl+A inside the response body selects only the response text
+// Ctrl+F inside the response body opens the search bar
+initResponseSearch();
+
+function getSelectedResponseText(selection: Selection): string {
+  if (selection.rangeCount === 0) {
+    return '';
+  }
+
+  const fragment = selection.getRangeAt(0).cloneContents();
+  const container = document.createElement('div');
+  container.appendChild(fragment);
+  const selectedLines = Array.from(container.querySelectorAll('.code-line'));
+
+  if (selectedLines.length === 0) {
+    return selection.toString();
+  }
+
+  return selectedLines
+    .map((line) => line.textContent ?? '')
+    .join('\n');
+}
+
+// Make contenteditable pre read-only: block all input and prevent paste/drop
+const respPre = document.getElementById('respBodyPre');
+if (respPre) {
+  respPre.addEventListener('beforeinput', (e) => e.preventDefault());
+  respPre.addEventListener('paste', (e) => e.preventDefault());
+  respPre.addEventListener('drop', (e) => e.preventDefault());
+  // Block typing but allow Ctrl+A, Ctrl+C, Ctrl+F, arrows, etc.
+  respPre.addEventListener('keydown', (e: KeyboardEvent) => {
+    const allow = e.ctrlKey || e.metaKey || e.altKey
+      || e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End'
+      || e.key === 'PageUp' || e.key === 'PageDown'
+      || e.key === 'Escape' || e.key === 'Tab'
+      || e.key === 'F5' || e.key === 'F12';
+    if (!allow) {
+      e.preventDefault();
+    }
+  });
+  respPre.addEventListener('copy', (e: ClipboardEvent) => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!respPre.contains(range.commonAncestorContainer)) {
+      return;
+    }
+
+    const selectedText = getSelectedResponseText(selection);
+    if (!selectedText) {
+      return;
+    }
+
+    e.preventDefault();
+    e.clipboardData?.setData('text/plain', selectedText);
+  });
+}
+
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+
+  const pre = document.getElementById('respBodyPre');
+  const respBodyWrap = document.getElementById('respBodyWrap');
+  const respBodyTab = document.getElementById('panel-resp-body');
+
+  // Check if the response body panel is visible
+  const isRespBodyVisible = respBodyWrap && respBodyWrap.style.display !== 'none'
+    && respBodyTab && respBodyTab.classList.contains('active');
+
+  // Check if focus is within the response section (not in request-side inputs/textareas)
+  const respSection = document.getElementById('responseSection');
+  const activeEl = document.activeElement;
+  const isInResponseSearchInput = activeEl instanceof HTMLInputElement && activeEl.classList.contains('resp-search-input');
+  const isInRequestInput = activeEl instanceof HTMLInputElement && !isInResponseSearchInput;
+  const isInTextArea = activeEl instanceof HTMLTextAreaElement;
+  const isFocusInResponse = pre && respSection && (
+    activeEl === pre
+    || pre.contains(activeEl)
+    || (respSection.contains(activeEl) && !isInRequestInput && !isInTextArea)
+  );
+  const isFocusInResponseForSelectAll = isFocusInResponse && !isInResponseSearchInput;
+
+  if (e.key === 'a' && isFocusInResponseForSelectAll && isRespBodyVisible) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Select only the response body text
+    const selection = window.getSelection();
+    if (selection && pre) {
+      selection.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      selection.addRange(range);
+    }
+    return;
+  }
+
+  if (e.key === 'f' && isFocusInResponse && isRespBodyVisible) {
+    e.preventDefault();
+    openSearch();
+    return;
+  }
+}, true);
+
+// Also close search when Escape is pressed anywhere (not just in the input)
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isSearchOpen()) {
+    e.preventDefault();
+    closeSearch();
+    const pre = document.getElementById('respBodyPre');
+    if (pre) pre.focus();
   }
 });
 
