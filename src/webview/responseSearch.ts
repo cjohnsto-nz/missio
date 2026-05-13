@@ -1,4 +1,4 @@
-// Response body search — Ctrl+F find-in-response for the webview.
+// Response body search: Ctrl+F find-in-response for the webview.
 
 import {
   clearVirtualizedResponseSearch,
@@ -49,6 +49,9 @@ export function openSearch(): void {
 }
 
 export function closeSearch(): void {
+  // Idempotent: callers don't need to guard with isSearchOpen().
+  if (!isOpen) return;
+
   const { bar, input, section } = getElements();
   bar.style.display = 'none';
   section?.classList.remove('resp-search-open');
@@ -175,12 +178,8 @@ export function initResponseSearch(): void {
         goToNext();
       }
     }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closeSearch();
-      const pre = document.getElementById('respBodyPre');
-      if (pre) pre.focus();
-    }
+    // Escape is handled by the document-level listener in requestPanel.ts,
+    // which catches it whether or not the search input has focus.
   });
 
   prev.addEventListener('click', goToPrev);
