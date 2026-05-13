@@ -12,11 +12,15 @@
  *   1002     Preview context menu.
  *   1003     Unresolved-variables / CLI-approval modal overlay (top).
  *
- * All popovers/modals use position: absolute and are appended to
- * document.body. The webview root does not scroll, so absolute behaves
- * like fixed for our purposes while playing nicely with VS Code's own
- * stacking. Bump values cautiously: anything above 1003 should be a
- * deliberate "always on top" decision.
+ * All popovers use position: absolute and are appended to document.body.
+ * The webview root does not scroll (body has overflow: hidden), so
+ * absolute behaves like fixed for our purposes.
+ *
+ * Exception: .uv-modal-overlay uses position: fixed so it reliably
+ * covers the full viewport even if body layout ever changes.
+ *
+ * Bump values cautiously: anything above 1003 should be a deliberate
+ * "always on top" decision.
  */
 
 /* Local aliases. All resolve to theme.css variables. */
@@ -1747,7 +1751,7 @@ mark.resp-search-match.resp-search-current {
 
 /* ── Unresolved Variables Modal ─────────── */
 .uv-modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 1003;
   display: flex;
