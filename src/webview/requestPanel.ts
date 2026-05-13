@@ -123,9 +123,7 @@ $('respTabs').querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     const tabId = (tab as HTMLElement).dataset.tab!;
     switchTab($('respTabs'), tabId, respPanelIds);
-    if (tabId !== 'resp-body' && isSearchOpen()) {
-      closeSearch();
-    }
+    if (tabId !== 'resp-body') closeSearch();
     if (tabId === 'resp-preview') renderPreview();
   });
 });
@@ -1309,7 +1307,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
-      if (isSearchOpen()) closeSearch();
+      closeSearch();
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
       setSendingState(false);
       tokenStatusCtrl.requestStatus();
@@ -1409,7 +1407,7 @@ window.addEventListener('message', (event: MessageEvent) => {
             headers[h.name] = h.value;
           }
         }
-        if (isSearchOpen()) closeSearch();
+        closeSearch();
         showResponse({
           status: ex.response.status,
           statusText: ex.response.statusText,
@@ -1426,7 +1424,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     }
     case 'clearExample':
-      if (isSearchOpen()) closeSearch();
+      closeSearch();
       clearResponse();
       $('exampleIndicator').style.display = 'none';
       break;
@@ -1785,7 +1783,10 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
   }
 }, true);
 
-// Also close search when Escape is pressed anywhere (not just in the input)
+// Canonical Escape-closes-search handler. Lives at the document level so it
+// works regardless of whether the search input, the response pre, or any other
+// element inside the response section has focus. The isSearchOpen guard keeps
+// us from preventDefault-ing Escape in unrelated contexts (modals, menus).
 document.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'Escape' && isSearchOpen()) {
     e.preventDefault();

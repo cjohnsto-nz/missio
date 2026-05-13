@@ -1,4 +1,25 @@
-/* Local aliases — all resolve to theme.css variables */
+/*
+ * Stacking layers (z-index conventions used in this file):
+ *
+ *   1-2      In-flow positioning helpers (line gutters, sticky bits).
+ *   10       Inline action buttons over content (e.g. response copy button).
+ *   20       Response body search bar.
+ *   50       Resizable divider.
+ *   100      Inline overlays anchored to inputs (env name, dropdown caps).
+ *   1000     Base popover/menu layer (env-add menu, swatch popover,
+ *            variable tooltip).
+ *   1001     Variable autocomplete (above the variable tooltip).
+ *   1002     Preview context menu.
+ *   1003     Unresolved-variables / CLI-approval modal overlay (top).
+ *
+ * All popovers/modals use position: absolute and are appended to
+ * document.body. The webview root does not scroll, so absolute behaves
+ * like fixed for our purposes while playing nicely with VS Code's own
+ * stacking. Bump values cautiously: anything above 1003 should be a
+ * deliberate "always on top" decision.
+ */
+
+/* Local aliases. All resolve to theme.css variables. */
 :root {
   --bg: var(--m-bg);
   --fg: var(--m-fg);
