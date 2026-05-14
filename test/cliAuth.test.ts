@@ -59,6 +59,8 @@ describe('CLI Auth', () => {
     const client = new HttpClient({} as any);
     const setCliTokenHeader = (headers: Record<string, string>, auth: any, token: string) =>
       (client as any)._setCliTokenHeader(headers, auth, token);
+    const normalizeCliToken = (stdout: string, auth: any = {}) =>
+      (client as any)._normalizeCliToken(stdout, auth);
 
     it('sets Authorization header with Bearer prefix by default', () => {
       const headers: Record<string, string> = {};
@@ -89,6 +91,24 @@ describe('CLI Auth', () => {
       const headers: Record<string, string> = {};
       setCliTokenHeader(headers, { tokenHeader: 'X-API-Key', tokenPrefix: '' }, 'secret-key');
       expect(headers['X-API-Key']).toBe('secret-key');
+    });
+
+    it('accepts plain string output', () => {
+      expect(normalizeCliToken('  my-token  ')).toBe('my-token');
+    });
+
+    it('preserves non-JSON string output exactly after trimming', () => {
+      expect(normalizeCliToken('"my-token"')).toBe('"my-token"');
+    });
+
+    it('rejects structured JSON output with an actionable error', () => {
+      expect(() => normalizeCliToken('{"masterKey":"abc"}', { tokenHeader: 'x-functions-key', tokenPrefix: '' }))
+        .toThrow(/single header-safe token value for x-functions-key/i);
+    });
+
+    it('rejects line breaks in CLI output', () => {
+      expect(() => normalizeCliToken('abc\r\ndef', { tokenHeader: 'x-functions-key', tokenPrefix: '' }))
+        .toThrow(/returned line breaks or null bytes/i);
     });
   });
 

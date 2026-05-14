@@ -3,9 +3,18 @@
 import { $ } from './state';
 import { highlightResponse } from './highlight';
 
+export type ResponseSearchMatch = {
+  line: number;
+  start: number;
+  end: number;
+  index: number;
+};
+
 let lastResponse: any = null;
 let lastResponseBody = '';
 let lastContentType = '';
+let lastResponseLines: string[] = [];
+let lastResponseLowerLines: Array<string | undefined> = [];
 let lastBlobUrl: string | undefined;
 let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let loadingStartTime = 0;
@@ -22,6 +31,11 @@ let virtRafPending = false;
 let virtViewportHeight = 0;
 let virtHighlightCache: Map<number, string> | null = null;
 let virtHighlightCacheOrder: number[] | null = null;
+let lastResponseLang = 'text';
+let virtSearchMatchesByLine: Map<number, ResponseSearchMatch[]> | null = null;
+let virtCurrentSearchIndex = -1;
+let virtSearchRevision = 0;
+let virtLastSearchRevision = -1;
 
 const VIRT_MIN_CHARS = 1_000_000;
 const VIRT_MIN_LINES = 20_000;
@@ -33,6 +47,101 @@ const VIRT_MAX_HIGHLIGHT_CACHE = 5000;
 export function getLastResponse(): any { return lastResponse; }
 export function getLastResponseBody(): string { return lastResponseBody; }
 export function getLastContentType(): string { return lastContentType; }
+export function getLastResponseLines(): readonly string[] { return lastResponseLines; }
+export function getLastResponseLowerLine(index: number): string {
+  const cached = lastResponseLowerLines[index];
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const computed = (lastResponseLines[index] ?? '').toLowerCase();
+  lastResponseLowerLines[index] = computed;
+  return computed;
+}
+export function isResponseVirtualized(): boolean { return virtLines !== null; }
+
+function renderFullResponseLines(lines: string[]): void {
+  $('respBodyPre').innerHTML = lines.map((line: string, idx: number) =>
+    `<div class="code-line" data-line="${idx + 1}">` + getRenderedLineHtml(idx, line) + '</div>'
+  ).join('');
+}
+
+type TextPosition = {
+  node: Text;
+  offset: number;
+};
+
+function findTextPosition(root: Node, targetOffset: number): TextPosition | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let traversed = 0;
+  let textNode: Text | null;
+
+  while ((textNode = walker.nextNode() as Text | null)) {
+    const textLength = textNode.textContent?.length ?? 0;
+    const nextTraversed = traversed + textLength;
+    if (targetOffset <= nextTraversed) {
+      return {
+        node: textNode,
+        offset: Math.min(targetOffset - traversed, textLength),
+      };
+    }
+    traversed = nextTraversed;
+  }
+
+  return null;
+}
+
+function revealMatchHorizontally(): void {
+  const current = document.querySelector('.resp-search-current');
+  const codeWrap = document.querySelector('.resp-code-wrap') as HTMLElement | null;
+  if (!(current instanceof HTMLElement) || !codeWrap) {
+    return;
+  }
+
+  const markRect = current.getBoundingClientRect();
+  const wrapRect = codeWrap.getBoundingClientRect();
+  const horizontalPadding = 24;
+
+  if (markRect.right > wrapRect.right - horizontalPadding) {
+    codeWrap.scrollLeft += (markRect.right - wrapRect.right) + horizontalPadding;
+  } else if (markRect.left < wrapRect.left + horizontalPadding) {
+    codeWrap.scrollLeft -= (wrapRect.left - markRect.left) + horizontalPadding;
+  }
+}
+
+function applySearchHighlights(html: string, lineMatches: ResponseSearchMatch[], currentIndex: number): string {
+  if (lineMatches.length === 0) return html;
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+
+  for (let index = lineMatches.length - 1; index >= 0; index--) {
+    const match = lineMatches[index];
+    const startPos = findTextPosition(container, match.start);
+    const endPos = findTextPosition(container, match.end);
+    if (!startPos || !endPos) {
+      continue;
+    }
+
+    const range = document.createRange();
+    range.setStart(startPos.node, startPos.offset);
+    range.setEnd(endPos.node, endPos.offset);
+    if (range.collapsed) {
+      continue;
+    }
+
+    const mark = document.createElement('mark');
+    mark.className = 'resp-search-match';
+    if (match.index === currentIndex) {
+      mark.classList.add('resp-search-current');
+    }
+
+    mark.appendChild(range.extractContents());
+    range.insertNode(mark);
+  }
+
+  return container.innerHTML;
+}
 
 /** Content types that support rich preview in a separate tab */
 function isPreviewable(ct: string): boolean {
@@ -84,6 +193,9 @@ export function clearResponse(): void {
   $('respEmpty').style.display = 'block';
   lastResponse = null;
   lastResponseBody = '';
+  lastResponseLines = [];
+  lastResponseLowerLines = [];
+  lastResponseLang = 'text';
 
   // Clear virtualization state
   teardownVirtualization();
@@ -97,6 +209,10 @@ function teardownVirtualization(): void {
   virtRafPending = false;
   virtHighlightCache = null;
   virtHighlightCacheOrder = null;
+  virtSearchMatchesByLine = null;
+  virtCurrentSearchIndex = -1;
+  virtSearchRevision = 0;
+  virtLastSearchRevision = -1;
   if (virtScrollerEl && virtScrollHandler) {
     virtScrollerEl.removeEventListener('scroll', virtScrollHandler);
   }
@@ -124,14 +240,16 @@ function measureLineHeight(lang: string): number {
 }
 
 function getVirtHighlightedLine(idx: number, line: string): string {
+  const highlightLang = virtLines ? virtLang : lastResponseLang;
+
   if (!virtHighlightCache || !virtHighlightCacheOrder) {
-    return highlightResponse(line, virtLang);
+    return highlightResponse(line, highlightLang);
   }
 
   const cached = virtHighlightCache.get(idx);
   if (cached !== undefined) return cached;
 
-  const v = highlightResponse(line, virtLang);
+  const v = highlightResponse(line, highlightLang);
   virtHighlightCache.set(idx, v);
   virtHighlightCacheOrder.push(idx);
   if (virtHighlightCacheOrder.length > VIRT_MAX_HIGHLIGHT_CACHE) {
@@ -141,6 +259,71 @@ function getVirtHighlightedLine(idx: number, line: string): string {
   return v;
 }
 
+function getRenderedLineHtml(idx: number, line: string): string {
+  const base = getVirtHighlightedLine(idx, line);
+  const lineMatches = virtSearchMatchesByLine?.get(idx);
+  if (!lineMatches || lineMatches.length === 0) {
+    return base;
+  }
+  return applySearchHighlights(base, lineMatches, virtCurrentSearchIndex);
+}
+
+function getLineForMatchIndex(
+  matchesByLine: Map<number, ResponseSearchMatch[]> | null,
+  currentIndex: number,
+): number | null {
+  if (!matchesByLine || currentIndex < 0) return null;
+
+  for (const [lineIndex, matches] of matchesByLine) {
+    if (matches.some((match) => match.index === currentIndex)) {
+      return lineIndex;
+    }
+  }
+
+  return null;
+}
+
+function haveSameMatchLayout(
+  prevMatchesByLine: Map<number, ResponseSearchMatch[]> | null,
+  nextMatchesByLine: Map<number, ResponseSearchMatch[]>,
+): boolean {
+  if (!prevMatchesByLine || prevMatchesByLine.size !== nextMatchesByLine.size) {
+    return false;
+  }
+
+  for (const [lineIndex, nextMatches] of nextMatchesByLine) {
+    const prevMatches = prevMatchesByLine.get(lineIndex);
+    if (!prevMatches || prevMatches.length !== nextMatches.length) {
+      return false;
+    }
+
+    for (let idx = 0; idx < nextMatches.length; idx++) {
+      const prevMatch = prevMatches[idx];
+      const nextMatch = nextMatches[idx];
+      if (
+        prevMatch.index !== nextMatch.index
+        || prevMatch.start !== nextMatch.start
+        || prevMatch.end !== nextMatch.end
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function rerenderNonVirtualizedLines(lineIndices: Iterable<number>): void {
+  for (const lineIndex of lineIndices) {
+    const lineEl = document.querySelector(`.code-line[data-line="${lineIndex + 1}"]`);
+    if (!(lineEl instanceof HTMLElement)) {
+      continue;
+    }
+
+    lineEl.innerHTML = getRenderedLineHtml(lineIndex, lastResponseLines[lineIndex] ?? '');
+  }
+}
+
 function renderVirtualized(scrollTop: number): void {
   if (!virtLines) return;
 
@@ -148,7 +331,6 @@ function renderVirtualized(scrollTop: number): void {
   if (!pre) return;
 
   const total = virtLines.length;
-  // Use cached viewport height — never read clientHeight in the hot path
   const viewportLines = Math.max(1, Math.floor(virtViewportHeight / virtLineHeight));
   const firstVisible = Math.floor(scrollTop / virtLineHeight);
 
@@ -159,9 +341,10 @@ function renderVirtualized(scrollTop: number): void {
   const start = Math.max(0, firstVisibleCheckpoint - VIRT_OVERSCAN_LINES);
   const end = Math.min(total, start + Math.max(VIRT_WINDOW_LINES, viewportLines + (VIRT_OVERSCAN_LINES * 2)));
 
-  if (start === virtLastStart && end === virtLastEnd) return;
+  if (start === virtLastStart && end === virtLastEnd && virtSearchRevision === virtLastSearchRevision) return;
   virtLastStart = start;
   virtLastEnd = end;
+  virtLastSearchRevision = virtSearchRevision;
 
   const slice = virtLines.slice(start, end);
   const topOffsetPx = start * virtLineHeight;
@@ -169,7 +352,7 @@ function renderVirtualized(scrollTop: number): void {
 
   const linesHtml = slice.map((line: string, idx: number) => {
     const absIdx = start + idx;
-    return `<span class="code-line" data-line="${absIdx + 1}">` + getVirtHighlightedLine(absIdx, line) + `\n</span>`;
+    return `<span class="code-line" data-line="${absIdx + 1}">` + getRenderedLineHtml(absIdx, line) + `</span>`;
   }).join('');
 
   // Use a fixed-height canvas to ensure correct scroll range, and position
@@ -207,7 +390,7 @@ function setupVirtualization(lines: string[], lang: string): void {
   // Initial render
   renderVirtualized(0);
 
-  // Scroll event → schedule one rAF → render. Only reads scrollTop (no reflow).
+  // Scroll event: schedule one rAF to render. Only reads scrollTop.
   virtScrollHandler = () => {
     if (virtRafPending) return;
     virtRafPending = true;
@@ -221,9 +404,83 @@ function setupVirtualization(lines: string[], lang: string): void {
   scroller.addEventListener('scroll', virtScrollHandler, { passive: true });
 }
 
+export function setVirtualizedResponseSearch(matches: ResponseSearchMatch[], currentIndex: number): void {
+  const prevMatchesByLine = virtSearchMatchesByLine;
+  const prevCurrentIndex = virtCurrentSearchIndex;
+  const byLine = new Map<number, ResponseSearchMatch[]>();
+  for (const match of matches) {
+    const existing = byLine.get(match.line);
+    if (existing) existing.push(match);
+    else byLine.set(match.line, [match]);
+  }
+
+  virtSearchMatchesByLine = byLine;
+  virtCurrentSearchIndex = currentIndex;
+  virtSearchRevision++;
+  if (virtLines) {
+    renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+    return;
+  }
+
+  const linesToUpdate = new Set<number>();
+  if (!haveSameMatchLayout(prevMatchesByLine, byLine)) {
+    prevMatchesByLine?.forEach((_, lineIndex) => linesToUpdate.add(lineIndex));
+    byLine.forEach((_, lineIndex) => linesToUpdate.add(lineIndex));
+  }
+
+  const prevCurrentLine = getLineForMatchIndex(prevMatchesByLine, prevCurrentIndex);
+  const currentLine = getLineForMatchIndex(byLine, currentIndex);
+  if (prevCurrentLine !== null) linesToUpdate.add(prevCurrentLine);
+  if (currentLine !== null) linesToUpdate.add(currentLine);
+
+  rerenderNonVirtualizedLines(linesToUpdate);
+}
+
+export function clearVirtualizedResponseSearch(): void {
+  if (!virtLines && !virtSearchMatchesByLine) return;
+  const prevMatchesByLine = virtSearchMatchesByLine;
+  virtSearchMatchesByLine = null;
+  virtCurrentSearchIndex = -1;
+  virtSearchRevision++;
+  if (virtLines) {
+    renderVirtualized(virtScrollerEl?.scrollTop ?? 0);
+    return;
+  }
+
+  if (lastResponseLines.length > 0) {
+    rerenderNonVirtualizedLines(prevMatchesByLine?.keys() ?? []);
+  }
+}
+
+export function revealVirtualizedResponseSearchMatch(match: ResponseSearchMatch): void {
+  if (!virtLines || !virtScrollerEl) {
+    const activeLine = document.querySelector(`.code-line[data-line="${match.line + 1}"] .resp-search-current`);
+    const fallbackLine = document.querySelector(`.code-line[data-line="${match.line + 1}"]`);
+    const target = activeLine instanceof HTMLElement ? activeLine : fallbackLine;
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
+      requestAnimationFrame(() => {
+        revealMatchHorizontally();
+      });
+    }
+    return;
+  }
+
+  const centeredTop = Math.max(0, (match.line * virtLineHeight) - Math.max(0, (virtViewportHeight - virtLineHeight) / 2));
+  virtScrollerEl.scrollTop = centeredTop;
+  renderVirtualized(centeredTop);
+
+  requestAnimationFrame(() => {
+    revealMatchHorizontally();
+  });
+}
+
 function updateRespLineNumbers(): void {
   // Line numbers are now rendered via CSS counter on .code-line::before
-  // No JS measurement needed — gutter is part of each line element
+  // No JS measurement needed; gutter is part of each line element.
   $('respLineNumbers').style.display = 'none';
 }
 
@@ -269,7 +526,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     oauthRetryBtn.style.display = (cat === 4 && usedOAuth2) ? '' : 'none';
   }
 
-  // Body — detect language from content-type and apply highlighting
+  // Body: detect language from content-type and apply highlighting.
   let bodyText = resp.body || '';
   let ct = '';
   if (resp.headers) {
@@ -287,8 +544,12 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     lang = 'html';
   }
 
+  const isBinary = !!resp.bodyBase64;
   lastResponseBody = bodyText;
   lastContentType = ct;
+  lastResponseLines = isBinary ? [] : bodyText.split('\n');
+  lastResponseLowerLines = [];
+  lastResponseLang = lang;
 
   // Show/hide Preview tab for previewable content types
   const previewTab = document.getElementById('respPreviewTab');
@@ -307,7 +568,6 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   }
 
   // Binary content: show overlay instead of raw body
-  const isBinary = !!resp.bodyBase64;
   const binaryOverlay = document.getElementById('respBinaryOverlay');
   const bodyWrap = document.getElementById('respBodyWrap');
   if (binaryOverlay && bodyWrap) {
@@ -328,7 +588,7 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
   const lastRenderEnd = (): number => (renderTiming.length > 0 ? renderTiming[renderTiming.length - 1].end : rBase);
 
   let rPhase = Date.now();
-  const lines = isBinary ? [] : bodyText.split('\n');
+  const lines = lastResponseLines;
   const splitEnd = Date.now();
   if (!isBinary) {
     renderTiming.push({ label: 'Split Lines', start: rBase, end: rBase + (splitEnd - rPhase) });
@@ -344,16 +604,13 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     const lastEnd = lastRenderEnd();
     renderTiming.push({ label: 'Virtualize', start: lastEnd, end: lastEnd + (vEnd - vStart) });
   } else {
-    const html = lines.map((line: string) =>
-      '<div class="code-line">' + highlightResponse(line, lang) + '\n</div>'
-    ).join('');
     {
       const lastEnd = lastRenderEnd();
       renderTiming.push({ label: 'Highlight', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });
     }
 
     rPhase = Date.now();
-    $('respBodyPre').innerHTML = html;
+    renderFullResponseLines(lines);
     {
       const lastEnd = lastRenderEnd();
       renderTiming.push({ label: 'DOM Update', start: lastEnd, end: lastEnd + (Date.now() - rPhase) });

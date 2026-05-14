@@ -565,7 +565,7 @@ export class HttpClient implements vscode.Disposable {
         windowsHide: true,
       });
       if (stderr) _log(`  CLI auth: stderr: ${stderr.trim()}`);
-      token = stdout.trim();
+      token = this._normalizeCliToken(stdout, auth);
     } catch (err: any) {
       const msg = err.stderr?.toString() || err.message || 'Unknown error';
       throw new Error(`CLI auth command failed: ${msg}`);
@@ -601,6 +601,37 @@ export class HttpClient implements vscode.Disposable {
     const headerName = auth.tokenHeader || 'Authorization';
     const prefix = auth.tokenPrefix !== undefined ? auth.tokenPrefix : 'Bearer';
     headers[headerName] = prefix ? `${prefix} ${token}` : token;
+  }
+
+  private _normalizeCliToken(stdout: string, auth: AuthCli): string {
+    const trimmed = stdout.trim();
+    if (!trimmed) {
+      return '';
+    }
+
+    if (this._looksLikeStructuredCliOutput(trimmed)) {
+      throw new Error(this._buildCliTokenOutputError(auth, 'returned structured JSON output'));
+    }
+    const token = trimmed;
+
+    if (/[\r\n\0]/.test(token)) {
+      throw new Error(this._buildCliTokenOutputError(auth, 'returned line breaks or null bytes'));
+    }
+
+    return token;
+  }
+
+  private _looksLikeStructuredCliOutput(output: string): boolean {
+    return (output.startsWith('{') && output.endsWith('}')) || (output.startsWith('[') && output.endsWith(']'));
+  }
+
+  private _buildCliTokenOutputError(auth: AuthCli, reason: string): string {
+    const headerName = auth.tokenHeader || 'Authorization';
+    return (
+      `CLI auth command ${reason}. ` +
+      `It must print a single header-safe token value for ${headerName}. ` +
+      `If your CLI returns JSON, add a query/format step such as --query <path> -o tsv.`
+    );
   }
 
   private _computeCliCacheExpiry(ttlMs: number): number {

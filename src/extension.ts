@@ -142,6 +142,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     globalsPanel,
     clearCliApprovalsCommand,
+    vscode.commands.registerCommand('missio.formatRequestBody', () => {
+      const filePath = getActiveTabFilePath();
+      if (!filePath) return;
+      RequestEditorProvider.postMessageToPanel(filePath, { type: 'formatBody' });
+    }),
     vscode.commands.registerCommand('missio.editGlobalVariables', () => globalsPanel.open()),
     ...registerRequestCommands(cmdCtx),
     ...registerCollectionCommands(cmdCtx),
