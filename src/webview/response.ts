@@ -641,7 +641,10 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     meta = preRequestMs + 'ms pre \u2022 ' + resp.duration + 'ms response \u2022 ' + renderMs + 'ms render';
   }
   const metaEl = $('responseMeta');
-  const metaText = meta + ' \u2022 ' + formatSize(resp.size);
+  let metaText = meta + ' \u2022 ' + formatSize(resp.size);
+  if (resp.stream?.protocol === 'grpc') {
+    metaText += ` \u2022 ${resp.stream.sentMessageCount ?? 0} sent \u2022 ${resp.stream.receivedMessageCount ?? 0} received`;
+  }
   metaEl.innerHTML = esc(metaText) + (useVirtual ? ' <span class="resp-virt-notice">Large response was virtualized</span>' : '');
 
   // Remove old tooltip

@@ -1,0 +1,28 @@
+info:
+  name: Chat users bidi stream
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/ChatUsers
+  methodType: bidi-streaming
+  protoFilePath: proto/services/missio_demo.proto
+  message:
+    - description: First chat message
+      message: |-
+        {
+          "userId": {{grpcUserId}},
+          "name": "{{grpcName}}",
+          "trace": {
+            "requestId": "{{grpcRequestId}}-chat-1"
+          }
+        }
+    - description: Second chat message
+      message: |-
+        {
+          "userId": {{grpcUserId}}2,
+          "name": "Grace",
+          "trace": {
+            "requestId": "{{grpcRequestId}}-chat-2"
+          }
+        }
+docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this bidirectional-streaming gRPC request.
