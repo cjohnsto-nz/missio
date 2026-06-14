@@ -2280,6 +2280,13 @@
         },
         "auth": {
           "$ref": "#/$defs/Auth"
+        },
+        "actions": {
+          "type": "array",
+          "description": "Array of runtime actions",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
         }
       },
       "additionalProperties": false
@@ -2380,6 +2387,20 @@
         },
         "auth": {
           "$ref": "#/$defs/Auth"
+        },
+        "assertions": {
+          "type": "array",
+          "description": "Array of assertions for response validation",
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "description": "Array of runtime actions",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
         }
       },
       "additionalProperties": false

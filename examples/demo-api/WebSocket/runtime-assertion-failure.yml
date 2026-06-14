@@ -1,0 +1,16 @@
+info:
+  name: WebSocket runtime assertion failure
+  type: websocket
+  seq: 7
+websocket:
+  url: "{{wsBaseUrl}}/ws/reject"
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("websocket error response is available", () => assert(response.json().error.message.includes("401")));
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "101"
+docs: Run `node examples/demo-api/server.js`, select the LOCAL environment, then send this request to see a terminal WebSocket upgrade error preserved with runtime test/assertion output.

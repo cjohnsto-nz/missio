@@ -435,6 +435,7 @@ function attachWebSocketFixtures(httpServer) {
           route,
           authorized: true,
           client: req.headers['x-demo-client'] || null,
+          runtimeHeader: req.headers['x-runtime-header'] || null,
           message: parseSocketMessage(data, isBinary),
         }, null, 2));
         return;

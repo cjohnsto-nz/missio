@@ -11,6 +11,7 @@ import { ListRequestsTool } from '../src/copilot/tools/listRequestsTool';
 import { SendRequestTool } from '../src/copilot/tools/sendRequestTool';
 import { RequestEditorProvider } from '../src/panels/requestPanel';
 import { RequestExecutionService } from '../src/services/requestExecutionService';
+import { RuntimeExecutionError, RuntimeExecutionService } from '../src/services/runtimeExecutionService';
 import { WebSocketClient } from '../src/services/webSocketClient';
 import { detectUnresolvedVars } from '../src/services/unresolvedVars';
 import { validateCollection } from '../src/services/validationService';
@@ -151,6 +152,7 @@ async function startFixture(): Promise<Fixture> {
             'x-demo-client': req.headers['x-demo-client'],
             'x-collection': req.headers['x-collection'],
             'x-folder': req.headers['x-folder'],
+            'x-runtime-header': req.headers['x-runtime-header'],
           },
           message: JSON.parse(text),
         }));
@@ -305,6 +307,184 @@ describe('WebSocket execution lifecycle', () => {
 
     await waitFor(() => client.activeConnectionCount === 1);
     expect(client.disconnect('hold-request')).toBe(true);
+    await expect(pending).rejects.toThrow('Request cancelled');
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('runs runtime lifecycle around WebSocket request mutation and exchange summaries', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({
+      wsBaseUrl: fixture.baseUrl,
+      tenant: 'nz',
+      token: 'token-abc',
+    });
+    const client = new WebSocketClient(envService);
+    const runtime = new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+      envService.resolveVariables(collection, folderDefaults, environmentName),
+    );
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      client,
+      undefined,
+      runtime,
+    );
+    const request: WebSocketRequest = {
+      info: { name: 'Runtime socket', type: 'websocket' },
+      websocket: {
+        url: '{{wsBaseUrl}}/ws/auth',
+        message: { type: 'json', data: '{"user":"before","count":0}' },
+      },
+      runtime: {
+        auth: { type: 'bearer', token: '{{token}}' },
+        variables: [{ name: 'runtimeCount', value: '7' }],
+        scripts: [
+          {
+            type: 'before-request',
+            code: [
+              'missio.variables.set("runtimeUser", "Ada Runtime");',
+              'missio.request.headers.set("X-Demo-Client", "missio-demo");',
+              'missio.request.headers.set("X-Runtime-Header", "scripted");',
+              'missio.request.body = { user: missio.variables.get("runtimeUser"), count: Number(missio.variables.get("runtimeCount")) };',
+            ].join('\n'),
+          },
+          {
+            type: 'after-response',
+            code: [
+              'const inbound = response.json().events.find(event => event.direction === "inbound");',
+              'const payload = JSON.parse(inbound.data);',
+              'console.log("websocket after", payload.message.user);',
+              'missio.variables.set("afterUser", payload.message.user);',
+            ].join('\n'),
+          },
+          {
+            type: 'tests',
+            code: [
+              'const inbound = response.json().events.find(event => event.direction === "inbound");',
+              'const payload = JSON.parse(inbound.data);',
+              'test("websocket runtime payload echoed", () => assert(payload.message.count === 7));',
+            ].join('\n'),
+          },
+        ],
+        assertions: [
+          { expression: 'res.body.messageCount', operator: 'equals', value: '1' },
+        ],
+        actions: [
+          {
+            type: 'set-variable',
+            selector: { method: 'jsonq', expression: '$.messageCount' },
+            variable: { scope: 'runtime', name: 'wsMessageCount' },
+          },
+        ],
+      } as any,
+    };
+
+    const response = await execution.send(request, makeCollection(), undefined, undefined, undefined, undefined, undefined, { requestId: 'runtime-ws' });
+    const body = JSON.parse(response.body);
+    const inbound = body.events.find((event: any) => event.direction === 'inbound');
+    const payload = JSON.parse(inbound.data);
+
+    expect(payload).toMatchObject({
+      ok: true,
+      headers: {
+        authorization: 'Bearer token-abc',
+        'x-demo-client': 'missio-demo',
+        'x-runtime-header': 'scripted',
+      },
+      message: { user: 'Ada Runtime', count: 7 },
+    });
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.summary).toEqual({ passed: 3, failed: 0, skipped: 0 });
+    expect(response.runtime?.actions[0]).toMatchObject({ passed: true, target: 'runtime.wsMessageCount', value: 1 });
+    expect(response.runtime?.variableMutations.map(mutation => mutation.name)).toEqual(['runtimeUser', 'wsMessageCount', 'afterUser']);
+    expect(response.runtime?.logs[0].message).toBe('websocket after Ada Runtime');
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('runs after-response runtime on WebSocket terminal errors and preserves cleanup', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' });
+    const client = new WebSocketClient(envService);
+    const runtime = new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+      envService.resolveVariables(collection, folderDefaults, environmentName),
+    );
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      client,
+      undefined,
+      runtime,
+    );
+    const request: WebSocketRequest = {
+      info: { name: 'Runtime reject', type: 'websocket' },
+      websocket: { url: '{{wsBaseUrl}}/ws/reject' },
+      runtime: {
+        scripts: [{
+          type: 'tests',
+          code: 'test("websocket error is visible", () => assert(response.json().error.message.includes("401")));',
+        }],
+        assertions: [
+          { expression: 'res.status', operator: 'equals', value: '101' },
+        ],
+      } as any,
+    };
+
+    const response = await execution.send(request, makeCollection());
+
+    expect(response.status).toBe(0);
+    expect(JSON.parse(response.body).error.message).toContain('401');
+    expect(response.runtime?.success).toBe(false);
+    expect(response.runtime?.tests[0]).toMatchObject({ name: 'websocket error is visible', passed: true });
+    expect(response.runtime?.assertions[0].passed).toBe(false);
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('denies unsafe WebSocket runtime scripts before opening a socket', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' });
+    const client = new WebSocketClient(envService);
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      client,
+      undefined,
+      new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+        envService.resolveVariables(collection, folderDefaults, environmentName),
+      ),
+    );
+
+    await expect(execution.send({
+      info: { name: 'Unsafe runtime', type: 'websocket' },
+      websocket: { url: '{{wsBaseUrl}}/ws/echo' },
+      runtime: {
+        scripts: [{ type: 'before-request', code: 'require("fs").readFileSync("package.json", "utf8");' }],
+      } as any,
+    }, makeCollection())).rejects.toBeInstanceOf(RuntimeExecutionError);
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('cancels WebSocket requests after runtime preparation without leaking sockets', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' });
+    const client = new WebSocketClient(envService);
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      client,
+      undefined,
+      new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+        envService.resolveVariables(collection, folderDefaults, environmentName),
+      ),
+    );
+    const pending = execution.send({
+      info: { name: 'Runtime hold', type: 'websocket' },
+      websocket: {
+        url: '{{wsBaseUrl}}/ws/hold',
+        message: { type: 'text', data: 'wait' },
+      },
+      runtime: {
+        scripts: [{ type: 'before-request', code: 'missio.variables.set("prepared", "yes");' }],
+      } as any,
+    }, makeCollection(), undefined, undefined, undefined, undefined, undefined, { requestId: 'runtime-hold' });
+
+    await waitFor(() => client.activeConnectionCount === 1);
+    expect(execution.disconnectWebSocket('runtime-hold')).toBe(true);
     await expect(pending).rejects.toThrow('Request cancelled');
     expect(client.activeConnectionCount).toBe(0);
   });
@@ -576,5 +756,31 @@ describe('WebSocket demo fixtures', () => {
 
     const inbound = JSON.parse(response.body).events.find((event: any) => event.direction === 'inbound');
     expect(inbound.data).toBe('Hello Ada from ws-demo-001');
+  });
+
+  it('smoke tests the committed demo WebSocket runtime lifecycle request', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({
+      wsBaseUrl: fixture.baseUrl,
+      demoToken: 'token-abc',
+      tenant: 'nz',
+    });
+    const request = parseYaml(fs.readFileSync(path.join(demoRoot, 'WebSocket', 'runtime-lifecycle.yml'), 'utf-8')) as WebSocketRequest;
+    const client = new WebSocketClient(envService);
+    const response = await new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      client,
+      undefined,
+      new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+        envService.resolveVariables(collection, folderDefaults, environmentName),
+      ),
+    ).send(request, makeCollection(demoRoot), undefined, undefined, undefined, undefined, undefined, { requestId: 'demo-runtime-ws' });
+
+    const inbound = JSON.parse(response.body).events.find((event: any) => event.direction === 'inbound');
+    const payload = JSON.parse(inbound.data);
+    expect(payload.message).toMatchObject({ user: 'Ada Runtime', count: 7 });
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.actions[0]).toMatchObject({ target: 'runtime.runtimeSocketMessages', value: 1 });
+    expect(client.activeConnectionCount).toBe(0);
   });
 });
