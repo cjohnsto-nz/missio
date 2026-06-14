@@ -133,6 +133,40 @@ describe('OC-110 runtime authoring model', () => {
     }
   });
 
+  it('preserves existing unsupported-but-schema-valid runtime rows on no-op saves', () => {
+    const request = requestForProtocol('http');
+    request.runtime.scripts.push({
+      type: 'hooks',
+      code: 'console.log("schema-valid hook");',
+      disabled: true,
+    });
+    request.runtime.actions.push({
+      type: 'set-variable',
+      phase: 'after-response',
+      selector: { method: 'jsonq', expression: '$.environmentToken' },
+      variable: { scope: 'environment', name: 'environmentToken' },
+    });
+
+    const model = createRequestEditorModelFromRequest(request) as RequestEditorModel;
+    const lastScript = model.runtime?.scripts?.[model.runtime.scripts.length - 1];
+    const lastAction = model.runtime?.actions?.[model.runtime.actions.length - 1];
+    expect(lastScript).toMatchObject({
+      type: 'hooks',
+      code: 'console.log("schema-valid hook");',
+      disabled: true,
+    });
+    expect(lastAction).toMatchObject({
+      type: 'set-variable',
+      variableScope: 'environment',
+      variableName: 'environmentToken',
+    });
+
+    const updated = applyRequestEditorModel(request, model);
+
+    expect(updated).toEqual(request);
+    validateSubschema('http', updated);
+  });
+
   it('creates, edits, disables, reorders, and removes managed runtime entries without dropping runtime siblings', () => {
     const request = requestForProtocol('http');
     const model = createRequestEditorModelFromRequest(request) as RequestEditorModel;
@@ -252,6 +286,19 @@ describe('OC-110 runtime authoring UI shell', () => {
     expect(css).toContain('.runtime-editor-row');
     expect(css).toContain('.runtime-row-toolbar');
     expect(css).toContain('.runtime-icon-btn');
+    expect(css).toContain('.runtime-unsupported-note');
     expect(css).toContain('.runtime-list:empty::before');
+  });
+
+  it('offers only runtime-executable script phases and supported set-variable scopes for new rows', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.ts'), 'utf8');
+
+    expect(source).toMatch(/const runtimeScriptTypes = \['before-request', 'after-response', 'tests'\];/);
+    expect(source).not.toMatch(/const runtimeScriptTypes = \[[^\]]*hooks/);
+    expect(source).toMatch(/const runtimeVariableScopes = \['runtime', 'request'\];/);
+    expect(source).not.toMatch(/const runtimeVariableScopes = \[[^\]]*(folder|collection|environment)/);
+    expect(source).toContain('hooks (not executed)');
+    expect(source).toContain('environment (not persisted)');
+    expect(source).toContain('data-runtime-unsupported="true"');
   });
 });
