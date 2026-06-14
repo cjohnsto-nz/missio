@@ -68,6 +68,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-090 | gRPC Streaming | [09-grpc-streaming.md](tasks/09-grpc-streaming.md) | Client, server, and bidirectional gRPC streaming execution, UI, fixtures, and tests. |
 | OC-100 | Request Type UX | [10-request-type-ux.md](tasks/10-request-type-ux.md) | UI request type selection, read-only type visibility, and Bruno/Postman-aligned workflow review. |
 | OC-110 | Runtime Authoring UX | [11-runtime-authoring-ux.md](tasks/11-runtime-authoring-ux.md) | Visual editor authoring for scripts, tests, assertions, and set-variable actions. |
+| OC-120 | Preview Media Controls | [12-preview-media-controls.md](tasks/12-preview-media-controls.md) | Zoom, rotate, fit, reset, and Ctrl+scroll controls for image/PDF response previews. |
 
 ## Project Skills
 
@@ -84,7 +85,7 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 
 ## Final Compatibility Evidence
 
-OC-000 through OC-110 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). The table below records the main evidence surfaces that remain useful for maintenance and future audits; these are not open implementation gaps.
+OC-000 through OC-110 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). OC-120 is a new follow-up UX task for media preview controls. The table below records the main evidence surfaces that remain useful for maintenance and future audits.
 
 | Evidence Surface | Location |
 | --- | --- |
