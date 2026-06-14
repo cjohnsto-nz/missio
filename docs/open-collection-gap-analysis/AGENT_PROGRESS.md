@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-000 through OC-110 accepted; OC-120 preview media controls queued as a focused follow-up task. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-000 through OC-110 accepted; OC-120 and OC-130 queued as focused follow-up UX tasks. |
 
 ## Test Coverage Rules
 
@@ -70,6 +70,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-100 | Request type UX | Done | Codex | feature/oc-100-request-type-ux (g0 after restack), stacked on supervisor/add-request-type-ux-task; implementation commit `5cb05a3` | Satisfied by `test/requestTypeUx.test.ts`: schema-valid HTTP/GraphQL/WebSocket/gRPC starter templates, actual `missio.newRequest` protocol picker/write/open flow, YAML and editor-model round-trip safety, no stale protocol roots, gRPC same-protocol editor guard, and read-only protocol chip shell. Shared regressions cover HTTP/GraphQL/WebSocket/gRPC editor, validation, command/tool, and protocol behavior. Switcher/conversion helpers are intentionally out of scope because the benchmarked tools emphasize protocol choice at creation and Postman locks saved request protocols. | `npx vitest run test/requestTypeUx.test.ts test/schemaRoundTrip.test.ts test/openCollectionFoundation.test.ts test/validationService.test.ts` passed 4 files/25 tests; targeted protocol suite passed 8 files/68 tests; `npm run compile` passed; `npm test` passed 21 files/405 tests; `node scripts/validate-collection.js examples/demo-api` passed 42/42 files; `npm run build` passed. | 2026-06-15 00:15 NZT | OC-100 complete; no saved-request switcher was added by product decision and benchmark alignment. Remaining unassigned changes are parallel OC-050/OC-090 work, not OC-100. |
 | OC-110 | Runtime authoring UX | Done | Codex | feature/oc-110-runtime-authoring-ux (g0), stacked on supervisor/add-runtime-authoring-ux-task; implementation commit `fe0ad14`; supervisor follow-up commit `1e6db05`; supervisor acceptance recorded | Satisfied by `test/runtimeAuthoringUx.test.ts`, `test/runtimeExecutionService.test.ts`, `test/validationService.test.ts`, and shared schema/protocol regressions: visual editor can author supported runtime scripts/tests/assertions/actions, no longer offers non-executing `hooks` scripts or unsupported persisted scopes for new rows, preserves schema-valid existing `hooks`/persisted-scope YAML with diagnostics, and runtime actions diagnose unsupported scopes instead of silently writing runtime variables. | `npm run compile` passed; focused `npx vitest run test/runtimeAuthoringUx.test.ts test/runtimeExecutionService.test.ts test/validationService.test.ts test/schemaRoundTrip.test.ts test/requestTypeUx.test.ts test/webSocketSupport.test.ts test/grpcSupport.test.ts` passed 7 files/69 tests; `node scripts\validate-collection.js examples\demo-api` passed 44/44 files; `npm test` passed 23 files/437 tests; `npm run build` passed. | 2026-06-15 09:51 NZT | Supervisor review accepted OC-110 rework; no remaining blocking findings. |
 | OC-120 | Preview media zoom and rotate controls | Unclaimed | TBD | TBD | Add automated coverage for media transform state, toolbar visibility, Ctrl+wheel zoom handling, image and PDF preview branches, reset behavior on new/non-media responses, stale PDF render cancellation, and build/package PDF.js asset inclusion. | Not started. | 2026-06-15 11:18 NZT | Claim with `missio-agent-coordination`; read `tasks/12-preview-media-controls.md`; create a focused branch before editing preview code. |
+| OC-130 | Protocol-native request editor first paint | Unclaimed | TBD | TBD | Add automated coverage for startup state, neutral/protocol-aware first paint, no HTTP-default flash for GraphQL/WebSocket/gRPC, invalid YAML fallback, layout stability, and shared request editor/protocol regressions. | Not started. | 2026-06-15 11:25 NZT | Claim with `missio-agent-coordination`; read `tasks/13-protocol-layout-stability.md`; create a focused branch before editing request panel code. |
 
 ## Dependency Map
 
@@ -88,6 +89,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-100 | OC-000 type guards, OC-010/OC-020/OC-030 protocol editor foundations; OC-050 if auth/template fields change | Request creation and visible type identity completeness |
 | OC-110 | OC-040 runtime schema/engine, OC-060 round-trip safety, OC-100 editor shell; coordinate with OC-070 and OC-080 | Visual authoring completeness for runtime scripts, tests, assertions, and actions |
 | OC-120 | Release PDF.js packaging fix, response preview rendering, request editor webview shell; coordinate with OC-100/OC-110 styles | Inspectable image/PDF response preview UX |
+| OC-130 | OC-100 protocol identity, request editor webview startup path, all protocol editor layouts; coordinate with OC-120 if shared CSS changes | Protocol-native editor first paint and layout stability |
 
 ## Shared Decisions
 
@@ -115,6 +117,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, and `tasks/12-preview-media-controls.md`.
   Verified: task references and goal prompt added; implementation tests not required for docs-only task creation.
   Next: launch OC-120 when ready; the agent should coordinate with the current response preview/PDF.js packaging work and request editor shell styles.
+
+- 2026-06-15 11:25 NZT - Codex Supervisor: Added OC-130 as a focused follow-up task for protocol-native request editor first paint and layout stability.
+  GitButler: planning update is on `supervisor/add-protocol-layout-stability-task`; existing uncommitted OC-120 claim in `AGENT_PROGRESS.md` was preserved and not overwritten.
+  Coverage: documentation-only planning change; the task requires future automated startup-state, protocol-render, no-HTTP-flash, invalid-YAML fallback, layout-stability, round-trip, validation, and shared request editor regression tests.
+  Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, and `tasks/13-protocol-layout-stability.md`.
+  Verified: task references and goal prompt added; implementation tests not required for docs-only task creation.
+  Next: launch OC-130 after or alongside OC-120 only if the agent coordinates shared `requestPanel` CSS and webview startup surfaces.
 
 - 2026-06-15 00:57 NZT - Codex: Added OC-110 as a separate runtime authoring UX task after confirming snippet export belongs to OC-070 and non-HTTP runtime execution belongs to OC-080.
   GitButler: planning update is on `supervisor/add-runtime-authoring-ux-task`, stacked on `supervisor/oc-050-090-100-audit`; active OC-070 implementation changes in `zz` were not edited or committed.
