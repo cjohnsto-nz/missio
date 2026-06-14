@@ -194,4 +194,11 @@ describe('request editor protocol identity guard', () => {
       expect(contributedColorIds.has(`missio.protocol${id}`)).toBe(true);
     }
   });
+
+  it('keeps request body formatting actions right aligned when body type pills are hidden', () => {
+    const requestPanelCss = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
+
+    expect(requestPanelCss).toMatch(/\.body-toolbar\s*\{[^}]*justify-content:\s*flex-start;/);
+    expect(requestPanelCss).toMatch(/\.body-toolbar-actions\s*\{[^}]*margin-left:\s*auto;/);
+  });
 });
