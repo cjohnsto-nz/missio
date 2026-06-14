@@ -1152,6 +1152,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "highlight.js": "^11.11.1",
     "httpsnippet": "^3.0.9",
+    "pdfjs-dist": "^5.4.624",
     "ws": "^8.21.0",
     "yaml": "^2.3.0"
   }

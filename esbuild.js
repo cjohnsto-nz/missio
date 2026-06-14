@@ -1,7 +1,20 @@
 const esbuild = require('esbuild');
+const fs = require('fs/promises');
+const path = require('path');
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
+
+async function copyPdfJsAssets() {
+  const pdfJsBuildDir = path.join(__dirname, 'node_modules', 'pdfjs-dist', 'build');
+  const mediaDir = path.join(__dirname, 'media');
+
+  await fs.mkdir(mediaDir, { recursive: true });
+  await Promise.all([
+    fs.copyFile(path.join(pdfJsBuildDir, 'pdf.min.mjs'), path.join(mediaDir, 'pdf.min.mjs')),
+    fs.copyFile(path.join(pdfJsBuildDir, 'pdf.worker.min.mjs'), path.join(mediaDir, 'pdf.worker.min.mjs')),
+  ]);
+}
 
 async function main() {
   // Extension host bundle (Node)
@@ -41,10 +54,12 @@ async function main() {
   });
 
   if (watch) {
+    await copyPdfJsAssets();
     await Promise.all([extCtx.watch(), webviewCtx.watch()]);
     console.log('Watching for changes...');
   } else {
     await Promise.all([extCtx.rebuild(), webviewCtx.rebuild()]);
+    await copyPdfJsAssets();
     await Promise.all([extCtx.dispose(), webviewCtx.dispose()]);
   }
 }

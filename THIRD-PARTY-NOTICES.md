@@ -8,10 +8,10 @@ are provided in compliance with the respective license requirements.
 ## PDF.js
 
 - **Project:** [PDF.js](https://mozilla.github.io/pdf.js/)
-- **Version:** 3.1.81
+- **Version:** 5.4.624
 - **License:** Apache License 2.0
-- **Copyright:** Copyright 2022 Mozilla Foundation
-- **Files:** `media/pdf.js`, `media/pdf.worker.js`
+- **Copyright:** Copyright 2024 Mozilla Foundation
+- **Files:** `media/pdf.min.mjs`, `media/pdf.worker.min.mjs`
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use these files except in compliance with the License.
