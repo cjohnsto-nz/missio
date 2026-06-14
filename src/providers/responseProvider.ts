@@ -82,6 +82,41 @@ export class ResponseDocumentProvider implements vscode.TextDocumentContentProvi
       lines.push(response.body);
     }
 
+    const stream = (response as any).stream;
+    if (stream?.protocol === 'grpc') {
+      lines.push('');
+      lines.push('-- gRPC Stream --------------------------------------');
+      lines.push(`Method: ${stream.method ?? response.headers['x-missio-grpc-method'] ?? 'unknown'}`);
+      lines.push(`Type: ${stream.methodType ?? response.headers['x-missio-grpc-method-type'] ?? 'unknown'}`);
+      lines.push(`Sent: ${stream.sentMessageCount ?? 0} | Received: ${stream.receivedMessageCount ?? 0}`);
+      if (stream.status) {
+        lines.push(`Status: ${stream.status.code} ${stream.status.name}${stream.status.details ? ` - ${stream.status.details}` : ''}`);
+      }
+      if (stream.error) {
+        lines.push(`Error: ${stream.error.name} - ${stream.error.details || stream.error.message}`);
+      }
+
+      const metadata = stream.metadata && typeof stream.metadata === 'object'
+        ? Object.entries(stream.metadata as Record<string, unknown>)
+            .filter(([key]) => !key.startsWith('x-missio-grpc-') && key !== 'content-type')
+        : [];
+      if (metadata.length > 0) {
+        lines.push('');
+        lines.push('Metadata:');
+        for (const [key, value] of metadata) {
+          lines.push(`  ${key}: ${String(value)}`);
+        }
+      }
+
+      if (Array.isArray(stream.events) && stream.events.length > 0) {
+        lines.push('');
+        lines.push('Events:');
+        for (const event of stream.events) {
+          lines.push(`  ${this._formatGrpcStreamEvent(event)}`);
+        }
+      }
+    }
+
     if (response.runtime) {
       lines.push('');
       lines.push('-- Runtime Results ------------------------------------');
@@ -149,6 +184,29 @@ export class ResponseDocumentProvider implements vscode.TextDocumentContentProvi
     } catch {
       return String(value);
     }
+  }
+
+  private _formatGrpcStreamEvent(event: any): string {
+    const elapsed = typeof event.elapsedMs === 'number' ? `${event.elapsedMs}ms` : '?ms';
+    if (event.type === 'sent') {
+      const label = event.description ? ` ${event.description}` : '';
+      return `[${elapsed}] sent #${(event.index ?? 0) + 1}${label}`;
+    }
+    if (event.type === 'received') {
+      return `[${elapsed}] received #${(event.index ?? 0) + 1}: ${this._formatRuntimeValue(event.message)}`;
+    }
+    if (event.type === 'metadata') {
+      return `[${elapsed}] metadata ${this._formatRuntimeValue(event.metadata)}`;
+    }
+    if (event.type === 'status') {
+      const status = event.status ?? {};
+      return `[${elapsed}] status ${status.code ?? ''} ${status.name ?? ''}${status.details ? ` - ${status.details}` : ''}`.trim();
+    }
+    if (event.type === 'error') {
+      const error = event.error ?? {};
+      return `[${elapsed}] error ${error.name ?? ''}${error.details ? ` - ${error.details}` : ''}`.trim();
+    }
+    return `[${elapsed}] ${String(event.type ?? 'event')}`;
   }
 
   private _formatSize(bytes: number): string {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SendRequestTool } from '../src/copilot/tools/sendRequestTool';
-import type { HttpRequest, MissioCollection } from '../src/models/types';
+import type { GrpcRequest, HttpRequest, MissioCollection } from '../src/models/types';
 import * as os from 'os';
 
 function interpolate(template: string, vars: Map<string, string>): string {
@@ -62,6 +62,47 @@ describe('SendRequestTool dryRun redaction', () => {
     expect(parsed.headers['X-Api-Key']).toBe('[redacted]');
     expect(parsed.url).toContain('token=%5Bredacted%5D');
     expect(parsed.body).toContain('[secret]');
+  });
+
+  it('previews gRPC streaming message sequences in dryRun output', async () => {
+    const environmentService = {
+      resolveVariablesWithSource: async () => new Map<string, { value: string; source: string }>([
+        ['grpcName', { value: 'Ada', source: 'environment' }],
+        ['grpcUserId', { value: '42', source: 'environment' }],
+      ]),
+      interpolate: (template: string, vars: Map<string, string>) => interpolate(template, vars),
+      interpolateJson: (template: string, vars: Map<string, string>) => interpolate(template, vars),
+    } as any;
+    const collection = makeCollection();
+    collection.data.request = { metadata: [{ name: 'x-demo-default', value: 'collection' }] } as any;
+    const request: GrpcRequest = {
+      info: { name: 'Upload users', type: 'grpc' },
+      grpc: {
+        url: 'localhost:50051',
+        method: 'missio.demo.DemoService/UploadUsers',
+        methodType: 'client-streaming',
+        message: [
+          { description: 'first', message: '{"name":"{{grpcName}}","userId":{{grpcUserId}}}' },
+          { description: 'second', message: '{"name":"Grace","userId":43}' },
+        ] as any,
+      },
+    };
+
+    const output = await (new SendRequestTool({} as any, environmentService, {} as any) as any)._grpcDryRun(
+      request,
+      collection,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      [],
+    );
+
+    const parsed = JSON.parse(output);
+    expect(parsed.request.message).toBeUndefined();
+    expect(parsed.request.messages).toHaveLength(2);
+    expect(parsed.request.messages[0].message).toEqual({ name: 'Ada', userId: 42 });
+    expect(parsed.request.metadata['x-demo-default']).toBe('collection');
   });
 });
 
@@ -207,6 +248,61 @@ describe('SendRequestTool runtime output', () => {
     const parsed = JSON.parse(output);
     expect(parsed.runtime.summary.failed).toBe(1);
     expect(parsed.runtime.tests[0].message).toBe('nope');
+  });
+
+  it('includes gRPC stream summaries in successful responses', async () => {
+    const collection = makeCollection();
+    const request: GrpcRequest = {
+      info: { name: 'Stream users', type: 'grpc' },
+      grpc: {
+        url: 'localhost:50051',
+        method: 'missio.demo.DemoService/StreamUsers',
+        methodType: 'server-streaming',
+        message: '{"userId":42}',
+      },
+    };
+    const tool = new SendRequestTool(
+      {
+        loadRequestFile: async () => request,
+        getCollection: () => collection,
+        getCollections: () => [collection],
+      } as any,
+      {
+        resolveVariables: async () => new Map<string, string>(),
+      } as any,
+      {
+        send: async () => ({
+          status: 200,
+          statusText: 'OK',
+          headers: { 'content-type': 'application/json' },
+          body: '{"receivedMessageCount":2}',
+          duration: 5,
+          size: 26,
+          stream: {
+            protocol: 'grpc',
+            methodType: 'server-streaming',
+            sentMessageCount: 1,
+            receivedMessageCount: 2,
+            status: { code: 0, name: 'OK', details: 'OK' },
+          },
+        }),
+      } as any,
+    );
+
+    const output = await tool.call(
+      {
+        input: {
+          requestFilePath: '/tmp/stream.yml',
+          collectionId: 'collection-1',
+        },
+      } as any,
+      {} as any,
+    );
+
+    const parsed = JSON.parse(output);
+    expect(parsed.success).toBe(true);
+    expect(parsed.stream.methodType).toBe('server-streaming');
+    expect(parsed.stream.receivedMessageCount).toBe(2);
   });
 
   it('returns runtime diagnostics when before-request scripts abort execution', async () => {
