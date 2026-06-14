@@ -4,6 +4,8 @@
 
 Implement OpenCollection `GraphQLRequest` support across model, editor, execution, validation, tree, CodeLens, examples, and tests.
 
+Use `$missio-demo-server-fixtures` for local demo API routes and user-verifiable example requests.
+
 ## Schema Surface
 
 | Feature | Schema Shape |
@@ -44,6 +46,14 @@ Missio has no GraphQL types, editor, executor, validation selection, tree render
 5. Add validation for GraphQL request files.
 6. Update tree and CodeLens to show GraphQL operation type or method.
 7. Add Copilot `send_request` protocol handling.
+8. Extend the local demo API and example collection:
+
+| Demo Area | Required Work |
+| --- | --- |
+| Server route | Add deterministic `POST /graphql` support to `examples/demo-api/server.js`, including query and mutation-style responses plus variable echoing. |
+| Environment | Keep `LOCAL.baseUrl` usable for GraphQL requests; add extra environment variables only when needed. |
+| Demo requests | Add `examples/demo-api/GraphQL/` with `folder.yml` and schema-valid GraphQL requests for simple query, mutation, variables, and selected body variants. |
+| User notes | Each demo request description should say to run `node examples/demo-api/server.js` first. |
 
 ## Acceptance Criteria
 
@@ -55,6 +65,7 @@ Missio has no GraphQL types, editor, executor, validation selection, tree render
 | Variables | Missio variable interpolation works in URL, headers, params, query, variables, and auth. |
 | Validation | Valid GraphQL request passes; malformed GraphQL request fails against correct schema. |
 | Tooling | Tree, CodeLens, commands, and Copilot tools identify GraphQL as GraphQL. |
+| Demo verification | A user can run the local demo server and send the GraphQL demo requests from Missio without internet access. |
 
 ## Suggested Tests
 
@@ -64,6 +75,7 @@ Missio has no GraphQL types, editor, executor, validation selection, tree render
 | Save GraphQL request with two body variants. | Both variants remain; selected one is preserved. |
 | Open GraphQL request in editor and save without changes. | No `http` object appears. |
 | Auth inheritance with GraphQL. | Effective auth header/query is applied. |
+| Demo GraphQL query/mutation. | Local demo server returns deterministic data and echoed variables. |
 
 ## Out Of Scope
 

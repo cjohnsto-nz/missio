@@ -19,25 +19,25 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## GraphQL
 
 ```text
-/goal Complete OC-010 GraphQL support using $missio-agent-coordination and $missio-protocol-implementer without stopping until schema-native GraphQL editing, execution, validation, tree/CodeLens/tool routing, body variants, AGENT_PROGRESS updates, and complete automated unit, integration, and round-trip tests are implemented and passing.
+/goal Complete OC-010 GraphQL support using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until schema-native GraphQL editing, execution, validation, tree/CodeLens/tool routing, body variants, local demo server GraphQL routes, user-verifiable demo GraphQL requests, AGENT_PROGRESS updates, and complete automated unit, integration, and round-trip tests are implemented and passing.
 ```
 
 ## WebSocket
 
 ```text
-/goal Complete OC-020 WebSocket support using $missio-agent-coordination and $missio-protocol-implementer without stopping until schema-native WebSocket editing, connect/send/receive/disconnect lifecycle, message variants, cleanup behavior, AGENT_PROGRESS updates, and complete automated tests with a local WebSocket fixture server are implemented and passing.
+/goal Complete OC-020 WebSocket support using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until schema-native WebSocket editing, connect/send/receive/disconnect lifecycle, message variants, cleanup behavior, local demo server WebSocket fixtures, user-verifiable demo WebSocket requests, AGENT_PROGRESS updates, and complete automated tests with a local WebSocket fixture server are implemented and passing.
 ```
 
 ## gRPC
 
 ```text
-/goal Complete OC-030 gRPC unary and protobuf support using $missio-agent-coordination and $missio-protocol-implementer without stopping until protobuf config editing, gRPC request validation, metadata defaults, unary execution against a local fixture server, explicit streaming diagnostics, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
+/goal Complete OC-030 gRPC unary and protobuf support using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until protobuf config editing, gRPC request validation, metadata defaults, unary execution against a local fixture server, local demo gRPC server/proto fixtures, user-verifiable demo gRPC requests, explicit streaming diagnostics, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
 ```
 
 ## Runtime
 
 ```text
-/goal Complete OC-040 scripts, tests, assertions, and actions using $missio-agent-coordination and $missio-runtime-implementer without stopping until lifecycle execution, sandbox policy, assertions, set-variable actions, test result UI/tool output, AGENT_PROGRESS updates, and complete automated runtime, security, and failure-path tests are implemented and passing.
+/goal Complete OC-040 scripts, tests, assertions, and actions using $missio-agent-coordination, $missio-runtime-implementer, and $missio-demo-server-fixtures without stopping until lifecycle execution, sandbox policy, assertions, set-variable actions, test result UI/tool output, local demo runtime fixture routes, user-verifiable demo runtime requests, AGENT_PROGRESS updates, and complete automated runtime, security, and failure-path tests are implemented and passing.
 ```
 
 ## Auth And Transport

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Missio Demo Server Fixtures"
+  short_description: "Extend Missio's local demo API"
+  default_prompt: "Use $missio-demo-server-fixtures to add local demo server routes and OpenCollection demo requests for a Missio feature."
