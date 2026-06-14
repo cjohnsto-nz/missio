@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'fs';
 import * as path from 'path';
 import Ajv from 'ajv';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -161,7 +162,7 @@ describe('request editor protocol identity guard', () => {
     expect((provider as any)._canApplyRequestEdit(current, createRequestTemplate('http', 'Echo unary'))).toBe(false);
   });
 
-  it('renders a read-only protocol chip in the request editor shell', () => {
+  it('renders a read-only protocol icon inside the request URL field', () => {
     const provider = new RequestEditorProvider(
       { extensionUri: { fsPath: process.cwd() } } as any,
       {} as any,
@@ -173,8 +174,24 @@ describe('request editor protocol identity guard', () => {
 
     const html = (provider as any)._getBodyHtml({} as any) as string;
 
-    expect(html).toContain('id="protocolChip"');
-    expect(html).toContain('aria-label="Request type"');
+    expect(html).toMatch(/<div class="url-wrap" id="urlWrap">[\s\S]*id="protocolIcon"[\s\S]*id="url"/);
+    expect(html).toContain('id="protocolIcon"');
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="HTTP request type"');
+    expect(html).not.toContain('protocol-chip');
+    expect(html).not.toContain('id="protocolChip"');
     expect(html).not.toContain('id="requestTypeSwitcher"');
+  });
+
+  it('defines request protocol colors in centralized theme surfaces', () => {
+    const themeCss = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'theme.css'), 'utf8');
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+    const contributedColorIds = new Set((pkg.contributes.colors as Array<{ id: string }>).map(color => color.id));
+
+    for (const id of ['Http', 'Graphql', 'Websocket', 'Grpc']) {
+      expect(themeCss).toContain(`--m-protocol-${id.toLowerCase()}`);
+      expect(themeCss).toContain(`--vscode-missio-protocol${id}`);
+      expect(contributedColorIds.has(`missio.protocol${id}`)).toBe(true);
+    }
   });
 });

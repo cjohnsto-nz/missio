@@ -648,6 +648,38 @@
           "dark": "#d16faa",
           "light": "#ad1457"
         }
+      },
+      {
+        "id": "missio.protocolHttp",
+        "description": "HTTP request protocol icon color",
+        "defaults": {
+          "dark": "#8aabeb",
+          "light": "#1565c0"
+        }
+      },
+      {
+        "id": "missio.protocolGraphql",
+        "description": "GraphQL request protocol icon color",
+        "defaults": {
+          "dark": "#d16faa",
+          "light": "#ad1457"
+        }
+      },
+      {
+        "id": "missio.protocolWebsocket",
+        "description": "WebSocket request protocol icon color",
+        "defaults": {
+          "dark": "#4ec9b0",
+          "light": "#00796b"
+        }
+      },
+      {
+        "id": "missio.protocolGrpc",
+        "description": "gRPC request protocol icon color",
+        "defaults": {
+          "dark": "#b9aad9",
+          "light": "#6a1b9a"
+        }
       }
     ],
     "configuration": {

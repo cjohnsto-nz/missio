@@ -631,17 +631,24 @@ function setProtocolUi(protocol: PanelProtocol): void {
   const isWebSocket = protocol === 'websocket';
   const isGrpc = protocol === 'grpc';
   const methodPicker = $('methodPicker') as HTMLElement;
-  const protocolChip = $('protocolChip') as HTMLElement;
+  const protocolIcon = $('protocolIcon') as HTMLElement;
   const protocolLabels: Record<PanelProtocol, string> = {
     http: 'HTTP',
     graphql: 'GraphQL',
     websocket: 'WebSocket',
     grpc: 'gRPC',
   };
+  const protocolIcons: Record<PanelProtocol, string> = {
+    http: 'globe',
+    graphql: 'type-hierarchy',
+    websocket: 'plug',
+    grpc: 'radio-tower',
+  };
   methodPicker.style.display = (isWebSocket || isGrpc) ? 'none' : '';
-  protocolChip.style.display = 'flex';
-  protocolChip.textContent = protocolLabels[protocol];
-  protocolChip.dataset.protocol = protocol;
+  protocolIcon.className = 'codicon codicon-' + protocolIcons[protocol] + ' protocol-icon protocol-icon-' + protocol;
+  protocolIcon.dataset.protocol = protocol;
+  protocolIcon.setAttribute('aria-label', protocolLabels[protocol] + ' request type');
+  protocolIcon.setAttribute('title', protocolLabels[protocol] + ' request type');
 
   setRequestTabVisible('params', !isWebSocket && !isGrpc);
   setRequestTabVisible('settings', !isWebSocket && !isGrpc);

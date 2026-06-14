@@ -823,8 +823,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <option value="OPTIONS">OPTIONS</option>
       </select>
     </div>
-    <div class="protocol-chip" id="protocolChip" aria-label="Request type">HTTP</div>
-    <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
+    <div class="url-wrap" id="urlWrap">
+      <span class="codicon codicon-globe protocol-icon protocol-icon-http" id="protocolIcon" role="img" aria-label="HTTP request type" title="HTTP request type"></span>
+      <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div>
+    </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
   </div>
