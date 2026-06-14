@@ -63,7 +63,9 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-040 | Runtime | [04-runtime-scripting-testing.md](tasks/04-runtime-scripting-testing.md) | Scripts, tests, assertions, actions, and runtime variable mutation. |
 | OC-050 | Auth/Transport | [05-auth-proxy-mtls.md](tasks/05-auth-proxy-mtls.md) | Missing auth methods, OAuth2 gaps, proxy, mTLS, redirects. |
 | OC-060 | Schema Safety | [06-schema-roundtrip-validation.md](tasks/06-schema-roundtrip-validation.md) | Round-trip preservation, validation coverage, YAML schema wiring. |
-| OC-070 | Agent/API Surface | [07-import-export-copilot.md](tasks/07-import-export-copilot.md) | Protocol-aware imports, exports, tree nodes, CodeLens, and Copilot tools. |
+| OC-070 | User/Agent Surface Polish | [07-import-export-copilot.md](tasks/07-import-export-copilot.md) | Protocol-aware request creation, import/export behavior, snippet limits, and Copilot polish. |
+| OC-080 | Protocol Runtime Lifecycle | [08-runtime-non-http-protocols.md](tasks/08-runtime-non-http-protocols.md) | Apply scripts, assertions, tests, actions, and runtime variables to supported non-HTTP executors. |
+| OC-090 | gRPC Streaming | [09-grpc-streaming.md](tasks/09-grpc-streaming.md) | Client, server, and bidirectional gRPC streaming execution, UI, fixtures, and tests. |
 
 ## Project Skills
 
@@ -78,18 +80,17 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 | `missio-demo-server-fixtures` | Extending the local demo API and example requests for user-verifiable protocol/runtime features. |
 | `but` | Installed GitButler skill for branch, stack, commit, push, and PR operations. |
 
-## Repo Evidence
+## Remaining Gap Evidence
 
-The current codebase is strongly HTTP-centered:
+OC-000 through OC-040 and OC-060 have removed most of the original HTTP-only foundation gaps. The remaining work is concentrated in request creation, import/export surfaces, full runtime lifecycle parity, auth/transport hardening, and gRPC streaming:
 
 | Evidence | Location |
 | --- | --- |
-| `Item` is only `HttpRequest | Folder`. | [src/models/types.ts](../../src/models/types.ts) |
-| The executor accepts `HttpRequest` and uses Node `http`/`https`. | [src/services/httpClient.ts](../../src/services/httpClient.ts) |
-| Collection validation only compiles `HttpRequest` for request files. | [src/services/validationService.ts](../../src/services/validationService.ts) |
-| CodeLens only looks for `http:` and `method:`. | [src/providers/codeLensProvider.ts](../../src/providers/codeLensProvider.ts) |
-| Send command rejects files without `request.http.method/url`. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts) |
-| Runtime dependencies do not include protocol/runtime libraries. | [package.json](../../package.json) |
+| New request creation still needs schema-native protocol starter templates and UX coverage. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts) |
+| Importers and exporters need explicit protocol preservation or unsupported-conversion diagnostics. | [src/importers](../../src/importers) |
+| Snippet export remains HTTP-oriented and should not silently accept non-HTTP requests. | [src/services/snippetService.ts](../../src/services/snippetService.ts) |
+| Runtime scripts/assertions/actions are verified for HTTP and GraphQL-over-HTTP; WebSocket and gRPC need lifecycle parity. | [src/services/requestExecutionService.ts](../../src/services/requestExecutionService.ts) |
+| gRPC unary execution exists, but streaming request types remain an explicit unsupported path. | [src/services/grpcClient.ts](../../src/services/grpcClient.ts) |
 
 ## Definition Of Done For Any Track
 
