@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as https from 'https';
 import * as http from 'http';
 import type { CommandContext } from './types';
-import { importers, PostmanImporter, detectRequestFormat, requestImporters } from '../importers';
+import { importers, PostmanImporter, detectRequestFormat, detectUnsupportedRequestFormat, requestImporters } from '../importers';
 import { stringifyYaml } from '../services/yamlParser';
 import { RequestEditorProvider } from '../panels/requestPanel';
 
@@ -130,9 +130,13 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
         const collUri = vscode.Uri.file(result.collectionDir);
         const inWorkspace = !!vscode.workspace.getWorkspaceFolder(collUri);
 
+        const diagnosticSuffix = result.diagnostics?.length
+          ? ` ${result.diagnostics.length} import limitation${result.diagnostics.length === 1 ? '' : 's'} recorded.`
+          : '';
+
         if (!inWorkspace) {
           const action = await vscode.window.showInformationMessage(
-            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.`,
+            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.${diagnosticSuffix}`,
             'Add to Workspace',
             'Open Folder',
           );
@@ -146,7 +150,7 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
           }
         } else {
           vscode.window.showInformationMessage(
-            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.`,
+            `Imported "${path.basename(result.collectionDir)}": ${result.requestCount} requests, ${result.folderCount} folders.${diagnosticSuffix}`,
           );
         }
 
@@ -297,6 +301,11 @@ export function registerImportCommands(ctx: CommandContext): vscode.Disposable[]
       // Auto-detect format
       const importer = detectRequestFormat(text.trim());
       if (!importer) {
+        const diagnostic = detectUnsupportedRequestFormat(text.trim());
+        if (diagnostic) {
+          vscode.window.showWarningMessage(diagnostic.message);
+          return;
+        }
         vscode.window.showWarningMessage(
           `Could not detect format. Supported: ${requestImporters.map(i => i.label).join(', ')}`,
         );
