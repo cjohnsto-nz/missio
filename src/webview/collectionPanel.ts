@@ -11,6 +11,7 @@ import {
   getResolvedVariables, getVariableSources, getShowResolvedVars, setShowResolvedVars,
 } from './varFields';
 import { handleSecretValueResolved, handleSetSecretValueResult as handleSetSecretValueResultTooltip } from './varTooltip';
+import { applyRequestDefaultsEditorModel } from '../models/schemaRoundTrip';
 
 declare function acquireVsCodeApi(): { postMessage(message: any): void; getState(): any; setState(state: any): void };
 const vscode = acquireVsCodeApi();
@@ -95,6 +96,14 @@ function buildAndSend() {
     });
   collectionPayload.request = collectionPayload.request || {};
   collectionPayload.request.variables = requestVariables.length > 0 ? requestVariables : undefined;
+
+  const mergedRequestDefaults = applyRequestDefaultsEditorModel(collectionData?.request, {
+    headers: requestHeaders.length > 0 ? requestHeaders : undefined,
+    auth: authData,
+    variables: requestVariables.length > 0 ? requestVariables : undefined,
+  });
+  if (mergedRequestDefaults) collectionPayload.request = mergedRequestDefaults;
+  else delete collectionPayload.request;
 
   // Clean empty request
   if (collectionPayload.request && Object.keys(collectionPayload.request).every((requestKey: string) => collectionPayload.request[requestKey] === undefined)) {
