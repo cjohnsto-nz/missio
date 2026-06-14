@@ -1065,10 +1065,20 @@ window.missioPdfJsReady = import('${pdfJsUri}')
         <div class="tab-panel" id="panel-resp-runtime">
           <div class="runtime-results" id="runtimeResults"></div>
         </div>
-        <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;position:relative;">
-          <iframe id="respPreviewFrame" sandbox="allow-same-origin" style="border:none;width:100%;height:100%;background:#fff;display:none;"></iframe>
+        <div class="tab-panel" id="panel-resp-preview">
+          <div class="preview-media-bar" id="previewMediaBar" style="display:none;" aria-label="Preview media controls">
+            <button class="preview-media-btn" id="previewZoomOutBtn" type="button" title="Zoom out" aria-label="Zoom out"><span class="codicon codicon-zoom-out"></span></button>
+            <span class="preview-zoom-label" id="previewZoomLabel">100%</span>
+            <button class="preview-media-btn" id="previewZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><span class="codicon codicon-zoom-in"></span></button>
+            <button class="preview-media-btn" id="previewFitBtn" type="button" title="Fit to width" aria-label="Fit to width"><span class="codicon codicon-screen-full"></span></button>
+            <button class="preview-media-btn" id="previewResetBtn" type="button" title="Reset zoom and rotation" aria-label="Reset zoom and rotation"><span class="codicon codicon-refresh"></span></button>
+            <button class="preview-media-btn" id="previewRotateLeftBtn" type="button" title="Rotate left" aria-label="Rotate left"><span class="codicon codicon-arrow-left"></span></button>
+            <button class="preview-media-btn" id="previewRotateRightBtn" type="button" title="Rotate right" aria-label="Rotate right"><span class="codicon codicon-arrow-right"></span></button>
+          </div>
+          <iframe id="respPreviewFrame" sandbox="allow-same-origin" class="preview-frame" style="display:none;"></iframe>
           <div id="previewOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></div>
-          <div id="respPdfContainer" style="display:none;background:var(--vscode-editor-background);padding:16px 0;text-align:center;"></div>
+          <div id="respImageContainer" class="preview-media-content preview-image-container" style="display:none;"></div>
+          <div id="respPdfContainer" class="preview-media-content preview-pdf-container" style="display:none;"></div>
         </div>
       </div>
     </div>

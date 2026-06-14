@@ -426,6 +426,12 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
 .codicon-add::before { content: '\\ea60'; }
 .codicon-desktop-download::before { content: '\\ec74'; }
 .codicon-trash::before { content: '\\ea81'; }
+.codicon-zoom-in::before { content: '\\eb81'; }
+.codicon-zoom-out::before { content: '\\eb82'; }
+.codicon-screen-full::before { content: '\\eb4c'; }
+.codicon-refresh::before { content: '\\eb37'; }
+.codicon-arrow-left::before { content: '\\ea9b'; }
+.codicon-arrow-right::before { content: '\\ea9c'; }
 .codicon.icon-collection { color: var(--m-src-collection); }
 .codicon.icon-folder { color: var(--m-src-folder); }
 .codicon.icon-global { color: var(--m-src-global); }

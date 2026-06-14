@@ -1,0 +1,324 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import { JSDOM } from 'jsdom';
+import { RequestEditorProvider } from '../src/panels/requestPanel';
+
+type ResponseModule = typeof import('../src/webview/response');
+
+function defer<T = void>(): { promise: Promise<T>; resolve: (value: T | PromiseLike<T>) => void; reject: (reason?: unknown) => void } {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function flushPromises(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+async function loadResponseModule(): Promise<ResponseModule> {
+  vi.resetModules();
+  (globalThis as any).acquireVsCodeApi = () => ({
+    postMessage: vi.fn(),
+    getState: vi.fn(),
+    setState: vi.fn(),
+  });
+  return import('../src/webview/response');
+}
+
+function mountResponseDom(): JSDOM {
+  const dom = new JSDOM(`<!doctype html><html><body>
+    <div id="respLoading" style="display:none;"><span></span><span id="loadingTimer"></span></div>
+    <div id="responseBar"></div>
+    <div id="respTabs"><div class="tab" data-tab="resp-body"></div><div class="tab" data-tab="resp-preview" id="respPreviewTab"></div></div>
+    <div id="respBodyWrap"></div>
+    <div id="respEmpty"></div>
+    <span id="statusBadge"></span>
+    <button id="refreshOAuthRetryBtn"></button>
+    <div id="respRuntimeTab"></div>
+    <div id="runtimeResults"></div>
+    <div id="respBinaryOverlay"></div>
+    <div id="respBinaryInfo"></div>
+    <div id="respLineNumbers"></div>
+    <pre id="respBodyPre"></pre>
+    <table><tbody id="respHeadersBody"></tbody></table>
+    <span id="responseMeta"></span>
+    <div class="response-section" id="responseSection">
+      <div class="response-body">
+        <div class="tab-panel" id="panel-resp-body"></div>
+        <div class="tab-panel" id="panel-resp-preview">
+          <div class="preview-media-bar" id="previewMediaBar" style="display:none;">
+            <button id="previewZoomOutBtn"></button>
+            <span id="previewZoomLabel"></span>
+            <button id="previewZoomInBtn"></button>
+            <button id="previewFitBtn"></button>
+            <button id="previewResetBtn"></button>
+            <button id="previewRotateLeftBtn"></button>
+            <button id="previewRotateRightBtn"></button>
+          </div>
+          <iframe id="respPreviewFrame"></iframe>
+          <div id="previewOverlay"></div>
+          <div id="respImageContainer"></div>
+          <div id="respPdfContainer"></div>
+        </div>
+      </div>
+    </div>
+  </body></html>`, { url: 'https://missio.test' });
+
+  const win = dom.window as any;
+  (globalThis as any).window = win;
+  (globalThis as any).document = win.document;
+  (globalThis as any).NodeFilter = win.NodeFilter;
+  (globalThis as any).HTMLElement = win.HTMLElement;
+  (globalThis as any).HTMLImageElement = win.HTMLImageElement;
+  (globalThis as any).HTMLIFrameElement = win.HTMLIFrameElement;
+  (globalThis as any).HTMLCanvasElement = win.HTMLCanvasElement;
+  (globalThis as any).WheelEvent = win.WheelEvent;
+  (globalThis as any).Blob = win.Blob;
+  (globalThis as any).URL = win.URL;
+  (globalThis as any).atob = (value: string) => Buffer.from(value, 'base64').toString('binary');
+  (globalThis as any).btoa = (value: string) => Buffer.from(value, 'binary').toString('base64');
+  win.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({}));
+  win.URL.createObjectURL = vi.fn(() => 'blob:preview');
+  win.URL.revokeObjectURL = vi.fn();
+  Object.defineProperty(win.document.getElementById('panel-resp-preview'), 'clientWidth', { value: 800, configurable: true });
+  Object.defineProperty(win.document.getElementById('respPdfContainer'), 'clientWidth', { value: 800, configurable: true });
+  Object.defineProperty(win.document.getElementById('respImageContainer'), 'clientWidth', { value: 800, configurable: true });
+  return dom;
+}
+
+function imageResponse() {
+  return {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'image/png' },
+    body: '',
+    bodyBase64: 'iVBORw0KGgo=',
+    duration: 7,
+    size: 8,
+  };
+}
+
+function pdfResponse() {
+  return {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/pdf' },
+    body: '',
+    bodyBase64: 'JVBERi0x',
+    duration: 7,
+    size: 8,
+  };
+}
+
+function textResponse() {
+  return {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    body: '{"ok":true}',
+    duration: 7,
+    size: 11,
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  delete (globalThis as any).window;
+  delete (globalThis as any).document;
+  delete (globalThis as any).acquireVsCodeApi;
+});
+
+describe('preview media transform helpers', () => {
+  it('clamps zoom, resets, toggles fit, and normalizes rotation', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    const base = { zoom: 1, rotation: 0, fit: false };
+
+    expect(response.clampMediaZoom(99)).toBe(5);
+    expect(response.clampMediaZoom(0)).toBe(0.25);
+    expect(response.normalizeMediaRotation(-90)).toBe(270);
+    expect(response.applyMediaTransformAction(base, 'zoomIn')).toEqual({ zoom: 1.25, rotation: 0, fit: false });
+    expect(response.applyMediaTransformAction(base, 'wheelZoomOut')).toEqual({ zoom: 0.9, rotation: 0, fit: false });
+    expect(response.applyMediaTransformAction({ zoom: 2, rotation: 270, fit: true }, 'reset')).toEqual(base);
+    expect(response.applyMediaTransformAction(base, 'fit')).toEqual({ zoom: 1, rotation: 0, fit: true });
+    expect(response.applyMediaTransformAction(base, 'rotateLeft')).toEqual({ zoom: 1, rotation: 270, fit: false });
+    expect(response.applyMediaTransformAction(base, 'rotateRight')).toEqual({ zoom: 1, rotation: 90, fit: false });
+  });
+});
+
+describe('preview media toolbar markup', () => {
+  it('renders compact media controls and preview containers in the request editor shell', () => {
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const html = (provider as any)._getBodyHtml({} as any) as string;
+
+    expect(html).toContain('id="previewMediaBar"');
+    expect(html).toContain('id="previewZoomOutBtn"');
+    expect(html).toContain('aria-label="Zoom out"');
+    expect(html).toContain('id="previewFitBtn"');
+    expect(html).toContain('aria-label="Fit to width"');
+    expect(html).toContain('id="previewRotateLeftBtn"');
+    expect(html).toContain('id="respImageContainer"');
+    expect(html).toContain('id="respPdfContainer"');
+  });
+
+  it('defines toolbar, icon, image, PDF, and package asset surfaces', () => {
+    const css = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
+    const basePanel = fs.readFileSync(path.join(process.cwd(), 'src', 'panels', 'basePanel.ts'), 'utf8');
+    const ignore = fs.readFileSync(path.join(process.cwd(), '.vscodeignore'), 'utf8');
+    const esbuild = fs.readFileSync(path.join(process.cwd(), 'esbuild.js'), 'utf8');
+
+    expect(css).toContain('.preview-media-bar');
+    expect(css).toContain('.preview-media-btn');
+    expect(css).toContain('.preview-image-frame');
+    expect(css).toContain('.preview-pdf-container');
+    for (const icon of ['zoom-in', 'zoom-out', 'screen-full', 'refresh', 'arrow-left', 'arrow-right']) {
+      expect(basePanel).toContain(`.codicon-${icon}::before`);
+    }
+    expect(esbuild).toContain('pdf.min.mjs');
+    expect(esbuild).toContain('pdf.worker.min.mjs');
+    expect(ignore).not.toMatch(/^media\/pdf\.min\.mjs$/m);
+    expect(ignore).not.toMatch(/^media\/pdf\.worker\.min\.mjs$/m);
+    expect(fs.existsSync(path.join(process.cwd(), 'media', 'pdf.min.mjs'))).toBe(true);
+    expect(fs.existsSync(path.join(process.cwd(), 'media', 'pdf.worker.min.mjs'))).toBe(true);
+  });
+});
+
+describe('preview media controls in the response webview', () => {
+  it('shows controls for image previews and applies button and Ctrl+wheel zoom', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    response.initPreviewMediaControls();
+
+    response.showResponse(imageResponse());
+    response.renderPreview();
+
+    expect(document.getElementById('previewMediaBar')?.style.display).toBe('flex');
+    expect(document.getElementById('previewZoomLabel')?.textContent).toBe('100%');
+    expect(document.getElementById('respPreviewImage')).toBeTruthy();
+    expect((document.getElementById('respPreviewImage') as HTMLImageElement).src).toContain('data:image/png;base64');
+
+    document.getElementById('previewZoomInBtn')?.click();
+    expect(response.getPreviewMediaTransform()).toMatchObject({ zoom: 1.25, rotation: 0, fit: false });
+    expect(document.getElementById('previewZoomLabel')?.textContent).toBe('125%');
+
+    const ordinaryWheel = new WheelEvent('wheel', { deltaY: -1, cancelable: true });
+    document.getElementById('panel-resp-preview')?.dispatchEvent(ordinaryWheel);
+    expect(ordinaryWheel.defaultPrevented).toBe(false);
+    expect(response.getPreviewMediaTransform().zoom).toBe(1.25);
+
+    const zoomWheel = new WheelEvent('wheel', { ctrlKey: true, deltaY: -1, cancelable: true });
+    document.getElementById('panel-resp-preview')?.dispatchEvent(zoomWheel);
+    expect(zoomWheel.defaultPrevented).toBe(true);
+    expect(response.getPreviewMediaTransform().zoom).toBe(1.35);
+  });
+
+  it('resets and hides controls for new non-media responses and clear-response paths', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    response.initPreviewMediaControls();
+
+    response.showResponse(imageResponse());
+    response.renderPreview();
+    document.getElementById('previewZoomInBtn')?.click();
+    document.getElementById('previewRotateRightBtn')?.click();
+    expect(response.getPreviewMediaTransform()).toMatchObject({ zoom: 1.25, rotation: 90 });
+
+    response.showResponse(textResponse());
+    response.renderPreview();
+    expect(response.getPreviewMediaTransform()).toMatchObject({ zoom: 1, rotation: 0, fit: false });
+    expect(document.getElementById('previewMediaBar')?.style.display).toBe('none');
+
+    response.showResponse(imageResponse());
+    response.renderPreview();
+    expect(document.getElementById('previewMediaBar')?.style.display).toBe('flex');
+    response.clearResponse();
+    expect(response.getPreviewMediaTransform()).toMatchObject({ zoom: 1, rotation: 0, fit: false });
+    expect(document.getElementById('previewMediaBar')?.style.display).toBe('none');
+  });
+
+  it('renders PDF pages with zoom, fit, and rotation through PDF.js', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    response.initPreviewMediaControls();
+
+    const renderTask = { promise: Promise.resolve(), cancel: vi.fn() };
+    const page = {
+      getViewport: vi.fn(({ scale, rotation = 0 }) => ({
+        width: (rotation % 180 === 0 ? 400 : 600) * scale,
+        height: (rotation % 180 === 0 ? 600 : 400) * scale,
+      })),
+      render: vi.fn(() => renderTask),
+    };
+    (window as any).pdfjsLib = {
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(page) }),
+      })),
+    };
+
+    response.showResponse(pdfResponse());
+    response.renderPreview();
+    await flushPromises();
+
+    expect(document.getElementById('previewMediaBar')?.style.display).toBe('flex');
+    expect(page.getViewport).toHaveBeenCalledWith({ scale: 1, rotation: 0 });
+    expect(document.querySelectorAll('#respPdfContainer canvas')).toHaveLength(1);
+
+    document.getElementById('previewFitBtn')?.click();
+    await flushPromises();
+    expect(response.getPreviewMediaTransform().fit).toBe(true);
+    expect(document.getElementById('previewZoomLabel')?.textContent).toBe('Fit 192%');
+
+    document.getElementById('previewRotateRightBtn')?.click();
+    await flushPromises();
+    expect(response.getPreviewMediaTransform().rotation).toBe(90);
+    expect(page.getViewport).toHaveBeenCalledWith({ scale: 1, rotation: 90 });
+  });
+
+  it('cancels stale PDF renders and prevents old canvases from being appended', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    const container = document.getElementById('respPdfContainer')!;
+
+    const firstRender = defer();
+    const firstRenderTask = { promise: firstRender.promise, cancel: vi.fn() };
+    const firstPage = {
+      getViewport: vi.fn(({ scale }) => ({ width: 400 * scale, height: 600 * scale })),
+      render: vi.fn(() => firstRenderTask),
+    };
+    const secondPage = {
+      getViewport: vi.fn(({ scale }) => ({ width: 400 * scale, height: 600 * scale })),
+      render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+    };
+    (window as any).pdfjsLib = {
+      getDocument: vi.fn()
+        .mockReturnValueOnce({ promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(firstPage) }) })
+        .mockReturnValueOnce({ promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(secondPage) }) }),
+    };
+
+    const oldRender = response.renderPdfPreview(container, 'JVBERi0x');
+    await flushPromises();
+    expect(firstPage.render).toHaveBeenCalledOnce();
+
+    const newRender = response.renderPdfPreview(container, 'JVBERi0x');
+    firstRender.resolve();
+    await Promise.all([oldRender, newRender]);
+
+    expect(firstRenderTask.cancel).toHaveBeenCalledOnce();
+    expect(container.querySelectorAll('canvas')).toHaveLength(1);
+    expect(secondPage.render).toHaveBeenCalledOnce();
+  });
+});

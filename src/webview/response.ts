@@ -19,6 +19,40 @@ let lastBlobUrl: string | undefined;
 let loadingTimerInterval: ReturnType<typeof setInterval> | null = null;
 let loadingStartTime = 0;
 
+export type PreviewMediaKind = 'none' | 'image' | 'pdf';
+export type PreviewMediaTransform = {
+  zoom: number;
+  rotation: number;
+  fit: boolean;
+};
+export type PreviewMediaTransformAction =
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'wheelZoomIn'
+  | 'wheelZoomOut'
+  | 'reset'
+  | 'fit'
+  | 'rotateLeft'
+  | 'rotateRight';
+
+export const MEDIA_ZOOM_MIN = 0.25;
+export const MEDIA_ZOOM_MAX = 5;
+export const MEDIA_ZOOM_STEP = 0.25;
+export const MEDIA_WHEEL_ZOOM_STEP = 0.1;
+
+const DEFAULT_MEDIA_TRANSFORM: PreviewMediaTransform = {
+  zoom: 1,
+  rotation: 0,
+  fit: false,
+};
+
+let mediaTransform: PreviewMediaTransform = { ...DEFAULT_MEDIA_TRANSFORM };
+let mediaKind: PreviewMediaKind = 'none';
+let mediaControlsInitialized = false;
+let pdfRenderGeneration = 0;
+let pdfRenderTimer: ReturnType<typeof setTimeout> | null = null;
+const activePdfRenderTasks = new Set<{ cancel?: () => void }>();
+
 // Virtualized response rendering (for very large text responses)
 let virtLines: string[] | null = null;
 let virtLang = 'text';
