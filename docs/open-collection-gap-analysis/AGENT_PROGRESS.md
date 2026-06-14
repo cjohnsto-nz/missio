@@ -119,10 +119,10 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Next: launch OC-120 when ready; the agent should coordinate with the current response preview/PDF.js packaging work and request editor shell styles.
 
 - 2026-06-15 11:25 NZT - Codex Supervisor: Added OC-130 as a focused follow-up task for protocol-native request editor first paint and layout stability.
-  GitButler: planning update is on `supervisor/add-protocol-layout-stability-task`; existing uncommitted OC-120 claim in `AGENT_PROGRESS.md` was preserved and not overwritten.
+  GitButler: planning update is on `supervisor/add-protocol-layout-stability-task` commit `cd648cd`; existing uncommitted OC-120 claim in `AGENT_PROGRESS.md` was preserved and not overwritten.
   Coverage: documentation-only planning change; the task requires future automated startup-state, protocol-render, no-HTTP-flash, invalid-YAML fallback, layout-stability, round-trip, validation, and shared request editor regression tests.
   Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, and `tasks/13-protocol-layout-stability.md`.
-  Verified: task references and goal prompt added; implementation tests not required for docs-only task creation.
+  Verified: `rg -n "OC-130|13-protocol-layout-stability|Protocol Layout Stability" docs\open-collection-gap-analysis` confirmed task references and goal prompt; implementation tests not required for docs-only task creation.
   Next: launch OC-130 after or alongside OC-120 only if the agent coordinates shared `requestPanel` CSS and webview startup surfaces.
 
 - 2026-06-15 00:57 NZT - Codex: Added OC-110 as a separate runtime authoring UX task after confirming snippet export belongs to OC-070 and non-HTTP runtime execution belongs to OC-080.
