@@ -1,0 +1,7 @@
+info:
+  name: WebSocket server close
+  type: websocket
+  seq: 4
+websocket:
+  url: "{{wsBaseUrl}}/ws/close"
+docs: Connects to a route that closes immediately so cleanup behavior is easy to verify.
