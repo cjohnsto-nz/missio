@@ -155,7 +155,8 @@ function getByOriginalIndex<T>(items: T[] | undefined, row: { originalIndex?: nu
 }
 
 function mergeHeaders(previous: unknown[] | undefined, rows: KeyValueEditorRow[] | undefined): unknown[] | undefined {
-  if (!rows || rows.length === 0) return undefined;
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
   return rows
     .filter(row => row.name)
     .map((row, index) => {
