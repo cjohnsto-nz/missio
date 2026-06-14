@@ -32,12 +32,10 @@ BYO Agentic Coding tools.
 
 ### Please Note
 
-Missio is still in alpha. Key missing features from Postman include:
-- Scripting
-- Full snippet export coverage beyond HTTP
-- Deep visual editors for every protocol-specific field
-
-We aim to support these in the coming weeks.
+Missio is still in alpha. Some Postman-class surfaces remain intentionally narrow:
+- Snippet export is HTTP-only; GraphQL, WebSocket, and gRPC requests show explicit diagnostics.
+- Some advanced protocol-specific fields still use YAML as the escape hatch.
+- Runtime scripting is supported, but the sandbox is intentionally constrained.
 
 ## Features
 
@@ -52,6 +50,7 @@ We aim to support these in the coming weeks.
 - **Import requests** — paste a cURL, wget, or raw HTTP request and import it directly into a collection; unsupported GraphQL, WebSocket, and gRPC paste formats report explicit diagnostics
 
 ### Request Editor
+- **Runtime authoring** - edit before-request scripts, after-response scripts, tests, assertions, and set-variable actions from the request Runtime tab
 - **Visual request builder** — method selector, URL bar, headers, query params, body (raw, form-encoded, multipart)
 - **Send with Ctrl+Enter** — keyboard shortcut to send requests
 - **Response viewer** — formatted body (JSON, XML, HTML) with syntax highlighting, word wrap, line numbers, headers, status, timing, and size
@@ -64,6 +63,7 @@ We aim to support these in the coming weeks.
 - **Save examples** — save response snapshots and load them later
 
 ### Protocol Surface
+- **Protocol execution** - HTTP, GraphQL, WebSocket, and unary/streaming gRPC requests execute through protocol-aware clients
 - **Protocol-aware requests** — request creation, the collection tree, CodeLens, send commands, and Copilot tools preserve HTTP, GraphQL, WebSocket, and gRPC identity
 - **Copilot inspection and dry runs** — `missio_list_requests`, `missio_get_request`, and `missio_send_request` expose protocol metadata while redacting sensitive auth and secret values
 - **Import diagnostics** — Postman and OpenAPI imports preserve mappable runtime data and record unsupported mappings under `extensions.missio.import.diagnostics`
