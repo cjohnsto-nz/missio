@@ -1,0 +1,4 @@
+interface:
+  display_name: "Missio Runtime Implementer"
+  short_description: "Implement scripts, assertions, actions, and auth"
+  default_prompt: "Use $missio-runtime-implementer to implement Missio runtime behavior such as scripts, assertions, actions, auth, proxy, or mTLS."

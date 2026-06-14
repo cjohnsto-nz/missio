@@ -1,0 +1,4 @@
+interface:
+  display_name: "Missio Protocol Implementer"
+  short_description: "Implement OpenCollection protocols in Missio"
+  default_prompt: "Use $missio-protocol-implementer to add GraphQL, WebSocket, or gRPC support to Missio."
