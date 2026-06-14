@@ -1,0 +1,26 @@
+info:
+  name: Echo unary
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/EchoUnary
+  methodType: unary
+  protoFilePath: proto/services/missio_demo.proto
+  metadata:
+    - name: x-demo-default
+      value: request-override-{{grpcRequestId}}
+    - name: x-demo-request
+      value: request-{{grpcRequestId}}
+  message: |-
+    {
+      "name": "{{grpcName}}",
+      "userId": {{grpcUserId}},
+      "trace": {
+        "requestId": "{{grpcRequestId}}"
+      }
+    }
+runtime:
+  auth:
+    type: bearer
+    token: "{{grpcToken}}"
+docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this unary gRPC request.

@@ -105,6 +105,74 @@ export interface ActionSetVariable {
 
 export type Action = ActionSetVariable;
 
+export type RuntimePhase = 'before-request' | 'after-response' | 'tests' | 'assertions' | 'actions';
+export type RuntimeLogLevel = 'log' | 'info' | 'warn' | 'error';
+
+export interface RuntimeLogEntry {
+  phase: RuntimePhase;
+  level: RuntimeLogLevel;
+  message: string;
+}
+
+export interface RuntimeTestResult {
+  name: string;
+  passed: boolean;
+  message?: string;
+  duration?: number;
+}
+
+export interface RuntimeAssertionResult {
+  expression: string;
+  operator: string;
+  expected?: unknown;
+  actual?: unknown;
+  passed: boolean;
+  skipped?: boolean;
+  description?: string;
+  message?: string;
+}
+
+export interface RuntimeActionResult {
+  type: Action['type'];
+  phase: ActionPhase;
+  target?: string;
+  value?: unknown;
+  passed: boolean;
+  skipped?: boolean;
+  message?: string;
+}
+
+export interface RuntimeVariableMutation {
+  scope: ActionVariableScope;
+  name: string;
+  value: string;
+  source: 'script' | 'action';
+}
+
+export interface RuntimeErrorDiagnostic {
+  phase: RuntimePhase;
+  message: string;
+  scriptType?: ScriptType;
+  stack?: string;
+}
+
+export interface RuntimeExecutionSummary {
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
+export interface RuntimeExecutionResult {
+  success: boolean;
+  summary: RuntimeExecutionSummary;
+  logs: RuntimeLogEntry[];
+  tests: RuntimeTestResult[];
+  assertions: RuntimeAssertionResult[];
+  actions: RuntimeActionResult[];
+  variableMutations: RuntimeVariableMutation[];
+  errors: RuntimeErrorDiagnostic[];
+}
+
 // ── Auth ─────────────────────────────────────────────────────────────
 
 export interface AuthBasic { type: 'basic'; username?: string; password?: string; }
@@ -448,6 +516,7 @@ export interface WebSocketRequest {
 
 export interface RequestDefaults {
   headers?: HttpRequestHeader[];
+  metadata?: GrpcMetadata[];
   auth?: Auth;
   variables?: Variable[];
   scripts?: Scripts;
@@ -459,6 +528,25 @@ export interface RequestDefaults {
 export interface PemCertificate { domain: string; type: 'pem'; certificateFilePath: string; privateKeyFilePath: string; passphrase?: string; }
 export interface Pkcs12Certificate { domain: string; type: 'pkcs12'; pkcs12FilePath: string; passphrase?: string; }
 export type ClientCertificate = PemCertificate | Pkcs12Certificate;
+
+// ── Protobuf ─────────────────────────────────────────────────────────
+
+export interface ProtoFile {
+  type: 'file';
+  path: string;
+}
+
+export type ProtoFileItem = ProtoFile;
+
+export interface ProtoFileImportPath {
+  path: string;
+  disabled?: boolean;
+}
+
+export interface ProtobufConfig {
+  protoFiles?: ProtoFileItem[];
+  importPaths?: ProtoFileImportPath[];
+}
 
 // ── Proxy ────────────────────────────────────────────────────────────
 
@@ -492,6 +580,7 @@ export interface Environment {
 
 export interface CollectionConfig {
   environments?: Environment[];
+  protobuf?: ProtobufConfig;
   proxy?: Proxy;
   clientCertificates?: ClientCertificate[];
   secretProviders?: SecretProvider[];
@@ -652,6 +741,8 @@ export interface HttpResponse {
   bodyBase64?: string;
   duration: number;
   size: number;
+  runtime?: RuntimeExecutionResult;
+  timing?: { label: string; start: number; end: number }[];
 }
 
 export interface SecretProvider {

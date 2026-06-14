@@ -6,13 +6,37 @@ info:
   authors:
     - name: Missio
 config:
+  protobuf:
+    protoFiles:
+      - type: file
+        path: proto/services/missio_demo.proto
+    importPaths:
+      - path: proto
   environments:
     - name: LOCAL
       variables:
         - name: baseUrl
           value: http://localhost:3456
+        - name: grpcBaseUrl
+          value: localhost:50051
         - name: userId
           value: "1"
+        - name: grpcName
+          value: Ada
+        - name: grpcUserId
+          value: "42"
+        - name: grpcRequestId
+          value: demo-trace-001
+        - name: grpcToken
+          value: demo-token
+        - name: wsBaseUrl
+          value: ws://localhost:3456
+        - name: socketUser
+          value: Ada
+        - name: socketMessageId
+          value: ws-demo-001
+        - name: demoToken
+          value: demo-token
       color: charts.blue
     - name: DEV
       variables:
@@ -34,3 +58,6 @@ request:
   headers:
     - name: Accept
       value: application/json
+  metadata:
+    - name: x-demo-default
+      value: collection-{{grpcRequestId}}

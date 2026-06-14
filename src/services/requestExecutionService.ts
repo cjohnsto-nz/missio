@@ -16,6 +16,8 @@ import {
   isWebSocketRequest,
 } from '../models/types';
 import type { CliApprovalPrompt, HttpClient, ResolvedRequest } from './httpClient';
+import { buildGraphQLHttpRequest } from './graphqlSupport';
+import { RuntimeExecutionService } from './runtimeExecutionService';
 
 export interface UnsupportedProtocolDiagnostic {
   code: 'MISSIO_UNSUPPORTED_PROTOCOL';
@@ -46,13 +48,46 @@ export interface RequestExecutor<TRequest extends OpenCollectionRequest> {
     extraVariables?: Map<string, string>,
     environmentName?: string,
     cliApprovalPrompt?: CliApprovalPrompt,
+    options?: { requestId?: string },
   ): Promise<HttpResponse>;
 }
 
-export class RequestExecutionService {
-  constructor(private readonly _httpClient: HttpClient) {}
+interface WebSocketRequestClient {
+  send(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    options?: { requestId?: string },
+  ): Promise<HttpResponse>;
+  cancelAll(): void;
+  disconnect(requestId: string): boolean;
+}
 
-  buildResolvedRequest(
+interface GrpcRequestClient {
+  send(
+    request: GrpcRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    cliApprovalPrompt?: CliApprovalPrompt,
+  ): Promise<HttpResponse>;
+  cancelAll(): void;
+}
+
+export class RequestExecutionService {
+  constructor(
+    private readonly _httpClient: HttpClient,
+    private readonly _webSocketClient?: WebSocketRequestClient,
+    private readonly _grpcClient?: GrpcRequestClient,
+    private readonly _runtimeExecutionService = new RuntimeExecutionService(),
+  ) {}
+
+  async buildResolvedRequest(
     request: OpenCollectionRequest,
     collection: MissioCollection,
     folderDefaults?: RequestDefaults,
@@ -62,11 +97,25 @@ export class RequestExecutionService {
     options?: { includeAuth?: boolean; includeBody?: boolean },
   ): Promise<ResolvedRequest> {
     if (isHttpRequest(request)) {
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(request, extraVariables);
       return this._httpClient.buildResolvedRequest(
         request,
         collection,
         folderDefaults,
-        extraVariables,
+        runtimeVariables,
+        environmentName,
+        cliApprovalPrompt,
+        options,
+      );
+    }
+    if (isGraphQLRequest(request)) {
+      const httpRequest = buildGraphQLHttpRequest(request);
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(httpRequest, extraVariables);
+      return this._httpClient.buildResolvedRequest(
+        httpRequest,
+        collection,
+        folderDefaults,
+        runtimeVariables,
         environmentName,
         cliApprovalPrompt,
         options,
@@ -83,9 +132,72 @@ export class RequestExecutionService {
     extraVariables?: Map<string, string>,
     environmentName?: string,
     cliApprovalPrompt?: CliApprovalPrompt,
+    options?: { requestId?: string },
   ): Promise<HttpResponse> {
     if (isHttpRequest(request)) {
-      return this._httpClient.send(
+      if (!this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults)) {
+        return this._httpClient.send(
+          request,
+          collection,
+          folderDefaults,
+          onProgress,
+          extraVariables,
+          environmentName,
+          cliApprovalPrompt,
+        );
+      }
+      const prepared = await this._runtimeExecutionService.prepareHttpRequest(
+        request,
+        collection,
+        folderDefaults,
+        extraVariables,
+        environmentName,
+      );
+      const response = await this._httpClient.send(
+        prepared.request,
+        collection,
+        folderDefaults,
+        onProgress,
+        prepared.extraVariables,
+        environmentName,
+        cliApprovalPrompt,
+      );
+      return this._runtimeExecutionService.completeHttpRequest(prepared, response);
+    }
+    if (isGraphQLRequest(request)) {
+      const prepared = await this._runtimeExecutionService.prepareHttpRequest(
+        buildGraphQLHttpRequest(request),
+        collection,
+        folderDefaults,
+        extraVariables,
+        environmentName,
+      );
+      const response = await this._httpClient.send(
+        prepared.request,
+        collection,
+        folderDefaults,
+        onProgress,
+        prepared.extraVariables,
+        environmentName,
+        cliApprovalPrompt,
+      );
+      return this._runtimeExecutionService.completeHttpRequest(prepared, response);
+    }
+
+    if (isWebSocketRequest(request) && this._webSocketClient) {
+      return this._webSocketClient.send(
+        request,
+        collection,
+        folderDefaults,
+        onProgress,
+        extraVariables,
+        environmentName,
+        options,
+      );
+    }
+
+    if (isGrpcRequest(request) && this._grpcClient) {
+      return this._grpcClient.send(
         request,
         collection,
         folderDefaults,
@@ -101,6 +213,12 @@ export class RequestExecutionService {
 
   cancelAll(): void {
     this._httpClient.cancelAll();
+    this._webSocketClient?.cancelAll();
+    this._grpcClient?.cancelAll();
+  }
+
+  disconnectWebSocket(requestId: string): boolean {
+    return this._webSocketClient?.disconnect(requestId) ?? false;
   }
 }
 
@@ -131,7 +249,7 @@ export function getUnsupportedProtocolDiagnostic(request: OpenCollectionRequest)
       protocol: 'grpc',
       protocolName: 'gRPC',
       taskId: 'OC-030',
-      message: 'gRPC request execution is not supported yet. Missio can load OpenCollection gRPC request files, but RPC execution will land with OC-030 gRPC support.',
+      message: 'gRPC request execution is not available in this Missio runtime. Unary gRPC support requires the OC-030 gRPC executor to be registered.',
     };
   }
 
