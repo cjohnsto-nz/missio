@@ -569,7 +569,7 @@ function addFormField(name = '', value: unknown = '', disabled = false, partType
   tbody.appendChild(tr);
 }
 
-const runtimeScriptTypes = ['before-request', 'after-response', 'tests', 'hooks'];
+const runtimeScriptTypes = ['before-request', 'after-response', 'tests'];
 const runtimeAssertionOperators = [
   'equals',
   'not-equals',
@@ -583,10 +583,26 @@ const runtimeAssertionOperators = [
   'matches',
 ];
 const runtimeActionPhases = ['before-request', 'after-response'];
-const runtimeVariableScopes = ['runtime', 'request', 'folder', 'collection', 'environment'];
+const runtimeVariableScopes = ['runtime', 'request'];
+const unsupportedRuntimeScriptTypeLabels: Record<string, string> = {
+  hooks: 'hooks (not executed)',
+};
+const unsupportedRuntimeVariableScopeLabels: Record<string, string> = {
+  folder: 'folder (not persisted)',
+  collection: 'collection (not persisted)',
+  environment: 'environment (not persisted)',
+};
 
-function optionsHtml(values: string[], selected: string | undefined): string {
-  return values.map(value => '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(value) + '</option>').join('');
+function unsupportedRuntimeOptionLabel(value: string, labels: Record<string, string>): string {
+  return labels[value] ?? `${value} (unsupported)`;
+}
+
+function optionsHtml(values: string[], selected: string | undefined, unsupportedLabels?: Record<string, string>): string {
+  const knownOptions = values.map(value => '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(value) + '</option>').join('');
+  if (selected && !values.includes(selected)) {
+    return '<option value="' + esc(selected) + '" selected disabled data-runtime-unsupported="true">' + esc(unsupportedRuntimeOptionLabel(selected, unsupportedLabels ?? {})) + '</option>' + knownOptions;
+  }
+  return knownOptions;
 }
 
 function moveRuntimeRow(row: HTMLElement, direction: -1 | 1): void {
@@ -613,11 +629,14 @@ function addRuntimeScript(type = 'before-request', code = '', disabled = false, 
   const list = $('runtimeScriptsList');
   const row = document.createElement('div');
   row.className = 'runtime-editor-row runtime-script-row';
+  const unsupportedType = !runtimeScriptTypes.includes(type);
+  if (unsupportedType) row.classList.add('runtime-unsupported-row');
   if (originalIndex !== undefined) row.dataset.originalIndex = String(originalIndex);
   row.innerHTML =
     '<div class="runtime-row-toolbar">' +
       '<input type="checkbox" class="runtime-enabled rt-script-enabled" title="Enabled" ' + (disabled ? '' : 'checked') + ' />' +
-      '<select class="runtime-select rt-script-type">' + optionsHtml(runtimeScriptTypes, type) + '</select>' +
+      '<select class="runtime-select rt-script-type">' + optionsHtml(runtimeScriptTypes, type, unsupportedRuntimeScriptTypeLabels) + '</select>' +
+      (unsupportedType ? '<span class="runtime-unsupported-note" title="This schema-valid script type is not executed by the Missio runtime yet.">Not executed</span>' : '') +
       '<div class="runtime-row-actions">' +
         '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
         '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +
@@ -672,6 +691,8 @@ function addRuntimeAction(
   const list = $('runtimeActionsList');
   const row = document.createElement('div');
   row.className = 'runtime-editor-row runtime-action-row';
+  const unsupportedScope = !runtimeVariableScopes.includes(variableScope);
+  if (unsupportedScope) row.classList.add('runtime-unsupported-row');
   if (originalIndex !== undefined) row.dataset.originalIndex = String(originalIndex);
   row.innerHTML =
     '<div class="runtime-row-toolbar">' +
@@ -679,8 +700,9 @@ function addRuntimeAction(
       '<select class="runtime-select rt-action-phase">' + optionsHtml(runtimeActionPhases, phase) + '</select>' +
       '<span class="runtime-action-type">set-variable</span>' +
       '<input type="text" class="runtime-input rt-action-selector" value="' + esc(selectorExpression) + '" placeholder="$.token" />' +
-      '<select class="runtime-select rt-action-scope">' + optionsHtml(runtimeVariableScopes, variableScope) + '</select>' +
+      '<select class="runtime-select rt-action-scope">' + optionsHtml(runtimeVariableScopes, variableScope, unsupportedRuntimeVariableScopeLabels) + '</select>' +
       '<input type="text" class="runtime-input rt-action-name" value="' + esc(variableName) + '" placeholder="name" />' +
+      (unsupportedScope ? '<span class="runtime-unsupported-note" title="This schema-valid scope is not persisted by the Missio runtime yet.">Not persisted</span>' : '') +
       '<div class="runtime-row-actions">' +
         '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
         '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +

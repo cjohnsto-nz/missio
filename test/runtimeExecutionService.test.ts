@@ -223,6 +223,31 @@ describe('RuntimeExecutionService lifecycle', () => {
     expect(response.runtime?.assertions.map(assertion => assertion.passed)).toEqual([false, false]);
     expect(response.runtime?.actions[0]).toMatchObject({ passed: false, message: 'Selector did not resolve: $.missing' });
   });
+
+  it('diagnoses unsupported set-variable action scopes instead of mutating runtime variables', async () => {
+    const service = new RuntimeExecutionService();
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        actions: [{
+          type: 'set-variable',
+          selector: { method: 'jsonq', expression: '$.token' },
+          variable: { scope: 'environment', name: 'token' },
+        }],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    const response = await service.completeHttpRequest(prepared, makeResponse({ token: 'abc123' }));
+
+    expect(response.runtime?.success).toBe(false);
+    expect(response.runtime?.actions[0]).toMatchObject({
+      passed: false,
+      target: 'environment.token',
+      message: 'Unsupported variable scope: environment. Missio currently supports runtime and request set-variable scopes.',
+    });
+    expect(response.runtime?.variableMutations).toEqual([]);
+  });
 });
 
 describe('RequestExecutionService runtime integration', () => {
