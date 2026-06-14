@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-000 and OC-060 implementation audit. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-010 through OC-040 implementation audit. |
 
 ## Test Coverage Rules
 
@@ -113,6 +113,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Changed: added `.agents/skills/missio-demo-server-fixtures/`; updated OC-010 through OC-040 task definitions, `AGENT_GOAL_PROMPTS.md`, and `README.md` so protocol/runtime agents must extend the local demo API and add user-verifiable demo requests.
   Verified: `python C:\Users\chris\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents\skills\missio-demo-server-fixtures` passed; `rg` confirmed the new skill is referenced by OC-010, OC-020, OC-030, OC-040, the goal prompts, and the wiki skill table.
   Next: launch OC-010, OC-020, OC-030, and OC-040 with `$missio-demo-server-fixtures` included in each goal prompt.
+- 2026-06-14 23:33 NZT - Codex: Completed supervisor audit for OC-010 GraphQL, OC-020 WebSocket, OC-030 gRPC unary/protobuf, and OC-040 runtime scripting/testing.
+  GitButler: `but status -fv` showed no unassigned changes before the audit; applied stacks included `feature/oc-010-graphql-support` (ra), `feature/oc-020-websocket-support` (we), `feature/oc-030-grpc-unary-protobuf` (rp), and `feature/oc-040-runtime-scripting-testing` (ru). After audit, owned changes are `package.json` language-model tool description cleanup and this progress report only.
+  Coverage: inspected protocol dispatch, GraphQL adapter, WebSocket client, gRPC client, runtime service, editor/tool routing, demo server fixtures, and focused tests. Fixed stale package manifest text so Copilot tool metadata now says list/send support covers HTTP, GraphQL, WebSocket, and unary gRPC instead of only HTTP/GraphQL.
+  Verified: `npm run compile` passed; `npx vitest run test/graphqlSupport.test.ts test/webSocketSupport.test.ts test/grpcSupport.test.ts test/runtimeExecutionService.test.ts test/responseProvider.test.ts test/openCollectionFoundation.test.ts test/schemaRoundTrip.test.ts test/validationService.test.ts test/sendRequestTool.test.ts` passed 9 files/61 tests; `npm test` passed 20 files/380 tests; `node scripts/validate-collection.js examples/demo-api` passed 32/32 files; `npm run build` passed; `npx @vscode/vsce package --out %TEMP%\missio-0.7.7-oc010-040-supervisor.vsix` passed; `code.cmd --install-extension %TEMP%\missio-0.7.7-oc010-040-supervisor.vsix --force` installed successfully; `code.cmd --list-extensions --show-versions` shows `missio.missio@0.7.7`.
+  Demo smoke: hidden local `node examples/demo-api/server.js` and `node examples/demo-api/grpc-server.js` processes returned `health=ok`, GraphQL `data.health.status=ok`, runtime token `runtime-token-123`, WebSocket echo `supervisor-echo`, and gRPC unary `Hello Supervisor`.
+  Observed: OC-040 runtime lifecycle is verified through HTTP and GraphQL-over-HTTP execution. WebSocket and gRPC requests currently use runtime variables/auth but do not execute runtime scripts/assertions/actions in the same lifecycle; treat this as a follow-up candidate if "runtime across supported protocol executors" is interpreted strictly. The OC-040 GitButler branch also contains several no-change retry commits that can be cleaned up before a polished PR.
+  Next: commit this supervisor audit slice to a supervisor branch; then OC-050 and OC-070 can proceed on top of the verified OC-010 through OC-040 stack.
 
 ### OC-000 Foundation and Protocol Dispatch
 
