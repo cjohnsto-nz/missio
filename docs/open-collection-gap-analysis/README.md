@@ -82,19 +82,17 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 | `missio-demo-server-fixtures` | Extending the local demo API and example requests for user-verifiable protocol/runtime features. |
 | `but` | Installed GitButler skill for branch, stack, commit, push, and PR operations. |
 
-## Remaining Gap Evidence
+## Final Compatibility Evidence
 
-OC-000 through OC-040 and OC-060 have removed most of the original HTTP-only foundation gaps. The remaining work is concentrated in request creation, import/export surfaces, full runtime lifecycle parity, auth/transport hardening, and gRPC streaming:
+OC-000 through OC-110 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). The table below records the main evidence surfaces that remain useful for maintenance and future audits; these are not open implementation gaps.
 
-| Evidence | Location |
+| Evidence Surface | Location |
 | --- | --- |
-| New request creation still needs schema-native protocol starter templates and UX coverage. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts) |
-| Request `type:` is not yet a first-class visual editor choice or safe conversion workflow. | [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
-| Importers and exporters need explicit protocol preservation or unsupported-conversion diagnostics. | [src/importers](../../src/importers) |
-| Snippet export remains HTTP-oriented and should not silently accept non-HTTP requests. | [src/services/snippetService.ts](../../src/services/snippetService.ts) |
-| Runtime scripts/assertions/actions are verified for HTTP and GraphQL-over-HTTP; WebSocket and gRPC need lifecycle parity. | [src/services/requestExecutionService.ts](../../src/services/requestExecutionService.ts) |
-| Runtime scripts/assertions/actions can run, but common authoring still requires YAML edits. | [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
-| gRPC unary execution exists, but streaming request types remain an explicit unsupported path. | [src/services/grpcClient.ts](../../src/services/grpcClient.ts) |
+| Request creation, starter templates, and visible request type identity. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts), [src/services/requestTemplates.ts](../../src/services/requestTemplates.ts), [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
+| Import/export protocol diagnostics and snippet limitations. | [src/importers](../../src/importers), [src/services/snippetExporter.ts](../../src/services/snippetExporter.ts) |
+| Runtime scripting, tests, assertions, actions, and visual authoring. | [src/services/runtimeExecutionService.ts](../../src/services/runtimeExecutionService.ts), [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
+| Protocol execution for GraphQL, WebSocket, and gRPC unary/streaming requests. | [src/services/graphqlSupport.ts](../../src/services/graphqlSupport.ts), [src/services/webSocketClient.ts](../../src/services/webSocketClient.ts), [src/services/grpcClient.ts](../../src/services/grpcClient.ts) |
+| Local fixture API, demo requests, and collection validation. | [examples/demo-api](../../examples/demo-api), [scripts/validate-collection.js](../../scripts/validate-collection.js) |
 
 ## Definition Of Done For Any Track
 
