@@ -57,7 +57,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-030 | gRPC support | Unclaimed | - | - | - | - | - | Start after OC-000 and dependency choice. |
 | OC-040 | Scripts, tests, assertions, actions | Unclaimed | - | - | - | - | - | Can start with runtime design spike before OC-000 lands. |
 | OC-050 | Auth, proxy, mTLS, transport completion | Unclaimed | - | - | - | - | - | Can start with HTTP-only fixes; proxy/mTLS need executor refactor. |
-| OC-060 | Schema round-trip and validation | Done | Codex | feature/oc-060-schema-roundtrip-validation (sc) | Add golden no-op editor/serializer round-trip tests for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; add validation tests proving protocol-aware request subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP files not gaining `http` keys. Run targeted validation/editor/service tests plus existing touched HTTP/import-export/editor regressions. | `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm run compile` passed; `npm run build` passed; `npm test` passed (15 files, 341 tests). | 2026-06-14 22:22 NZT | OC-060 complete; keep commit/review scoped to OC-060 files because unrelated OC-000 work is also unassigned. |
+| OC-060 | Schema round-trip and validation | Done | Codex | feature/oc-060-schema-roundtrip-validation (sc), stacked on feature/oc-000-foundation-dispatch (fo); implementation commit `166c297` | Add golden no-op editor/serializer round-trip tests for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; add validation tests proving protocol-aware request subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP files not gaining `http` keys. Run targeted validation/editor/service tests plus existing touched HTTP/import-export/editor regressions. | `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm test` passed (15 files, 341 tests); `npm run compile` passed; `npm run build` passed. | 2026-06-14 22:30 NZT | OC-060 complete and committed; no OC-060-owned unassigned changes remain after implementation commit. |
 | OC-070 | Imports, exports, tree, CodeLens, Copilot tools | Unclaimed | - | - | - | - | - | Start after type guards exist; some validation work can begin now. |
 
 ## Dependency Map
@@ -141,6 +141,14 @@ No updates yet.
   Changed: src/models/schemaRoundTrip.ts; src/services/validationService.ts; src/webview/requestPanel.ts; src/webview/collectionPanel.ts; src/webview/folderPanel.ts; test/schemaRoundTrip.test.ts; test/validationService.test.ts; docs/open-collection-gap-analysis/AGENT_PROGRESS.md.
   Verified: `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); final `npm test` passed (15 files, 341 tests); final `npm run compile` passed; final `npm run build` passed.
   Next: Review or commit OC-060 with explicit GitButler change IDs only; do not include the parallel OC-000 files.
+
+- 2026-06-14 22:30 NZT - Codex: Finalized OC-060 into GitButler after the updated finalization audit.
+  GitButler: moved `feature/oc-060-schema-roundtrip-validation` onto `feature/oc-000-foundation-dispatch`; committed implementation as `166c297` (`Add OC-060 schema round-trip validation`) with only OC-060-owned change IDs `nq`, `vm`, `rz`, `rol`, `opy`, and `np`.
+  Coverage: no-op schema round-trip coverage for HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; validation coverage for protocol-aware request schemas, collection workspace validation, protocol-labelled diagnostics, unknown-field/default preservation, and non-HTTP safety.
+  Changed: committed `src/models/schemaRoundTrip.ts`, `src/webview/collectionPanel.ts`, `src/webview/folderPanel.ts`, `src/webview/requestPanel.ts`, `test/schemaRoundTrip.test.ts`, and `test/validationService.test.ts` to `sc`; left OC-000 (`c3:*`, `46:*`) and planning docs (`98:*`, `11:*`) as stack dependencies.
+  Verified: `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm test` passed (15 files, 341 tests); `npm run compile` passed; `npm run build` passed.
+  Blockers/parallel changes: none; `but status -fv` was empty in `zz` immediately after the implementation commit, before this ledger-only update.
+  Next: commit this ledger update separately to `sc`, then confirm no OC-060-owned unassigned changes remain.
 
 ### OC-070 Imports, Exports, Tree, CodeLens, Copilot Tools
 
