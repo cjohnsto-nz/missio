@@ -71,6 +71,14 @@ For "get latest from main", "update/sync this workspace", or "pull main":
    Use `-c` to create the branch if it doesn't exist. Omit IDs you don't want committed.
 4. **Check the returned status** for remaining uncommitted changes. If the file still appears as unassigned or assigned to another branch after commit, it may be dependency-locked. See "Stacked dependency / commit-lock recovery" below.
 
+### Commit a task slice alongside parallel agents
+
+1. Run `but status -fv` and classify each uncommitted change ID as owned by your task, dependency-only, or parallel/unrelated.
+2. Commit only the owned IDs with `but commit <branch-id> -m "<msg>" --changes <ids>`.
+3. Leave parallel/unrelated IDs uncommitted; do not sweep them into your commit to make the status look clean.
+4. If shared planning files or previously committed files remain unassigned after a commit, treat it as a dependency lock: stack your branch on the owning branch with `but move <your-branch> <owning-branch>`, refresh status, and retry the commit.
+5. After the commit, read the returned status and report both the new branch commit and any remaining unassigned IDs.
+
 ### Amend into existing commit
 
 1. `but status -fv` (or `but show <branch-id>`)

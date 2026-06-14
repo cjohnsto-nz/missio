@@ -23,6 +23,7 @@ description: Implement Missio editor, validation, import/export, tree, CodeLens,
 - Preserve Missio-specific extensions through `schema/missio-extensions.json`.
 - Keep visual editors from creating `http` keys in non-HTTP request files.
 - Commit only schema/editor/tooling changes with `but commit ... --changes <ids>`; do not use raw Git write commands.
+- Before marking a task `Review Ready` or `Done`, run `but status -fv`, classify owned vs parallel change IDs, commit only the owned slice to the recorded branch, and log any remaining unrelated IDs.
 
 ## Validation Rules
 
@@ -47,3 +48,4 @@ Run complete automated coverage for schema/editor/tooling changes:
 - Existing HTTP/import/export/editor regression tests touched by shared code.
 
 Update `AGENT_PROGRESS.md` with exact commands and results. Any manual-only verification needs a reason and follow-up work.
+Do not mark schema/editor work `Done` while the claimed changes are still only unassigned unless the ledger records a concrete GitButler blocker and next action.

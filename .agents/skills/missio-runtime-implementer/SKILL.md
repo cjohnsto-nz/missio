@@ -29,6 +29,7 @@ description: Implement Missio OpenCollection runtime behavior including scripts,
 - Add local fixture servers for auth, redirects, proxy, and mTLS tests.
 - Keep Missio extensions such as CLI auth documented as extensions, not upstream OpenCollection fields.
 - Commit only runtime/transport changes with `but commit ... --changes <ids>`; do not use raw Git write commands.
+- Before marking a task `Review Ready` or `Done`, run `but status -fv`, classify owned vs parallel change IDs, commit only the runtime/transport slice to the recorded branch, and log any remaining unrelated IDs.
 
 ## Required Verification
 
@@ -40,3 +41,4 @@ Run complete automated coverage for the runtime or transport slice:
 - Regression tests for existing HTTP execution, variables, auth, response rendering, and export/dry-run behavior touched by shared code.
 
 Update `AGENT_PROGRESS.md` with exact commands and results. Record skipped security-sensitive tests only with a reason, manual verification, and follow-up work.
+Do not mark runtime/transport work `Done` while the claimed changes are still only unassigned unless the ledger records a concrete GitButler blocker and next action.

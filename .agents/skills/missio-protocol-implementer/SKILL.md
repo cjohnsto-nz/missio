@@ -25,6 +25,7 @@ description: Implement OpenCollection protocol support in Missio for GraphQL, We
 - Preserve current HTTP behavior and tests.
 - Add local fixture servers for protocol execution tests.
 - Commit only the protocol track's files with `but commit ... --changes <ids>`; leave unrelated agent changes unassigned or on their own branches.
+- Before marking a protocol task `Review Ready` or `Done`, run an ownership audit from `but status -fv`, commit the protocol slice to the recorded branch, and log any remaining parallel/unrelated change IDs.
 
 ## Protocol Notes
 
@@ -45,3 +46,4 @@ Run complete automated coverage for the protocol slice:
 - Existing HTTP tests that touch shared execution, auth, variables, response rendering, or import/export code.
 
 Update `AGENT_PROGRESS.md` with the exact commands, results, and any non-automated gap with a follow-up.
+Do not mark the protocol task `Done` unless the tested changes are committed to the task branch/stack or a concrete GitButler blocker is logged.
