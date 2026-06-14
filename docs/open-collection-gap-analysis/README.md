@@ -66,6 +66,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-070 | User/Agent Surface Polish | [07-import-export-copilot.md](tasks/07-import-export-copilot.md) | Protocol-aware request creation, import/export behavior, snippet limits, and Copilot polish. |
 | OC-080 | Protocol Runtime Lifecycle | [08-runtime-non-http-protocols.md](tasks/08-runtime-non-http-protocols.md) | Apply scripts, assertions, tests, actions, and runtime variables to supported non-HTTP executors. |
 | OC-090 | gRPC Streaming | [09-grpc-streaming.md](tasks/09-grpc-streaming.md) | Client, server, and bidirectional gRPC streaming execution, UI, fixtures, and tests. |
+| OC-100 | Request Type UX | [10-request-type-ux.md](tasks/10-request-type-ux.md) | UI request type selection, visibility, safe conversion, and Bruno/Postman-aligned workflow review. |
 
 ## Project Skills
 
@@ -87,6 +88,7 @@ OC-000 through OC-040 and OC-060 have removed most of the original HTTP-only fou
 | Evidence | Location |
 | --- | --- |
 | New request creation still needs schema-native protocol starter templates and UX coverage. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts) |
+| Request `type:` is not yet a first-class visual editor choice or safe conversion workflow. | [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
 | Importers and exporters need explicit protocol preservation or unsupported-conversion diagnostics. | [src/importers](../../src/importers) |
 | Snippet export remains HTTP-oriented and should not silently accept non-HTTP requests. | [src/services/snippetService.ts](../../src/services/snippetService.ts) |
 | Runtime scripts/assertions/actions are verified for HTTP and GraphQL-over-HTTP; WebSocket and gRPC need lifecycle parity. | [src/services/requestExecutionService.ts](../../src/services/requestExecutionService.ts) |
