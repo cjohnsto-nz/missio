@@ -4,7 +4,10 @@ import { CollectionService } from './services/collectionService';
 import { EnvironmentService } from './services/environmentService';
 import { SecretService } from './services/secretService';
 import { HttpClient } from './services/httpClient';
+import { GrpcClient } from './services/grpcClient';
 import { RequestExecutionService } from './services/requestExecutionService';
+import { RuntimeExecutionService } from './services/runtimeExecutionService';
+import { WebSocketClient } from './services/webSocketClient';
 import { CliAuthApprovalService } from './services/cliAuthApproval';
 import { CollectionTreeProvider } from './providers/collectionTreeProvider';
 import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
@@ -45,12 +48,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const collectionService = new CollectionService();
   const environmentService = new EnvironmentService(context, secretService);
   const httpClient = new HttpClient(environmentService);
-  const requestExecutionService = new RequestExecutionService(httpClient);
+  const webSocketClient = new WebSocketClient(environmentService);
+  const grpcClient = new GrpcClient(environmentService);
+  const runtimeExecutionService = new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
+    environmentService.resolveVariables(collection, folderDefaults, environmentName),
+  );
+  const requestExecutionService = new RequestExecutionService(httpClient, webSocketClient, grpcClient, runtimeExecutionService);
   const oauth2Service = new OAuth2Service(context.secrets);
   const cliAuthApprovalService = new CliAuthApprovalService(context);
   httpClient.setOAuth2Service(oauth2Service);
   httpClient.setSecretService(secretService);
   httpClient.setCliAuthApprovalService(cliAuthApprovalService);
+  webSocketClient.setSecretService(secretService);
   const responseProvider = new ResponseDocumentProvider();
 
   context.subscriptions.push(
@@ -58,6 +67,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     environmentService,
     secretService,
     httpClient,
+    webSocketClient,
+    grpcClient,
     oauth2Service,
     responseProvider,
   );
