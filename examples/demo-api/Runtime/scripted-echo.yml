@@ -1,0 +1,44 @@
+info:
+  name: Runtime Scripted Echo
+  type: http
+  seq: 2
+  description: Run `node examples/demo-api/server.js`, then send this request to verify before-request scripts can set headers and runtime variables before HTTP execution.
+http:
+  method: POST
+  url: "{{baseUrl}}/runtime/echo"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Runtime-Token
+      value: "{{echoToken}}"
+  body:
+    type: json
+    data: |-
+      {
+        "message": "{{echoMessage}}"
+      }
+runtime:
+  scripts:
+    - type: before-request
+      code: |-
+        missio.request.setHeader("X-Runtime-Script", "echo-script");
+        missio.variables.set("echoToken", "token-from-script");
+        missio.variables.set("echoMessage", "hello from runtime");
+    - type: tests
+      code: |-
+        const data = response.json();
+        test("server saw script header", () => assert(data.scriptedHeader === "echo-script"));
+        test("server saw runtime token", () => assert(data.requestToken === "token-from-script"));
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.body.message
+      operator: equals
+      value: hello from runtime
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+

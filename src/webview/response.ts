@@ -557,6 +557,17 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     previewTab.style.display = isPreviewable(ct) ? '' : 'none';
   }
 
+  const runtimeTab = document.getElementById('respRuntimeTab');
+  const runtimePanel = document.getElementById('runtimeResults');
+  if (runtimeTab && runtimePanel) {
+    const hasRuntime = !!resp.runtime;
+    runtimeTab.style.display = hasRuntime ? '' : 'none';
+    runtimePanel.innerHTML = hasRuntime ? renderRuntimeResults(resp.runtime) : '';
+    if (!hasRuntime && runtimeTab.classList.contains('active')) {
+      (document.querySelector('#respTabs [data-tab="resp-body"]') as HTMLElement | null)?.click();
+    }
+  }
+
   // Auto-switch to Preview tab for images and PDFs (not HTML)
   const autoPreview = ct.toLowerCase().startsWith('image/') || ct.toLowerCase().includes('application/pdf');
   // Also render preview if user is already on the Preview tab
@@ -733,6 +744,86 @@ export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEn
     metaEl.onmouseleave = () => {
       tooltip.style.display = 'none';
     };
+  }
+}
+
+function renderRuntimeResults(runtime: any): string {
+  const summary = runtime.summary ?? { passed: 0, failed: 0, skipped: 0 };
+  const statusClass = runtime.success ? 'runtime-ok' : 'runtime-fail';
+  const sections = [
+    `<div class="runtime-summary ${statusClass}">` +
+      `<span>${runtime.success ? 'Passed' : 'Failed'}</span>` +
+      `<span>${summary.passed ?? 0} passed</span>` +
+      `<span>${summary.failed ?? 0} failed</span>` +
+      `<span>${summary.skipped ?? 0} skipped</span>` +
+    `</div>`,
+  ];
+
+  sections.push(renderRuntimeTable('Tests', ['Result', 'Name', 'Message'], runtime.tests ?? [], (test: any) => [
+    runtimeStateCell(test.passed, test.skipped),
+    esc(String(test.name ?? '')),
+    esc(String(test.message ?? '')),
+  ]));
+
+  sections.push(renderRuntimeTable('Assertions', ['Result', 'Expression', 'Expected', 'Actual'], runtime.assertions ?? [], (assertion: any) => [
+    runtimeStateCell(assertion.passed, assertion.skipped),
+    esc(`${assertion.expression ?? ''} ${assertion.operator ?? ''}`),
+    esc(formatRuntimeValue(assertion.expected)),
+    esc(formatRuntimeValue(assertion.actual)),
+  ]));
+
+  sections.push(renderRuntimeTable('Actions', ['Result', 'Phase', 'Target', 'Value'], runtime.actions ?? [], (action: any) => [
+    runtimeStateCell(action.passed, action.skipped),
+    esc(String(action.phase ?? '')),
+    esc(String(action.target ?? action.type ?? '')),
+    esc(action.message ? String(action.message) : formatRuntimeValue(action.value)),
+  ]));
+
+  sections.push(renderRuntimeTable('Variables', ['Scope', 'Name', 'Value'], runtime.variableMutations ?? [], (mutation: any) => [
+    esc(String(mutation.scope ?? '')),
+    esc(String(mutation.name ?? '')),
+    esc(String(mutation.value ?? '')),
+  ]));
+
+  sections.push(renderRuntimeTable('Logs', ['Phase', 'Level', 'Message'], runtime.logs ?? [], (log: any) => [
+    esc(String(log.phase ?? '')),
+    esc(String(log.level ?? '')),
+    esc(String(log.message ?? '')),
+  ]));
+
+  sections.push(renderRuntimeTable('Errors', ['Phase', 'Message'], runtime.errors ?? [], (error: any) => [
+    esc(String(error.phase ?? '')),
+    esc(String(error.message ?? '')),
+  ]));
+
+  return sections.filter(Boolean).join('');
+}
+
+function renderRuntimeTable(
+  title: string,
+  headers: string[],
+  rows: any[],
+  mapRow: (row: any) => string[],
+): string {
+  if (!rows.length) return '';
+  const head = headers.map(header => `<th>${esc(header)}</th>`).join('');
+  const body = rows.map(row => `<tr>${mapRow(row).map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+  return `<section class="runtime-section"><h3>${esc(title)}</h3><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></section>`;
+}
+
+function runtimeStateCell(passed: boolean, skipped?: boolean): string {
+  const label = skipped ? 'Skip' : passed ? 'Pass' : 'Fail';
+  const cls = skipped ? 'runtime-skip' : passed ? 'runtime-pass' : 'runtime-failed';
+  return `<span class="runtime-pill ${cls}">${label}</span>`;
+}
+
+function formatRuntimeValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 
