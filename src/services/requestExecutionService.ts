@@ -185,6 +185,32 @@ export class RequestExecutionService {
     }
 
     if (isWebSocketRequest(request) && this._webSocketClient) {
+      if (this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults)) {
+        const prepared = await this._runtimeExecutionService.prepareWebSocketRequest(
+          request,
+          collection,
+          folderDefaults,
+          extraVariables,
+          environmentName,
+        );
+        const startedAt = Date.now();
+        let response: HttpResponse;
+        try {
+          response = await this._webSocketClient.send(
+            prepared.request,
+            collection,
+            folderDefaults,
+            onProgress,
+            prepared.extraVariables,
+            environmentName,
+            options,
+          );
+        } catch (error) {
+          if (isCancellationError(error)) throw error;
+          response = buildProtocolErrorResponse('websocket', error, Date.now() - startedAt);
+        }
+        return this._runtimeExecutionService.completeWebSocketRequest(prepared, response);
+      }
       return this._webSocketClient.send(
         request,
         collection,
@@ -197,6 +223,33 @@ export class RequestExecutionService {
     }
 
     if (isGrpcRequest(request) && this._grpcClient) {
+      const grpcMethodType = request.grpc?.methodType ?? 'unary';
+      if (grpcMethodType === 'unary' && this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults)) {
+        const prepared = await this._runtimeExecutionService.prepareGrpcRequest(
+          request,
+          collection,
+          folderDefaults,
+          extraVariables,
+          environmentName,
+        );
+        const startedAt = Date.now();
+        let response: HttpResponse;
+        try {
+          response = await this._grpcClient.send(
+            prepared.request,
+            collection,
+            folderDefaults,
+            onProgress,
+            prepared.extraVariables,
+            environmentName,
+            cliApprovalPrompt,
+          );
+        } catch (error) {
+          if (isCancellationError(error)) throw error;
+          response = buildProtocolErrorResponse('grpc', error, Date.now() - startedAt);
+        }
+        return this._runtimeExecutionService.completeGrpcRequest(prepared, response);
+      }
       return this._grpcClient.send(
         request,
         collection,
@@ -258,6 +311,44 @@ export function getUnsupportedProtocolDiagnostic(request: OpenCollectionRequest)
     protocol: 'unknown',
     protocolName: 'Unknown',
     message: 'This OpenCollection request protocol is not supported for execution yet.',
+  };
+}
+
+function isCancellationError(error: unknown): boolean {
+  return error instanceof Error && /request cancelled/i.test(error.message);
+}
+
+function buildProtocolErrorResponse(protocol: 'websocket' | 'grpc', error: unknown, duration: number): HttpResponse {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const code = typeof (err as any).code === 'string' ? (err as any).code : undefined;
+  const grpcStatus = typeof (err as any).grpcStatus === 'number' ? (err as any).grpcStatus : undefined;
+  const details = {
+    message: err.message,
+    name: err.name,
+    code,
+    grpcStatus,
+    grpcDetails: typeof (err as any).grpcDetails === 'string' ? (err as any).grpcDetails : undefined,
+    stack: typeof err.stack === 'string' ? err.stack : undefined,
+  };
+  const body = JSON.stringify({ protocol, error: details }, null, 2);
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-missio-protocol': protocol,
+    'x-missio-error': 'true',
+    'x-missio-error-message': err.message,
+  };
+  if (code) headers['x-missio-error-code'] = code;
+  if (grpcStatus !== undefined) {
+    headers['x-missio-grpc-status'] = String(grpcStatus);
+  }
+
+  return {
+    status: 0,
+    statusText: code ?? err.name ?? 'Error',
+    headers,
+    body,
+    duration,
+    size: Buffer.byteLength(body, 'utf-8'),
   };
 }
 

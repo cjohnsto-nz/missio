@@ -495,6 +495,7 @@ export interface GrpcRequestRuntime {
   variables?: Variable[];
   scripts?: Scripts;
   assertions?: Assertion[];
+  actions?: Action[];
   auth?: Auth;
 }
 
@@ -537,6 +538,8 @@ export interface WebSocketRequestDetails {
 export interface WebSocketRequestRuntime {
   variables?: Variable[];
   scripts?: Scripts;
+  assertions?: Assertion[];
+  actions?: Action[];
   auth?: Auth;
 }
 
