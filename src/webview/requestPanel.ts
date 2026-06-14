@@ -78,6 +78,7 @@ import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
 import {
   applyRequestEditorModel,
   cloneJson,
+  detectRequestProtocol,
   isVisualEditableRequest,
   type FormFieldEditorRow,
   type KeyValueEditorRow,
@@ -88,7 +89,7 @@ import {
 // ── Document update scheduling ───────────────────
 let _selectedBodyVariantIndex: number | undefined;
 let _selectedFileVariantIndex: number | undefined;
-type PanelProtocol = 'http' | 'graphql' | 'websocket';
+type PanelProtocol = 'http' | 'graphql' | 'websocket' | 'grpc';
 let _currentProtocol: PanelProtocol = 'http';
 
 function scheduleDocumentUpdate(): void {
@@ -628,45 +629,53 @@ function setProtocolUi(protocol: PanelProtocol): void {
   _currentProtocol = protocol;
   const isGraphQL = protocol === 'graphql';
   const isWebSocket = protocol === 'websocket';
+  const isGrpc = protocol === 'grpc';
   const methodPicker = $('methodPicker') as HTMLElement;
   const protocolChip = $('protocolChip') as HTMLElement;
-  methodPicker.style.display = isWebSocket ? 'none' : '';
-  protocolChip.style.display = isWebSocket ? 'flex' : 'none';
-  protocolChip.textContent = 'WS';
+  const protocolLabels: Record<PanelProtocol, string> = {
+    http: 'HTTP',
+    graphql: 'GraphQL',
+    websocket: 'WebSocket',
+    grpc: 'gRPC',
+  };
+  methodPicker.style.display = (isWebSocket || isGrpc) ? 'none' : '';
+  protocolChip.style.display = 'flex';
+  protocolChip.textContent = protocolLabels[protocol];
+  protocolChip.dataset.protocol = protocol;
 
-  setRequestTabVisible('params', !isWebSocket);
-  setRequestTabVisible('settings', !isWebSocket);
-  setRequestTabVisible('export', !isWebSocket);
+  setRequestTabVisible('params', !isWebSocket && !isGrpc);
+  setRequestTabVisible('settings', !isWebSocket && !isGrpc);
+  setRequestTabVisible('export', !isWebSocket && !isGrpc);
   const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
-  if (bodyTab) bodyTab.textContent = isWebSocket ? 'Message' : 'Body';
-  if (isWebSocket && ['params', 'settings', 'export'].some(tabId => document.getElementById('panel-' + tabId)?.classList.contains('active'))) {
+  if (bodyTab) bodyTab.textContent = (isWebSocket || isGrpc) ? 'Message' : 'Body';
+  if ((isWebSocket || isGrpc) && ['params', 'settings', 'export'].some(tabId => document.getElementById('panel-' + tabId)?.classList.contains('active'))) {
     switchTab($('reqTabs'), 'body', reqPanelIds);
   }
 
-  $('bodyTypePills').style.display = (isGraphQL || isWebSocket) ? 'none' : 'flex';
+  $('bodyTypePills').style.display = (isGraphQL || isWebSocket || isGrpc) ? 'none' : 'flex';
   const bodyData = $('bodyData') as HTMLTextAreaElement;
   bodyData.placeholder = isGraphQL
     ? 'query Example { viewer { id name } }'
-    : isWebSocket
+    : isWebSocket || isGrpc
       ? 'Message payload'
       : '';
   (document.getElementById('url') as HTMLElement).setAttribute(
     'data-placeholder',
-    isWebSocket ? '{{wsBaseUrl}}/echo' : '{{baseUrl}}/api/endpoint',
+    isWebSocket ? '{{wsBaseUrl}}/echo' : isGrpc ? '{{grpcBaseUrl}}' : '{{baseUrl}}/api/endpoint',
   );
 
   if (!isSending) {
-    $('sendBtn').textContent = isWebSocket ? 'Connect + Send' : 'Send';
+    $('sendBtn').textContent = isWebSocket ? 'Connect + Send' : isGrpc ? 'Invoke' : 'Send';
   }
-  $('saveExampleBtn').style.display = isWebSocket ? 'none' : '';
+  $('saveExampleBtn').style.display = (isWebSocket || isGrpc) ? 'none' : '';
   $('refreshOAuthRetryBtn').style.display = 'none';
 
   if (isGraphQL) {
     setCurrentLang('text');
     ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
     setBodyType('raw');
-  } else if (isWebSocket) {
-    setCurrentLang('text');
+  } else if (isWebSocket || isGrpc) {
+    setCurrentLang(isGrpc ? 'json' : 'text');
     ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
     setBodyType('raw');
   } else {
@@ -1166,7 +1175,7 @@ function setSendingState(sending: boolean): void {
   } else {
     btn.classList.remove('sending');
     btn.classList.remove('btn-cancel');
-    btn.textContent = _currentProtocol === 'websocket' ? 'Connect + Send' : 'Send';
+    btn.textContent = _currentProtocol === 'websocket' ? 'Connect + Send' : _currentProtocol === 'grpc' ? 'Invoke' : 'Send';
     btn.disabled = false;
   }
 }
@@ -1186,14 +1195,20 @@ function saveRequest(): void {
 function loadRequest(req: any): void {
   setCurrentRequest(req);
   $('exampleIndicator').style.display = 'none';
-  const protocol: PanelProtocol = req.websocket ? 'websocket' : req.graphql ? 'graphql' : 'http';
+  const detectedProtocol = detectRequestProtocol(req);
+  const protocol: PanelProtocol =
+    detectedProtocol === 'graphql' || detectedProtocol === 'websocket' || detectedProtocol === 'grpc'
+      ? detectedProtocol
+      : 'http';
   setProtocolUi(protocol);
   const details = protocol === 'websocket'
     ? (req.websocket || {})
     : protocol === 'graphql'
       ? (req.graphql || {})
-      : (req.http || {});
-  if (protocol !== 'websocket') {
+      : protocol === 'grpc'
+        ? (req.grpc || {})
+        : (req.http || {});
+  if (protocol === 'http' || protocol === 'graphql') {
     (methodSelect as HTMLSelectElement).value = (details.method || (protocol === 'graphql' ? 'POST' : 'GET')).toUpperCase();
     updateMethodColor();
   }
@@ -1218,13 +1233,13 @@ function loadRequest(req: any): void {
   _selectedBodyVariantIndex = undefined;
   _selectedFileVariantIndex = undefined;
   ($('graphqlVariablesData') as HTMLTextAreaElement).value = '';
-  const requestBody = protocol === 'websocket' ? details.message : details.body;
+  const requestBody = (protocol === 'websocket' || protocol === 'grpc') ? details.message : details.body;
   if (requestBody) {
     _selectedBodyVariantIndex = Array.isArray(requestBody)
       ? Math.max(0, requestBody.findIndex((v: any) => v.selected))
       : undefined;
     const body = Array.isArray(requestBody)
-      ? (protocol === 'websocket'
+      ? (protocol === 'websocket' || protocol === 'grpc'
           ? requestBody[_selectedBodyVariantIndex ?? 0]?.message
           : requestBody[_selectedBodyVariantIndex ?? 0]?.body)
       : requestBody;
@@ -1244,6 +1259,13 @@ function loadRequest(req: any): void {
         ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
         updateBodyFormatterState();
         ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
+        syncHighlight();
+      } else if (protocol === 'grpc') {
+        setBodyType('raw');
+        setCurrentLang('json');
+        ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        updateBodyFormatterState();
+        ($('bodyData') as HTMLTextAreaElement).value = typeof body === 'string' ? body : (body.message ?? '');
         syncHighlight();
       } else if (body.type === 'form-urlencoded' || body.type === 'multipart-form') {
         setBodyType(body.type);
@@ -1271,7 +1293,7 @@ function loadRequest(req: any): void {
       setBodyType('raw');
       ($('bodyData') as HTMLTextAreaElement).value = '';
       syncHighlight();
-    } else if (protocol === 'websocket') {
+    } else if (protocol === 'websocket' || protocol === 'grpc') {
       setBodyType('raw');
       ($('bodyData') as HTMLTextAreaElement).value = '';
       syncHighlight();

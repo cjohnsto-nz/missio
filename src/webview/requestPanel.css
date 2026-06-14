@@ -76,7 +76,7 @@ body {
   min-width: 100px;
 }
 .protocol-chip {
-  min-width: 72px;
+  min-width: 92px;
   background: var(--input-bg);
   color: var(--vscode-textLink-foreground, #4fc1ff);
   border: 1px solid var(--input-border);
@@ -89,6 +89,8 @@ body {
   justify-content: center;
   line-height: 1.4;
   box-sizing: border-box;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .method-picker .method-select {
   width: 100%;

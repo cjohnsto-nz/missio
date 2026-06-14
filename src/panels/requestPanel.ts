@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollection } from '../models/types';
-import { getItemKind, isGraphQLRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
+import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { requestLog, type ResolvedRequest } from '../services/httpClient';
 import type { RequestExecutionService } from '../services/requestExecutionService';
 import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
@@ -135,13 +135,16 @@ export class RequestEditorProvider extends BaseEditorProvider {
       ? 'graphql'
       : isWebSocketRequest(current)
         ? 'websocket'
-        : isHttpRequest(current)
-          ? 'http'
-          : undefined;
+        : isGrpcRequest(current)
+          ? 'grpc'
+          : isHttpRequest(current)
+            ? 'http'
+            : undefined;
     if (!currentProtocol) return false;
     if (!isProtocolRequest(next)) return true;
     if (currentProtocol === 'graphql') return isGraphQLRequest(next);
     if (currentProtocol === 'websocket') return isWebSocketRequest(next);
+    if (currentProtocol === 'grpc') return isGrpcRequest(next);
     return isHttpRequest(next);
   }
 
@@ -820,7 +823,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <option value="OPTIONS">OPTIONS</option>
       </select>
     </div>
-    <div class="protocol-chip" id="protocolChip" style="display:none;">WS</div>
+    <div class="protocol-chip" id="protocolChip" aria-label="Request type">HTTP</div>
     <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
