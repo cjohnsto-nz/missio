@@ -843,7 +843,7 @@
       {
         "name": "missio_get_request",
         "displayName": "Get Request Details",
-        "modelDescription": "Read a single request .yml file and return its full definition including info, http (method, url, headers, params, body), runtime (auth, variables), settings, and examples. Use the requestFilePath returned by missio_list_requests.",
+        "modelDescription": "Read a single OpenCollection request .yml file and return its protocol, file path, and schema-native definition for HTTP, GraphQL, WebSocket, or gRPC without converting non-HTTP requests to HTTP. Sensitive auth values are redacted. Use the requestFilePath returned by missio_list_requests.",
         "userDescription": "Get full details for an API request.",
         "toolReferenceName": "missio_get_request",
         "canBeReferencedInPrompt": true,

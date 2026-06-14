@@ -1,6 +1,6 @@
 # Missio REST Client
 
-A lightweight, [OpenCollection](https://www.opencollection.com) compatible REST API client for VS Code.
+A lightweight, [OpenCollection](https://www.opencollection.com) compatible API client for VS Code.
 
 Missio uses the OpenCollection standard, which is file based (and AI friendly). Collaboration is supported via Git and external secret providers.
 
@@ -10,11 +10,11 @@ Missio uses the OpenCollection standard, which is file based (and AI friendly). 
 />
 
 
-## Missio is a REST Client without an identity crisis
+## Missio is an API Client without an identity crisis
 
 ### What Missio Is:
 - **A VSCode Extension**
-- **A REST Client**
+- **An API Client**
 - **Local, Git Native**
 
 ### What Missio Is Not:
@@ -34,8 +34,8 @@ BYO Agentic Coding tools.
 
 Missio is still in alpha. Key missing features from Postman include:
 - Scripting
-- Websockets
-- GraphQL
+- Full snippet export coverage beyond HTTP
+- Deep visual editors for every protocol-specific field
 
 We aim to support these in the coming weeks.
 
@@ -47,8 +47,9 @@ We aim to support these in the coming weeks.
 - **Custom editors** — visual editors for requests, folders, and collections with native dirty indicators, Ctrl+S save, and undo/redo
 - **Tree view sidebar** — browse collections, folders, and requests with inline actions
 - **CodeLens** — send requests directly from YAML files
+- **New request templates** — create schema-valid HTTP, GraphQL, WebSocket, or gRPC request YAML from the command palette
 - **Import from Postman** — import Postman v2.0/v2.1 collections and environments
-- **Import requests** — paste a cURL, wget, or raw HTTP request and import it directly into a collection
+- **Import requests** — paste a cURL, wget, or raw HTTP request and import it directly into a collection; unsupported GraphQL, WebSocket, and gRPC paste formats report explicit diagnostics
 
 ### Request Editor
 - **Visual request builder** — method selector, URL bar, headers, query params, body (raw, form-encoded, multipart)
@@ -59,8 +60,14 @@ We aim to support these in the coming weeks.
 - **Request timer** — live elapsed time display while a request is in progress, with the previous response dimmed until the new one arrives
 - **Auto headers** — `Content-Type` and `Content-Length` are calculated automatically and shown as read-only (override by specifying your own)
 - **Unresolved variable prompts** — if any `{{variables}}` remain unresolved after interpolation, a modal prompts you to fill them in before sending
-- **Export requests** — export as cURL or raw HTTP via the Export dropdown; choose "cURL + Auth" to include resolved authentication headers
+- **Export requests** — export HTTP requests as cURL or raw HTTP via the Export dropdown; choose "cURL + Auth" to include resolved authentication headers
 - **Save examples** — save response snapshots and load them later
+
+### Protocol Surface
+- **Protocol-aware requests** — request creation, the collection tree, CodeLens, send commands, and Copilot tools preserve HTTP, GraphQL, WebSocket, and gRPC identity
+- **Copilot inspection and dry runs** — `missio_list_requests`, `missio_get_request`, and `missio_send_request` expose protocol metadata while redacting sensitive auth and secret values
+- **Import diagnostics** — Postman and OpenAPI imports preserve mappable runtime data and record unsupported mappings under `extensions.missio.import.diagnostics`
+- **Snippet diagnostics** — snippet export is HTTP-only today; GraphQL, WebSocket, and gRPC requests report a protocol-specific limitation instead of silently dropping data
 
 #### Large Response Handling
 
@@ -170,9 +177,9 @@ Secrets are resolved at send time and during OAuth2 token acquisition. The colle
 | `Missio: Select Active Environment` | Choose the active environment |
 | `Missio: New Collection` | Scaffold a new collection |
 | `Missio: Import Collection` | Import from Postman (v2.0/v2.1) |
-| `Missio: Import Request` | Import a request from cURL, wget, or raw HTTP format |
+| `Missio: Import Request` | Import a request from cURL, wget, or raw HTTP format, with explicit diagnostics for unsupported protocol paste formats |
 | `Missio: Import Environment` | Import environment from Postman |
-| `Missio: New Request` | Create a new request YAML file |
+| `Missio: New Request` | Create a new HTTP, GraphQL, WebSocket, or gRPC request YAML file |
 | `Missio: New Folder` | Create a new folder in a collection |
 | `Missio: New Environment` | Add an environment to a collection |
 | `Missio: Configure Collection` | Open the collection editor |
