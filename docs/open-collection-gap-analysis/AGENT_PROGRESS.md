@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-080/OC-090 task planning and OC-070 refresh. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-050/OC-090/OC-100 audit and OC-070/OC-080 readiness. |
 
 ## Test Coverage Rules
 
@@ -83,7 +83,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-070 | OC-000 type guards, protocol executors; OC-050 if auth/template surfaces change | User/agent surface completeness |
 | OC-080 | OC-040 runtime engine, OC-020 WebSocket executor, OC-030 gRPC unary executor | Runtime parity for supported protocols |
 | OC-090 | OC-030 gRPC unary/protobuf support | Full gRPC protocol compatibility |
-| OC-100 | OC-000 type guards, OC-010/OC-020/OC-030 protocol editor foundations; OC-050 if auth/template fields change | Request creation and conversion UX completeness |
+| OC-100 | OC-000 type guards, OC-010/OC-020/OC-030 protocol editor foundations; OC-050 if auth/template fields change | Request creation and visible type identity completeness |
 
 ## Shared Decisions
 
@@ -98,6 +98,14 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 ## Task Logs
 
 ### Supervisor Reports
+
+- 2026-06-15 00:34 NZT - Codex: Reviewed completed OC-050, OC-090, and OC-100 work, fixed two supervisor-found issues, built, packaged, and installed the extension.
+  GitButler: review work is on `supervisor/oc-050-090-100-audit`, stacked on `feature/oc-050-auth-transport`. Earlier audit commits are `2595b21` (`Finalize streaming tool polish`) and `5c53b63` (`Fix inherited HTTP boolean settings`). The workspace was clean before this final ledger/package-hygiene update except the intentional docs and `.vscodeignore` changes.
+  Findings fixed: OC-050 inherited `settings.followRedirects: inherit` and `settings.encodeUrl: inherit` were resolving to `false`; added a regression test in `test/httpClient.test.ts`. Default VSIX packaging failed because `examples/demo-api/fixtures/mtls-client.key` was included; `.vscodeignore` now excludes demo fixture private keys while leaving source demo fixtures usable.
+  Documentation cleanup: aligned OC-100 task/README/dependency wording with the implemented product decision that saved requests show read-only type identity and do not expose a visual type switcher.
+  Verified: `npm run compile` passed; targeted `npx vitest run test/httpClient.test.ts test/grpcSupport.test.ts test/requestTypeUx.test.ts test/responseProvider.test.ts test/sendRequestTool.test.ts test/validationService.test.ts test/schemaRoundTrip.test.ts test/openCollectionFoundation.test.ts` passed 8 files/70 tests; `node scripts/validate-collection.js examples/demo-api` passed 41/41 files; `npm test` passed 21 files/407 tests; `npm run build` passed; default `npx @vscode/vsce package --out $env:TEMP\missio-0.7.7-oc050-090-100-supervisor.vsix` passed; packaged file listing check found no `mtls-client.key`, `docs/open-collection-gap-analysis`, `.agents`, `.opencode`, or `.vscode` entries; `code.cmd --install-extension $env:TEMP\missio-0.7.7-oc050-090-100-supervisor.vsix --force` installed successfully; `code.cmd --list-extensions --show-versions` shows `missio.missio@0.7.7`.
+  Stack/readiness: the applied GitButler stack is clean and usable for the next agents. OC-070 and OC-080 may proceed, but they should coordinate on `src/copilot/tools/sendRequestTool.ts`, `src/providers/responseProvider.ts`, runtime result shapes, and demo fixture additions because both tasks can touch those surfaces.
+  Next: launch OC-070 first if you want the cleanest sequencing for import/export/Copilot surfaces; launch OC-080 in parallel only if the agent explicitly preserves OC-070-owned tool/provider changes and records any shared-file handoff.
 
 - 2026-06-15 00:02 NZT - Codex: Added OC-100 as a focused request type UX task.
   GitButler: planning update is on `supervisor/add-request-type-ux-task`, stacked on `supervisor/add-oc080-oc090-tasks`; existing OC-050 and OC-090 implementation changes remain uncommitted and were not edited.

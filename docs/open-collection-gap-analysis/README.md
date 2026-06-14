@@ -66,7 +66,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-070 | User/Agent Surface Polish | [07-import-export-copilot.md](tasks/07-import-export-copilot.md) | Protocol-aware request creation, import/export behavior, snippet limits, and Copilot polish. |
 | OC-080 | Protocol Runtime Lifecycle | [08-runtime-non-http-protocols.md](tasks/08-runtime-non-http-protocols.md) | Apply scripts, assertions, tests, actions, and runtime variables to supported non-HTTP executors. |
 | OC-090 | gRPC Streaming | [09-grpc-streaming.md](tasks/09-grpc-streaming.md) | Client, server, and bidirectional gRPC streaming execution, UI, fixtures, and tests. |
-| OC-100 | Request Type UX | [10-request-type-ux.md](tasks/10-request-type-ux.md) | UI request type selection, visibility, safe conversion, and Bruno/Postman-aligned workflow review. |
+| OC-100 | Request Type UX | [10-request-type-ux.md](tasks/10-request-type-ux.md) | UI request type selection, read-only type visibility, and Bruno/Postman-aligned workflow review. |
 
 ## Project Skills
 

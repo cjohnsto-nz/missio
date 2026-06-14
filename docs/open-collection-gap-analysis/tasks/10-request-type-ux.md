@@ -73,7 +73,7 @@ Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Pref
 | No unsafe switching | Visual editor does not present a saved-request type switcher; request type remains schema-owned and visible. |
 | Schema alignment | Saved YAML uses the OpenCollection `type:` field and protocol-specific roots correctly. |
 | Industry alignment | Progress log records Bruno/Postman UX observations and the resulting Missio decisions. |
-| Tests | Complete automated tests cover creation, conversion, validation, round-trip preservation, and regressions for existing protocol fixtures. |
+| Tests | Complete automated tests cover type selection at creation, read-only type identity, validation, round-trip preservation, and regressions for existing protocol fixtures. |
 
 ## Out Of Scope
 
