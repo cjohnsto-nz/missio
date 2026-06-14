@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package missio.demo;
+
+import "types/common.proto";
+
+service DemoService {
+  rpc EchoUnary (EchoRequest) returns (EchoReply);
+  rpc StreamUsers (UserRequest) returns (stream UserReply);
+}
+
+message EchoRequest {
+  string name = 1;
+  int32 user_id = 2;
+  Trace trace = 3;
+}
+
+message EchoReply {
+  string message = 1;
+  string name = 2;
+  int32 user_id = 3;
+  string request_id = 4;
+  string authorization = 5;
+  string default_metadata = 6;
+  string folder_metadata = 7;
+  string request_metadata = 8;
+}
+
+message UserRequest {
+  int32 user_id = 1;
+}
+
+message UserReply {
+  int32 id = 1;
+  string name = 2;
+}

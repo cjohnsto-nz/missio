@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import type { HttpRequest, MissioCollection, RequestDefaults, Auth } from '../models/types';
+import type { Auth, MissioCollection, OpenCollectionRequest, RequestDefaults, Variable } from '../models/types';
+import { isGraphQLRequest, isGrpcRequest, isHttpRequest, isWebSocketRequest } from '../models/types';
 import { varPatternGlobal } from '../models/varPattern';
 import type { EnvironmentService } from './environmentService';
 
@@ -37,7 +38,7 @@ function scanAllStrings(obj: unknown, into: Set<string>): void {
  * instead of the currently active one.
  */
 export async function detectUnresolvedVars(
-  requestData: HttpRequest,
+  requestData: OpenCollectionRequest,
   collection: MissioCollection,
   environmentService: EnvironmentService,
   folderDefaults?: RequestDefaults,
@@ -46,22 +47,56 @@ export async function detectUnresolvedVars(
   const varNames = new Set<string>();
   const scan = (s: string | undefined) => extractVarNames(s, varNames);
 
-  const details = requestData.http;
-  if (!details) return [];
+  if (isWebSocketRequest(requestData)) {
+    const details = requestData.websocket;
+    if (!details) return [];
+    scan(details.url);
+    for (const h of collection.data.request?.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    for (const h of folderDefaults?.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    for (const h of details.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    const message = Array.isArray(details.message)
+      ? (details.message.find(v => v.selected) ?? details.message[0])?.message
+      : details.message;
+    scan(message?.data);
+  } else if (isGrpcRequest(requestData)) {
+    const details = requestData.grpc;
+    if (!details) return [];
+    scan(details.url);
+    scan(details.method);
+    scan(details.protoFilePath);
+    for (const h of collection.data.request?.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    for (const h of folderDefaults?.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    for (const h of details.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    const message = Array.isArray(details.message)
+      ? (details.message.find(v => v.selected) ?? details.message[0])?.message
+      : details.message;
+    scan(message);
+  }
 
-  // URL & query/path params
-  scan(details.url);
-  for (const h of details.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
-  for (const p of details.params ?? []) { if (!p.disabled) { scan(p.name); scan(p.value); } }
+  const details = isHttpRequest(requestData)
+    ? requestData.http
+    : isGraphQLRequest(requestData)
+      ? requestData.graphql
+      : undefined;
+  if (details) {
+    // URL & query/path params
+    scan(details.url);
+    for (const h of details.headers ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
+    for (const p of details.params ?? []) { if (!p.disabled) { scan(p.name); scan(p.value); } }
 
-  // Body
-  const body = details.body;
-  if (body) {
-    if (Array.isArray(body)) {
-      const selected = (body as any[]).find((v: any) => v.selected) ?? body[0];
-      if (selected?.body) scanBody(selected.body, scan);
-    } else {
-      scanBody(body as any, scan);
+    // Body
+    const body = details.body;
+    if (body) {
+      if (Array.isArray(body)) {
+        const selected = (body as any[]).find((v: any) => v.selected) ?? body[0];
+        if (selected?.body) {
+          if (isGraphQLRequest(requestData)) scanGraphQLBody(selected.body, scan);
+          else scanBody(selected.body, scan);
+        }
+      } else {
+        if (isGraphQLRequest(requestData)) scanGraphQLBody(body as any, scan);
+        else scanBody(body as any, scan);
+      }
     }
   }
 
@@ -91,6 +126,7 @@ export async function detectUnresolvedVars(
 
   // Resolve variables, then find which referenced names remain unresolved
   const resolved = await environmentService.resolveVariables(collection, folderDefaults, environmentName);
+  mergeRuntimeVariables(resolved, (requestData as any).runtime?.variables);
 
   const unresolved = new Set<string>();
 
@@ -133,7 +169,7 @@ export async function detectUnresolvedVars(
  * Returns a Map of user-provided values, or undefined if the user cancelled.
  */
 export async function promptForUnresolvedVars(
-  requestData: HttpRequest,
+  requestData: OpenCollectionRequest,
   collection: MissioCollection,
   environmentService: EnvironmentService,
   folderDefaults?: RequestDefaults,
@@ -156,6 +192,12 @@ export async function promptForUnresolvedVars(
   return extras;
 }
 
+function scanGraphQLBody(body: any, scan: (s: string | undefined) => void): void {
+  if (!body) return;
+  scan(body.query);
+  scan(body.variables);
+}
+
 function scanBody(body: any, scan: (s: string | undefined) => void): void {
   if (!body) return;
   switch (body.type) {
@@ -174,6 +216,27 @@ function scanBody(body: any, scan: (s: string | undefined) => void): void {
       }
       break;
   }
+}
+
+function mergeRuntimeVariables(resolved: Map<string, string>, variables: Variable[] | undefined): void {
+  for (const variable of variables ?? []) {
+    if (!variable.name || variable.disabled) continue;
+    const value = resolveVariableValue(variable.value);
+    if (value !== undefined) resolved.set(variable.name, value);
+  }
+}
+
+function resolveVariableValue(value: Variable['value']): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const selected = value.find(variant => variant.selected) ?? value[0];
+    return selected ? resolveVariableValue(selected.value as Variable['value']) : undefined;
+  }
+  if (typeof value === 'object' && 'data' in value && typeof value.data === 'string') {
+    return value.data;
+  }
+  return undefined;
 }
 
 function isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {

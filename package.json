@@ -783,7 +783,7 @@
       {
         "name": "missio_list_requests",
         "displayName": "List API Requests",
-        "modelDescription": "List all HTTP requests in a collection, including their method, URL, file path, folder location, and templateVariables (raw {{placeholder}} names found in the request template with placement context: url/params/headers/body/auth). This is a template-only scan (no environment resolution). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
+        "modelDescription": "List all executable HTTP and GraphQL requests in a collection, including their protocol, method or operation, URL, file path, folder location, and templateVariables (raw {{placeholder}} names found in the request template with placement context: url/params/headers/body/auth). This is a template-only scan (no environment resolution). collectionId is optional when only one collection is loaded. Optionally pass a folder name to filter results to a specific subfolder (e.g. 'Diagrams' or 'Organizations/Users').",
         "userDescription": "List all requests in an API collection.",
         "toolReferenceName": "missio_list_requests",
         "canBeReferencedInPrompt": true,
@@ -922,9 +922,9 @@
       },
       {
         "name": "missio_send_request",
-        "displayName": "Send HTTP Request",
-        "modelDescription": "Execute an HTTP request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request (URL, headers, auth, and body) and returns unresolvedVariables; any listed must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom JSON body that is not templated, use missio_send_raw_request instead.",
-        "userDescription": "Send an HTTP request from an API collection.",
+        "displayName": "Send API Request",
+        "modelDescription": "Execute an HTTP or GraphQL request through the full Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition, and secret provider resolution. Returns status, headers, body (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request (URL, headers, auth, and body) and returns unresolvedVariables; any listed must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom JSON body that is not templated, use missio_send_raw_request instead.",
+        "userDescription": "Send an API request from a collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
         "icon": "$(play)",
@@ -1105,6 +1105,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.18.1",
     "@vscode/codicons": "^0.0.44",
     "ajv": "^8.17.1",
     "esbuild": "^0.20.0",
@@ -1114,8 +1115,11 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "highlight.js": "^11.11.1",
     "httpsnippet": "^3.0.9",
+    "ws": "^8.21.0",
     "yaml": "^2.3.0"
   }
 }
