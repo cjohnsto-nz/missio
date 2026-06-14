@@ -68,6 +68,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-080 | Runtime lifecycle for WebSocket and unary gRPC | Unclaimed | - | - | - | - | - | Start after OC-040 and protocol executors; coordinate with OC-070 if Copilot runtime output changes. |
 | OC-090 | gRPC streaming | Done | Codex | feature/oc-090-grpc-streaming (am), stacked on applied OC-030 unary/protobuf work; implementation commits `84cf254` and `c462d51` | Implemented method-type-aware unary, server-streaming, client-streaming, and bidirectional-streaming gRPC execution with schema-native ordered message sequences, proto method-type validation, cancellation cleanup, partial stream error retention, response stream summaries, local demo streaming proto/server/routes, and regression tests for unary dispatch, validation, round-trip safety, failure paths, and cleanup. | `npm run compile` passed; `npx vitest run test/grpcSupport.test.ts test/schemaRoundTrip.test.ts test/validationService.test.ts test/responseProvider.test.ts test/sendRequestTool.test.ts` passed 5 files/33 tests; `node scripts\validate-collection.js examples\demo-api` passed 42/42 files; `npm test` passed 21 files/405 tests; `npm run build` passed. Live hidden `node examples/demo-api/grpc-server.js` smoke verified server/client/bidi/error streams. | 2026-06-15 00:21 NZT | OC-090 complete in the verified worktree. Preserve remaining unassigned parallel/change-routing IDs called out in the OC-090 log; do not commit them to unrelated branches. |
 | OC-100 | Request type UX | Done | Codex | feature/oc-100-request-type-ux (g0 after restack), stacked on supervisor/add-request-type-ux-task; implementation commit `5cb05a3` | Satisfied by `test/requestTypeUx.test.ts`: schema-valid HTTP/GraphQL/WebSocket/gRPC starter templates, actual `missio.newRequest` protocol picker/write/open flow, YAML and editor-model round-trip safety, no stale protocol roots, gRPC same-protocol editor guard, and read-only protocol chip shell. Shared regressions cover HTTP/GraphQL/WebSocket/gRPC editor, validation, command/tool, and protocol behavior. Switcher/conversion helpers are intentionally out of scope because the benchmarked tools emphasize protocol choice at creation and Postman locks saved request protocols. | `npx vitest run test/requestTypeUx.test.ts test/schemaRoundTrip.test.ts test/openCollectionFoundation.test.ts test/validationService.test.ts` passed 4 files/25 tests; targeted protocol suite passed 8 files/68 tests; `npm run compile` passed; `npm test` passed 21 files/405 tests; `node scripts/validate-collection.js examples/demo-api` passed 42/42 files; `npm run build` passed. | 2026-06-15 00:15 NZT | OC-100 complete; no saved-request switcher was added by product decision and benchmark alignment. Remaining unassigned changes are parallel OC-050/OC-090 work, not OC-100. |
+| OC-110 | Runtime authoring UX | Unclaimed | - | - | - | - | - | Start after OC-070 settles request editor surface churn; coordinate with OC-080 if non-HTTP runtime response shapes affect authoring examples. |
 
 ## Dependency Map
 
@@ -84,6 +85,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-080 | OC-040 runtime engine, OC-020 WebSocket executor, OC-030 gRPC unary executor | Runtime parity for supported protocols |
 | OC-090 | OC-030 gRPC unary/protobuf support | Full gRPC protocol compatibility |
 | OC-100 | OC-000 type guards, OC-010/OC-020/OC-030 protocol editor foundations; OC-050 if auth/template fields change | Request creation and visible type identity completeness |
+| OC-110 | OC-040 runtime schema/engine, OC-060 round-trip safety, OC-100 editor shell; coordinate with OC-070 and OC-080 | Visual authoring completeness for runtime scripts, tests, assertions, and actions |
 
 ## Shared Decisions
 
@@ -98,6 +100,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 ## Task Logs
 
 ### Supervisor Reports
+
+- 2026-06-15 00:57 NZT - Codex: Added OC-110 as a separate runtime authoring UX task after confirming snippet export belongs to OC-070 and non-HTTP runtime execution belongs to OC-080.
+  GitButler: planning update is on `supervisor/add-runtime-authoring-ux-task`, stacked on `supervisor/oc-050-090-100-audit`; active OC-070 implementation changes in `zz` were not edited or committed.
+  Coverage: documentation-only planning change; no runtime behavior changed.
+  Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, and `tasks/11-runtime-authoring-ux.md`.
+  Verified: reference checks for `OC-110`, `runtime authoring`, and `11-runtime-authoring-ux` completed; implementation tests not required for docs-only task creation.
+  Next: launch OC-110 after OC-070 settles request editor surface churn; coordinate with OC-080 if non-HTTP runtime examples or response shapes change.
 
 - 2026-06-15 00:34 NZT - Codex: Reviewed completed OC-050, OC-090, and OC-100 work, fixed two supervisor-found issues, built, packaged, and installed the extension.
   GitButler: review work is on `supervisor/oc-050-090-100-audit`, stacked on `feature/oc-050-auth-transport`. Earlier audit commits are `2595b21` (`Finalize streaming tool polish`) and `5c53b63` (`Fix inherited HTTP boolean settings`). The workspace was clean before this final ledger/package-hygiene update except the intentional docs and `.vscodeignore` changes.
@@ -288,6 +297,10 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Next: audit the creation/import/export/snippet/Copilot code and tests, add failing coverage, then implement OC-070 surface polish without touching the OC-100 icon follow-up.
 
 ### OC-080 Runtime Lifecycle For Non-HTTP Protocols
+
+No updates yet.
+
+### OC-110 Runtime Authoring UX
 
 No updates yet.
 
