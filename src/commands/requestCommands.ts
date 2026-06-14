@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
 import type { HttpRequest, MissioCollection, OpenCollectionRequest, RequestDefaults } from '../models/types';
-import { getItemKind, isHttpRequest, isProtocolRequest } from '../models/types';
+import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
 import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
 import { promptForUnresolvedVars } from '../services/unresolvedVars';
@@ -74,7 +74,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
 
         // Prompt for unresolved variables before sending
         let extraVariables: Map<string, string> | undefined;
-        if (isHttpRequest(request)) {
+        if (isHttpRequest(request) || isGraphQLRequest(request) || isWebSocketRequest(request) || isGrpcRequest(request)) {
           extraVariables = await promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
           if (extraVariables === undefined) return; // User cancelled
         }
@@ -95,6 +95,9 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
               folderDefaults,
               undefined,
               extraVariables && extraVariables.size > 0 ? extraVariables : undefined,
+              undefined,
+              undefined,
+              { requestId: filePath },
             );
             await responseProvider.showResponse(response, request.info?.name);
           },
@@ -124,7 +127,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
     }),
 
     vscode.commands.registerCommand('missio.cancelRequest', () => {
-      httpClient.cancelAll();
+      requestExecutionService.cancelAll();
       vscode.window.showInformationMessage('All active requests cancelled.');
     }),
 

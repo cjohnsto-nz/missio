@@ -75,6 +75,10 @@ export class Range {
   constructor(public startLine: number, public startChar: number, public endLine: number, public endChar?: number) {}
 }
 
+export class CodeLens {
+  constructor(public range: Range, public command?: any) {}
+}
+
 export class WorkspaceEdit {
   replace() {}
 }

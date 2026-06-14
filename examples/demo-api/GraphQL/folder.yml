@@ -1,0 +1,5 @@
+info:
+  name: GraphQL
+  type: folder
+  description: Run node examples/demo-api/server.js before sending these local GraphQL demo requests.
+

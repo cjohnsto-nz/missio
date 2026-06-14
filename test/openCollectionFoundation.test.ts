@@ -186,7 +186,7 @@ describe('OpenCollection unbundled scan and tree routing', () => {
       'grpcRequest',
       'scriptFile',
     ]);
-    expect(children.map(node => (node as any).description)).toEqual(['GET', 'GRAPHQL', 'WS', 'gRPC', 'SCRIPT']);
+    expect(children.map(node => (node as any).description)).toEqual(['GET', 'POST', 'WS', 'gRPC', 'SCRIPT']);
     provider.dispose();
   });
 });
@@ -244,18 +244,23 @@ describe('OpenCollection validation routing', () => {
 });
 
 describe('protocol diagnostics in user-facing execution surfaces', () => {
-  it('returns structured unsupported diagnostics from the Copilot send tool', async () => {
+  it('returns structured unsupported diagnostics from the Copilot send tool for protocols without executors', async () => {
     const collection = makeCollection(os.tmpdir());
+    const requestExecutionService = new RequestExecutionService({
+      send: vi.fn(),
+      buildResolvedRequest: vi.fn(),
+      cancelAll: vi.fn(),
+    } as any);
     const tool = new SendRequestTool(
       {
         loadRequestFile: async () => ({
-          info: { name: 'Graph Query', type: 'graphql' },
-          graphql: { url: 'https://example.com/graphql' },
+          info: { name: 'gRPC Call', type: 'grpc' },
+          grpc: { url: 'localhost:50051', method: 'demo.Service/Call' },
         }),
         getCollection: () => collection,
       } as any,
       {} as any,
-      {} as any,
+      requestExecutionService,
     );
 
     const output = await tool.call(
@@ -266,12 +271,12 @@ describe('protocol diagnostics in user-facing execution surfaces', () => {
     expect(JSON.parse(output)).toMatchObject({
       success: false,
       code: 'MISSIO_UNSUPPORTED_PROTOCOL',
-      protocol: 'graphql',
-      taskId: 'OC-010',
+      protocol: 'grpc',
+      taskId: 'OC-030',
     });
   });
 
-  it('does not autosave an HTTP-shaped edit over a non-HTTP protocol document', async () => {
+  it('does not autosave an HTTP-shaped edit over protocol documents without an editor', async () => {
     const provider = new RequestEditorProvider(
       { extensionUri: { fsPath: process.cwd() } } as any,
       {} as any,
@@ -288,8 +293,8 @@ describe('protocol diagnostics in user-facing execution surfaces', () => {
         uri: { fsPath: path.join(os.tmpdir(), 'query.yml') },
         lineCount: 4,
         getText: () => `
-          info: { name: Graph Query, type: graphql }
-          graphql: { url: "https://example.com/graphql" }
+          info: { name: gRPC, type: grpc }
+          grpc: { url: "localhost:50051", method: "demo.Service/Call" }
         `,
       },
       {
@@ -301,5 +306,43 @@ describe('protocol diagnostics in user-facing execution surfaces', () => {
     );
 
     expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('allows schema-native GraphQL edits through the request editor', async () => {
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const applyEdit = vi.fn().mockResolvedValue(true);
+    workspace.applyEdit = applyEdit;
+
+    await (provider as any)._applyDocumentEdit(
+      {
+        uri: { fsPath: path.join(os.tmpdir(), 'query.yml') },
+        lineCount: 8,
+        getText: () => `
+          info: { name: GraphQL, type: graphql }
+          graphql:
+            url: "https://example.com/graphql"
+            body:
+              query: "query Health { health { status } }"
+        `,
+      },
+      {
+        request: {
+          info: { name: 'GraphQL', type: 'graphql' },
+          graphql: {
+            url: 'https://example.com/graphql',
+            body: { query: 'query Health { health { status service } }', variables: '{}' },
+          },
+        },
+      },
+    );
+
+    expect(applyEdit).toHaveBeenCalledOnce();
   });
 });

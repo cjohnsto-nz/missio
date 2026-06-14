@@ -9,8 +9,9 @@ import { detectUnresolvedVars } from '../../services/unresolvedVars';
 import { varPatternGlobal } from '../../models/varPattern';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { Auth, OpenCollectionRequest } from '../../models/types';
-import { isHttpRequest, isProtocolRequest } from '../../models/types';
+import type { Auth, GrpcRequest, OpenCollectionRequest, RequestProtocol, Variable, VariableValueVariant, WebSocketRequest } from '../../models/types';
+import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../../models/types';
+import { buildGraphQLHttpRequest } from '../../services/graphqlSupport';
 
 export interface SendRequestParams {
   requestFilePath: string;
@@ -56,6 +57,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     if (!isProtocolRequest(request)) {
       return JSON.stringify({ success: false, message: `File is not an executable OpenCollection request: ${requestFilePath}` });
     }
+    const protocol = getItemKind(request);
 
     // Find collection: prefer explicit collectionId, fall back to path-based
     const collection = collectionId
@@ -68,9 +70,15 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     // Read folder defaults if a folder.yml exists alongside the request
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
 
-    if (!isHttpRequest(request)) {
+    if (!isHttpRequest(request) && !isGraphQLRequest(request) && !isGrpcRequest(request) && !isWebSocketRequest(request)) {
       return this._unsupportedProtocolResult(request, dryRun);
     }
+
+    const dryRunRequest = isGraphQLRequest(request)
+      ? buildGraphQLHttpRequest(request)
+      : isHttpRequest(request)
+        ? request
+        : undefined;
 
     // Convert typed variable values to strings for the resolution map.
     const extraVariables = variables
@@ -103,7 +111,16 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
 
     // Dry-run: resolve and preview without sending
     if (dryRun) {
-      return this._dryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings);
+      if (isGrpcRequest(request)) {
+        return this._grpcDryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings);
+      }
+      if (isWebSocketRequest(request)) {
+        return this._webSocketDryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings);
+      }
+      if (!dryRunRequest) {
+        return this._unsupportedProtocolResult(request, dryRun);
+      }
+      return this._dryRun(dryRunRequest, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings, isGraphQLRequest(request) ? 'graphql' : 'http');
     }
 
     // Warn on unresolved placeholders
@@ -115,7 +132,44 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       });
     }
 
-    const response = await this._requestExecutionService.send(request, collection, folderDefaults, undefined, extraVariables, environment);
+    if (typeof this._requestExecutionService?.send !== 'function') {
+      return this._unsupportedProtocolResult(request, dryRun);
+    }
+
+    let response;
+    try {
+      response = await this._requestExecutionService.send(
+        request,
+        collection,
+        folderDefaults,
+        undefined,
+        extraVariables,
+        environment,
+        undefined,
+        { requestId: requestFilePath },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const result: Record<string, unknown> = {
+        success: false,
+        message,
+        protocol,
+      };
+      const diagnostic = (err as any)?.code === 'MISSIO_UNSUPPORTED_PROTOCOL'
+        ? ((err as any)?.diagnostic ?? getUnsupportedProtocolDiagnostic(request))
+        : undefined;
+      if (diagnostic) {
+        result.code = (err as any).code;
+        result.protocol = diagnostic.protocol;
+        result.protocolName = diagnostic.protocolName;
+        result.taskId = diagnostic.taskId;
+        result.message = diagnostic.message;
+      }
+      if ((err as any)?.runtime) {
+        result.runtime = (err as any).runtime;
+      }
+      return JSON.stringify(result);
+    }
 
     // Write response body to file if requested
     let savedTo: string | undefined;
@@ -134,6 +188,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     // Build result
     const result: Record<string, unknown> = {
       success: true,
+      protocol,
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
@@ -149,6 +204,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     }
 
     if (savedTo) result.savedTo = savedTo;
+    if (response.runtime) result.runtime = response.runtime;
 
     // Extract values from JSON response body
     if (extract && response.body) {
@@ -168,7 +224,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   }
 
   private _collectReferencedVarNames(
-    request: import('../../models/types').HttpRequest,
+    request: OpenCollectionRequest,
     collection: import('../../models/types').MissioCollection,
     folderDefaults: import('../../models/types').RequestDefaults | undefined,
   ): Set<string> {
@@ -180,41 +236,80 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       while ((m = re.exec(s)) !== null) referenced.add(m[1].trim());
     };
 
-    const details = request.http;
-    if (!details) return referenced;
-
-    extract(details.url);
-    for (const h of details.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
-    for (const p of details.params ?? []) { if (!p.disabled) { extract(p.name); extract(p.value); } }
-
-    const body = details.body;
-    const scanBody = (b: any) => {
-      if (!b) return;
-      switch (b.type) {
-        case 'json':
-        case 'text':
-        case 'xml':
-        case 'sparql':
-          extract(b.data);
-          break;
-        case 'form-urlencoded':
-        case 'multipart-form':
-          for (const entry of b.data ?? []) {
-            if (!entry.disabled) {
-              extract(entry.name);
-              if (typeof entry.value === 'string') extract(entry.value);
-              else if (Array.isArray(entry.value)) entry.value.forEach((v: string) => extract(v));
-            }
-          }
-          break;
+    if (isGrpcRequest(request)) {
+      const details = request.grpc;
+      if (details) {
+        extract(details.url);
+        extract(details.method);
+        extract(details.protoFilePath);
+        for (const h of collection.data.request?.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        for (const h of folderDefaults?.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        for (const h of details.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        const message = Array.isArray(details.message)
+          ? (details.message.find((v: any) => v.selected) ?? details.message[0])?.message
+          : details.message;
+        extract(message);
       }
-    };
-    if (body) {
-      if (Array.isArray(body)) {
-        const selected = (body as any[]).find((v: any) => v.selected) ?? body[0];
-        scanBody(selected?.body);
-      } else {
-        scanBody(body as any);
+    }
+
+    if (isWebSocketRequest(request)) {
+      const details = request.websocket;
+      if (details) {
+        extract(details.url);
+        for (const h of collection.data.request?.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        for (const h of folderDefaults?.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        for (const h of details.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+        const message = Array.isArray(details.message)
+          ? (details.message.find((v: any) => v.selected) ?? details.message[0])?.message
+          : details.message;
+        extract(message?.data);
+      }
+    }
+
+    const details = isGraphQLRequest(request)
+      ? request.graphql
+      : isHttpRequest(request)
+        ? request.http
+        : undefined;
+    if (details) {
+      extract(details.url);
+      for (const h of details.headers ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
+      for (const p of details.params ?? []) { if (!p.disabled) { extract(p.name); extract(p.value); } }
+
+      const body = details.body;
+      const scanBody = (b: any) => {
+        if (!b) return;
+        if (isGraphQLRequest(request)) {
+          extract(b.query);
+          extract(b.variables);
+          return;
+        }
+        switch (b.type) {
+          case 'json':
+          case 'text':
+          case 'xml':
+          case 'sparql':
+            extract(b.data);
+            break;
+          case 'form-urlencoded':
+          case 'multipart-form':
+            for (const entry of b.data ?? []) {
+              if (!entry.disabled) {
+                extract(entry.name);
+                if (typeof entry.value === 'string') extract(entry.value);
+                else if (Array.isArray(entry.value)) entry.value.forEach((v: string) => extract(v));
+              }
+            }
+            break;
+        }
+      };
+      if (body) {
+        if (Array.isArray(body)) {
+          const selected = (body as any[]).find((v: any) => v.selected) ?? body[0];
+          scanBody(selected?.body);
+        } else {
+          scanBody(body as any);
+        }
       }
     }
 
@@ -248,7 +343,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   }
 
   private _selectEffectiveAuth(
-    request: import('../../models/types').HttpRequest,
+    request: OpenCollectionRequest,
     collection: import('../../models/types').MissioCollection,
     folderDefaults: import('../../models/types').RequestDefaults | undefined,
   ): import('../../models/types').Auth | undefined {
@@ -277,6 +372,28 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       default:
         return true;
     }
+  }
+
+  private _mergeRuntimeVariables(variables: Map<string, string>, runtimeVariables: Variable[] | undefined): void {
+    for (const variable of runtimeVariables ?? []) {
+      if (!variable.name || variable.disabled) continue;
+      const value = this._resolveVariableValue(variable.value);
+      if (value !== undefined) variables.set(variable.name, this._environmentService.interpolate(value, variables));
+    }
+  }
+
+  private _resolveVariableValue(value: Variable['value']): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      const variants = value as VariableValueVariant[];
+      const selected = variants.find(variant => variant.selected) ?? variants[0];
+      return selected ? this._resolveVariableValue(selected.value) : undefined;
+    }
+    if (typeof value === 'object' && 'data' in value && typeof value.data === 'string') {
+      return value.data;
+    }
+    return undefined;
   }
 
   private _applyDryRunAuth(
@@ -324,18 +441,16 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       return { invocationMessage: `Previewing request: ${path.basename(requestFilePath)}` };
     }
     return {
-      invocationMessage: `Sending HTTP request: ${path.basename(requestFilePath)}`,
+      invocationMessage: `Sending request: ${path.basename(requestFilePath)}`,
       confirmationMessages: {
         title: 'Missio: Send Request',
-        message: new vscode.MarkdownString(`Execute the HTTP request at \`${requestFilePath}\`?`),
+        message: new vscode.MarkdownString(`Execute the request at \`${requestFilePath}\`?`),
       },
     };
   }
 
-  // ── Dry-run: resolve and preview without sending ──
-
-  private async _dryRun(
-    request: import('../../models/types').HttpRequest,
+  private async _grpcDryRun(
+    request: GrpcRequest,
     collection: import('../../models/types').MissioCollection,
     folderDefaults: import('../../models/types').RequestDefaults | undefined,
     extraVariables: Map<string, string> | undefined,
@@ -346,12 +461,198 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults, environmentName);
     const variables = new Map<string, string>();
     const secretValues = new Set<string>();
+    for (const [key, value] of varsWithSource) {
+      variables.set(key, value.value);
+      if (value.source === 'secret' && value.value) {
+        secretValues.add(value.value);
+      }
+    }
+    this._mergeRuntimeVariables(variables, request.runtime?.variables);
+    if (extraVariables) {
+      for (const [key, value] of extraVariables) variables.set(key, value);
+    }
+
+    const details = request.grpc;
+    const metadata: Record<string, string> = {};
+    const addMetadata = (entries: import('../../models/types').GrpcMetadata[] | undefined) => {
+      for (const entry of entries ?? []) {
+        if (entry.disabled) continue;
+        const name = this._environmentService.interpolate(entry.name, variables);
+        if (name) metadata[name] = this._redactSecretValues(this._environmentService.interpolate(entry.value, variables), secretValues);
+      }
+    };
+    addMetadata(collection.data.request?.metadata);
+    addMetadata(folderDefaults?.metadata);
+    addMetadata(details?.metadata);
+
+    const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
+    if (auth && auth !== 'inherit' && typeof auth === 'object') {
+      switch ((auth as any).type) {
+        case 'apikey': {
+          const key = this._environmentService.interpolate(String((auth as any).key ?? ''), variables);
+          if (key && (auth as any).placement !== 'query') metadata[key] = '[redacted]';
+          break;
+        }
+        case 'bearer':
+        case 'basic':
+        case 'cli':
+          metadata.authorization = '[redacted]';
+          break;
+      }
+    }
+
+    let message: unknown = {};
+    const rawMessage = Array.isArray(details?.message)
+      ? (details?.message.find((v: any) => v.selected) ?? details?.message[0])?.message
+      : details?.message;
+    if (rawMessage) {
+      try {
+        message = JSON.parse(this._environmentService.interpolateJson(rawMessage, variables));
+      } catch {
+        message = rawMessage;
+      }
+    }
+
+    return JSON.stringify({
+      success: unresolvedNames.length === 0,
+      dryRun: true,
+      protocol: 'grpc',
+      unresolvedVariables: unresolvedNames,
+      warnings,
+      request: {
+        url: details?.url ? this._redactSensitiveUrl(this._environmentService.interpolate(details.url, variables), secretValues) : '',
+        method: details?.method ? this._environmentService.interpolate(details.method, variables) : '',
+        methodType: details?.methodType ?? 'unary',
+        protoFilePath: details?.protoFilePath ? this._environmentService.interpolate(details.protoFilePath, variables) : undefined,
+        metadata,
+        message,
+      },
+    });
+  }
+
+  // ── Dry-run: resolve and preview without sending ──
+
+  private async _webSocketDryRun(
+    request: WebSocketRequest,
+    collection: import('../../models/types').MissioCollection,
+    folderDefaults: import('../../models/types').RequestDefaults | undefined,
+    extraVariables: Map<string, string> | undefined,
+    environmentName: string | undefined,
+    unresolvedNames: string[],
+    warnings: string[],
+  ): Promise<string> {
+    const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults, environmentName);
+    const variables = new Map<string, string>();
+    const secretValues = new Set<string>();
+    for (const [key, value] of varsWithSource) {
+      variables.set(key, value.value);
+      if (value.source === 'secret' && value.value) {
+        secretValues.add(value.value);
+      }
+    }
+    this._mergeRuntimeVariables(variables, request.runtime?.variables);
+    if (extraVariables) {
+      for (const [key, value] of extraVariables) variables.set(key, value);
+    }
+
+    const details = request.websocket;
+    let url = details?.url ? this._environmentService.interpolate(details.url, variables) : '';
+    const headers: Record<string, string> = {};
+    const addHeaders = (entries: import('../../models/types').HttpRequestHeader[] | undefined) => {
+      for (const entry of entries ?? []) {
+        if (entry.disabled) continue;
+        const name = this._environmentService.interpolate(entry.name, variables);
+        if (name) headers[name] = this._environmentService.interpolate(entry.value, variables);
+      }
+    };
+    addHeaders(collection.data.request?.headers);
+    addHeaders(folderDefaults?.headers);
+    addHeaders(details?.headers);
+
+    const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
+    if (auth && auth !== 'inherit' && typeof auth === 'object') {
+      switch ((auth as any).type) {
+        case 'apikey': {
+          const key = this._environmentService.interpolate(String((auth as any).key ?? ''), variables);
+          if (!key) break;
+          if ((auth as any).placement === 'query') {
+            try {
+              const parsed = new URL(url);
+              parsed.searchParams.set(key, '[redacted]');
+              url = parsed.toString();
+            } catch {
+              // leave URL as-is when it cannot be parsed
+            }
+          } else {
+            headers[key] = '[redacted]';
+          }
+          break;
+        }
+        case 'bearer':
+          headers.Authorization = 'Bearer [redacted]';
+          break;
+        case 'basic':
+          headers.Authorization = 'Basic [redacted]';
+          break;
+        case 'cli': {
+          const headerName = (auth as any).tokenHeader || 'Authorization';
+          const prefix = (auth as any).tokenPrefix !== undefined ? (auth as any).tokenPrefix : 'Bearer';
+          headers[headerName] = prefix ? `${prefix} [redacted]` : '[redacted]';
+          break;
+        }
+      }
+    }
+
+    const rawMessage = Array.isArray(details?.message)
+      ? (details?.message.find((variant: any) => variant.selected) ?? details?.message[0])?.message
+      : details?.message;
+    const message = rawMessage
+      ? {
+          type: rawMessage.type ?? 'text',
+          data: rawMessage.type === 'json'
+            ? this._environmentService.interpolateJson(rawMessage.data ?? '', variables)
+            : this._environmentService.interpolate(rawMessage.data ?? '', variables),
+        }
+      : undefined;
+
+    const result: Record<string, unknown> = {
+      success: unresolvedNames.length === 0,
+      dryRun: true,
+      protocol: 'websocket',
+      url: this._redactSensitiveUrl(url, secretValues),
+      headers: this._redactSensitiveHeaders(headers, secretValues),
+    };
+    if (message) {
+      result.message = {
+        type: message.type,
+        data: this._redactSecretValues(message.data, secretValues),
+      };
+    }
+    if (warnings.length > 0) result.warnings = warnings;
+    if (unresolvedNames.length > 0) result.unresolvedVariables = unresolvedNames;
+    return JSON.stringify(result);
+  }
+
+  private async _dryRun(
+    request: import('../../models/types').HttpRequest,
+    collection: import('../../models/types').MissioCollection,
+    folderDefaults: import('../../models/types').RequestDefaults | undefined,
+    extraVariables: Map<string, string> | undefined,
+    environmentName: string | undefined,
+    unresolvedNames: string[],
+    warnings: string[],
+    protocol: RequestProtocol = 'http',
+  ): Promise<string> {
+    const varsWithSource = await this._environmentService.resolveVariablesWithSource(collection, folderDefaults, environmentName);
+    const variables = new Map<string, string>();
+    const secretValues = new Set<string>();
     for (const [k, v] of varsWithSource) {
       variables.set(k, v.value);
       if (v.source === 'secret' && v.value) {
         secretValues.add(v.value);
       }
     }
+    this._mergeRuntimeVariables(variables, request.runtime?.variables);
     if (extraVariables) {
       for (const [k, v] of extraVariables) variables.set(k, v);
     }
@@ -406,6 +707,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     const result: Record<string, unknown> = {
       success: true,
       dryRun: true,
+      protocol,
       method,
       url: this._redactSensitiveUrl(url, secretValues),
       headers: this._redactSensitiveHeaders(headers, secretValues),

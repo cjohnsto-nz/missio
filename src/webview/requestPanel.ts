@@ -78,7 +78,7 @@ import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
 import {
   applyRequestEditorModel,
   cloneJson,
-  isHttpVisualEditableRequest,
+  isVisualEditableRequest,
   type FormFieldEditorRow,
   type KeyValueEditorRow,
   type RequestEditorBodyModel,
@@ -88,6 +88,8 @@ import {
 // ── Document update scheduling ───────────────────
 let _selectedBodyVariantIndex: number | undefined;
 let _selectedFileVariantIndex: number | undefined;
+type PanelProtocol = 'http' | 'graphql' | 'websocket';
+let _currentProtocol: PanelProtocol = 'http';
 
 function scheduleDocumentUpdate(): void {
   if (updateDocumentTimer) clearTimeout(updateDocumentTimer);
@@ -100,17 +102,24 @@ function scheduleDocumentUpdate(): void {
 
 // ── Tab switching ──────────────────────────────
 const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings', 'export'];
-const respPanelIds = ['resp-body', 'resp-headers', 'resp-preview'];
+const respPanelIds = ['resp-body', 'resp-headers', 'resp-runtime', 'resp-preview'];
 
 function updateBodyFormatterState(): void {
   const button = $('bodyFormatBtn') as HTMLButtonElement;
+  if (_currentProtocol === 'graphql') {
+    button.style.display = 'inline-flex';
+    button.disabled = false;
+    button.title = 'Format GraphQL variables';
+    return;
+  }
+
   const isRawBody = currentBodyType === 'raw';
-  const canFormat = isRawBody && canFormatRawBody(currentLang);
+  const canFormat = isRawBody && currentLang !== 'binary' && canFormatRawBody(currentLang);
 
   button.style.display = isRawBody ? 'inline-flex' : 'none';
   button.disabled = !canFormat;
   button.title = canFormat
-    ? 'Format request body'
+    ? (_currentProtocol === 'websocket' ? 'Format WebSocket message' : 'Format request body')
     : 'Formatting is available for JSON, XML, HTML, and YAML raw bodies';
 }
 
@@ -299,9 +308,10 @@ updateMethodColor();
 // ── Params ──────────────────────────────────────
 let _syncingFromUrl = false; // guard to prevent infinite loops
 
-function addParam(name = '', value = '', type = 'query', disabled = false): void {
+function addParam(name = '', value = '', type = 'query', disabled = false, originalIndex?: number): void {
   const tbody = $('paramsBody');
   const tr = document.createElement('tr');
+  if (originalIndex !== undefined) tr.dataset.originalIndex = String(originalIndex);
   tr.innerHTML =
     '<td><input type="checkbox" class="p-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="p-name" value="' + esc(name) + '" placeholder="name" /></td>' +
@@ -411,9 +421,10 @@ function syncParamsFromUrl(fullUrl: string): void {
 }
 
 // ── Headers ─────────────────────────────────────
-function addHeader(name = '', value = '', disabled = false): void {
+function addHeader(name = '', value = '', disabled = false, originalIndex?: number): void {
   const tbody = $('headersBody');
   const tr = document.createElement('tr');
+  if (originalIndex !== undefined) tr.dataset.originalIndex = String(originalIndex);
   tr.innerHTML =
     '<td><input type="checkbox" class="h-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="h-name" value="' + esc(name) + '" placeholder="name" /></td>' +
@@ -462,6 +473,12 @@ function _makeAutoRow(name: string, value: string): HTMLTableRowElement {
 
 function _getBodySize(): number {
   if (currentBodyType === 'none') return 0;
+  if (_currentProtocol === 'graphql') {
+    const query = ($('bodyData') as HTMLTextAreaElement).value;
+    const variables = ($('graphqlVariablesData') as HTMLTextAreaElement).value.trim();
+    const payload = `{"query":${JSON.stringify(query)},"variables":${variables || '{}'}}`;
+    return new TextEncoder().encode(payload).length;
+  }
   if (currentBodyType === 'form-urlencoded') {
     const params = new URLSearchParams();
     document.querySelectorAll('#bodyFormBody tr').forEach((tr) => {
@@ -486,6 +503,7 @@ function syncAutoHeaders(): void {
   // Remove all existing auto rows
   tbody.querySelectorAll('tr.auto-header').forEach(r => r.remove());
 
+  if (_currentProtocol === 'websocket') return;
   if (currentBodyType === 'none') return;
 
   // Content-Type
@@ -500,7 +518,9 @@ function syncAutoHeaders(): void {
       ct = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
     }
   } else {
-    ct = currentLang ? (_autoContentTypes[currentLang] ?? null) : null;
+    ct = _currentProtocol === 'graphql'
+      ? 'application/json'
+      : currentLang ? (_autoContentTypes[currentLang] ?? null) : null;
   }
   if (ct && !_hasUserHeader('content-type')) {
     tbody.insertBefore(_makeAutoRow('Content-Type', ct), tbody.firstChild);
@@ -563,21 +583,25 @@ function setBodyType(type: string): void {
   const raw = $('bodyRawEditor');
   const form = $('bodyFormEditor');
   const binary = $('bodyBinaryEditor');
+  const graphQLVariables = $('graphqlVariablesEditor');
   const langSelect = $('bodyLangMode');
   if (type === 'none') {
     raw.style.display = 'none';
     form.style.display = 'none';
     binary.style.display = 'none';
+    graphQLVariables.style.display = 'none';
     langSelect.style.display = 'none';
   } else if (type === 'form-urlencoded' || type === 'multipart-form') {
     raw.style.display = 'none';
     form.style.display = 'block';
     binary.style.display = 'none';
+    graphQLVariables.style.display = 'none';
     langSelect.style.display = 'none';
   } else if (type === 'file') {
     raw.style.display = 'none';
     form.style.display = 'none';
     binary.style.display = 'flex';
+    graphQLVariables.style.display = 'none';
     langSelect.style.display = 'none';
   } else {
     raw.style.display = 'flex';
@@ -585,11 +609,71 @@ function setBodyType(type: string): void {
     raw.style.flex = '1';
     form.style.display = 'none';
     binary.style.display = 'none';
-    langSelect.style.display = 'block';
+    graphQLVariables.style.display = _currentProtocol === 'graphql' ? 'flex' : 'none';
+    langSelect.style.display = _currentProtocol === 'graphql' ? 'none' : 'block';
     syncHighlight();
   }
   updateBodyFormatterState();
   syncAutoContentType();
+}
+
+function setRequestTabVisible(tabId: string, visible: boolean): void {
+  const tab = document.querySelector<HTMLElement>('#reqTabs [data-tab="' + tabId + '"]');
+  const panel = document.getElementById('panel-' + tabId);
+  if (tab) tab.style.display = visible ? '' : 'none';
+  if (panel) panel.style.display = visible ? '' : 'none';
+}
+
+function setProtocolUi(protocol: PanelProtocol): void {
+  _currentProtocol = protocol;
+  const isGraphQL = protocol === 'graphql';
+  const isWebSocket = protocol === 'websocket';
+  const methodPicker = $('methodPicker') as HTMLElement;
+  const protocolChip = $('protocolChip') as HTMLElement;
+  methodPicker.style.display = isWebSocket ? 'none' : '';
+  protocolChip.style.display = isWebSocket ? 'flex' : 'none';
+  protocolChip.textContent = 'WS';
+
+  setRequestTabVisible('params', !isWebSocket);
+  setRequestTabVisible('settings', !isWebSocket);
+  setRequestTabVisible('export', !isWebSocket);
+  const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
+  if (bodyTab) bodyTab.textContent = isWebSocket ? 'Message' : 'Body';
+  if (isWebSocket && ['params', 'settings', 'export'].some(tabId => document.getElementById('panel-' + tabId)?.classList.contains('active'))) {
+    switchTab($('reqTabs'), 'body', reqPanelIds);
+  }
+
+  $('bodyTypePills').style.display = (isGraphQL || isWebSocket) ? 'none' : 'flex';
+  const bodyData = $('bodyData') as HTMLTextAreaElement;
+  bodyData.placeholder = isGraphQL
+    ? 'query Example { viewer { id name } }'
+    : isWebSocket
+      ? 'Message payload'
+      : '';
+  (document.getElementById('url') as HTMLElement).setAttribute(
+    'data-placeholder',
+    isWebSocket ? '{{wsBaseUrl}}/echo' : '{{baseUrl}}/api/endpoint',
+  );
+
+  if (!isSending) {
+    $('sendBtn').textContent = isWebSocket ? 'Connect + Send' : 'Send';
+  }
+  $('saveExampleBtn').style.display = isWebSocket ? 'none' : '';
+  $('refreshOAuthRetryBtn').style.display = 'none';
+
+  if (isGraphQL) {
+    setCurrentLang('text');
+    ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+    setBodyType('raw');
+  } else if (isWebSocket) {
+    setCurrentLang('text');
+    ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+    setBodyType('raw');
+  } else {
+    $('graphqlVariablesEditor').style.display = 'none';
+  }
+  updateBodyFormatterState();
+  syncAutoHeaders();
 }
 
 document.querySelectorAll('#bodyTypePills .pill').forEach((pill) => {
@@ -662,6 +746,22 @@ function applyFormattedBody(formatted: string): void {
 }
 
 function formatCurrentBody(): void {
+  if (_currentProtocol === 'graphql') {
+    const textarea = $('graphqlVariablesData') as HTMLTextAreaElement;
+    try {
+      const raw = textarea.value.trim();
+      if (!raw) return;
+      const formatted = JSON.stringify(JSON.parse(raw), null, _indentChar);
+      if (formatted === textarea.value) return;
+      textarea.value = formatted;
+      scheduleDocumentUpdate();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to format GraphQL variables';
+      vscode.postMessage({ type: 'showError', message: `Could not format GraphQL variables: ${message}` });
+    }
+    return;
+  }
+
   if (currentBodyType !== 'raw' || !canFormatRawBody(currentLang)) {
     return;
   }
@@ -804,6 +904,14 @@ $('bodyData').addEventListener('input', () => {
   scheduleDocumentUpdate();
 });
 $('bodyData').addEventListener('scroll', syncScroll);
+
+$('graphqlVariablesData').addEventListener('input', () => {
+  if (getShowResolvedVars()) {
+    breakIllusion();
+  }
+  handleAutocomplete($('graphqlVariablesData') as HTMLTextAreaElement, () => {});
+  scheduleDocumentUpdate();
+});
 
 // Hover-based tooltip for body textarea (peeks through to highlight layer)
 {
@@ -959,6 +1067,15 @@ function collectHeaders(): KeyValueEditorRow[] {
 }
 
 function collectBodyModel(): RequestEditorBodyModel {
+  if (_currentProtocol === 'graphql') {
+    return {
+      kind: 'graphql',
+      query: ($('bodyData') as HTMLTextAreaElement).value,
+      variables: ($('graphqlVariablesData') as HTMLTextAreaElement).value,
+      bodyVariantIndex: _selectedBodyVariantIndex,
+    };
+  }
+
   if (currentBodyType === 'none') {
     return { kind: 'none', bodyVariantIndex: _selectedBodyVariantIndex };
   }
@@ -996,13 +1113,13 @@ function collectBodyModel(): RequestEditorBodyModel {
 }
 
 function buildRequestWithSchemaMerge(): any {
-  if (!isHttpVisualEditableRequest(currentRequest)) {
+  if (!isVisualEditableRequest(currentRequest)) {
     return cloneJson(currentRequest ?? {});
   }
 
   const authType = ($('authType') as HTMLSelectElement).value;
   const model: RequestEditorModel = {
-    protocol: 'http',
+    protocol: _currentProtocol,
     method: (methodSelect as HTMLSelectElement).value,
     url: getUrlText(),
     params: collectParams(),
@@ -1049,7 +1166,7 @@ function setSendingState(sending: boolean): void {
   } else {
     btn.classList.remove('sending');
     btn.classList.remove('btn-cancel');
-    btn.textContent = 'Send';
+    btn.textContent = _currentProtocol === 'websocket' ? 'Connect + Send' : 'Send';
     btn.disabled = false;
   }
 }
@@ -1069,17 +1186,25 @@ function saveRequest(): void {
 function loadRequest(req: any): void {
   setCurrentRequest(req);
   $('exampleIndicator').style.display = 'none';
-  const http = req.http || {};
-  (methodSelect as HTMLSelectElement).value = (http.method || 'GET').toUpperCase();
-  updateMethodColor();
+  const protocol: PanelProtocol = req.websocket ? 'websocket' : req.graphql ? 'graphql' : 'http';
+  setProtocolUi(protocol);
+  const details = protocol === 'websocket'
+    ? (req.websocket || {})
+    : protocol === 'graphql'
+      ? (req.graphql || {})
+      : (req.http || {});
+  if (protocol !== 'websocket') {
+    (methodSelect as HTMLSelectElement).value = (details.method || (protocol === 'graphql' ? 'POST' : 'GET')).toUpperCase();
+    updateMethodColor();
+  }
 
   // Params — load first so composeDisplayUrl works when we set the URL
   $('paramsBody').innerHTML = '';
-  (http.params || []).forEach((p: any) => addParam(p.name, p.value, p.type || 'query', p.disabled));
+  (details.params || []).forEach((p: any, index: number) => addParam(p.name, p.value, p.type || 'query', p.disabled, index));
 
   // Strip baked-in query string from URL when params array has query params
-  let loadUrl = http.url || '';
-  const hasQueryParams = (http.params || []).some((p: any) => (p.type || 'query') === 'query');
+  let loadUrl = details.url || '';
+  const hasQueryParams = (details.params || []).some((p: any) => (p.type || 'query') === 'query');
   if (hasQueryParams && loadUrl.includes('?')) {
     loadUrl = loadUrl.split('?')[0];
   }
@@ -1087,20 +1212,40 @@ function loadRequest(req: any): void {
 
   // Headers
   $('headersBody').innerHTML = '';
-  (http.headers || []).forEach((h: any) => addHeader(h.name, h.value, h.disabled));
+  (details.headers || []).forEach((h: any, index: number) => addHeader(h.name, h.value, h.disabled, index));
 
   // Body
   _selectedBodyVariantIndex = undefined;
   _selectedFileVariantIndex = undefined;
-  if (http.body) {
-    _selectedBodyVariantIndex = Array.isArray(http.body)
-      ? Math.max(0, http.body.findIndex((v: any) => v.selected))
+  ($('graphqlVariablesData') as HTMLTextAreaElement).value = '';
+  const requestBody = protocol === 'websocket' ? details.message : details.body;
+  if (requestBody) {
+    _selectedBodyVariantIndex = Array.isArray(requestBody)
+      ? Math.max(0, requestBody.findIndex((v: any) => v.selected))
       : undefined;
-    const body = Array.isArray(http.body)
-      ? (http.body[_selectedBodyVariantIndex ?? 0]?.body)
-      : http.body;
+    const body = Array.isArray(requestBody)
+      ? (protocol === 'websocket'
+          ? requestBody[_selectedBodyVariantIndex ?? 0]?.message
+          : requestBody[_selectedBodyVariantIndex ?? 0]?.body)
+      : requestBody;
     if (body) {
-      if (body.type === 'form-urlencoded' || body.type === 'multipart-form') {
+      if (protocol === 'graphql') {
+        setBodyType('raw');
+        setCurrentLang('text');
+        ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        updateBodyFormatterState();
+        syncAutoContentType();
+        ($('bodyData') as HTMLTextAreaElement).value = body.query ?? '';
+        ($('graphqlVariablesData') as HTMLTextAreaElement).value = body.variables ?? '';
+        syncHighlight();
+      } else if (protocol === 'websocket') {
+        setBodyType('raw');
+        setCurrentLang(body.type || 'text');
+        ($('bodyLangMode') as HTMLSelectElement).value = currentLang;
+        updateBodyFormatterState();
+        ($('bodyData') as HTMLTextAreaElement).value = body.data ?? '';
+        syncHighlight();
+      } else if (body.type === 'form-urlencoded' || body.type === 'multipart-form') {
         setBodyType(body.type);
         $('bodyFormBody').innerHTML = '';
         (body.data || []).forEach((f: any, index: number) => addFormField(f.name, f.value, f.disabled, f.type, index));
@@ -1122,7 +1267,17 @@ function loadRequest(req: any): void {
       }
     }
   } else {
-    setBodyType('none');
+    if (protocol === 'graphql') {
+      setBodyType('raw');
+      ($('bodyData') as HTMLTextAreaElement).value = '';
+      syncHighlight();
+    } else if (protocol === 'websocket') {
+      setBodyType('raw');
+      ($('bodyData') as HTMLTextAreaElement).value = '';
+      syncHighlight();
+    } else {
+      setBodyType('none');
+    }
   }
 
   // Auth — read from runtime.auth per OpenCollection schema

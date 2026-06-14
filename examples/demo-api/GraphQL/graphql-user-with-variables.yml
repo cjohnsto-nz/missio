@@ -1,0 +1,32 @@
+info:
+  name: GraphQL User With Variables
+  type: graphql
+  seq: 2
+  description: Run node examples/demo-api/server.js first. This query sends variables and the fixture echoes them in extensions.echoedVariables.
+graphql:
+  method: POST
+  url: "{{baseUrl}}/graphql"
+  body:
+    query: |-
+      query DemoUser($id: ID!) {
+        user(id: $id) {
+          id
+          name
+          role
+        }
+      }
+    variables: |-
+      {
+        "id": "{{userId}}"
+      }
+settings:
+  timeout: 5000
+runtime:
+  assertions:
+    - expression: res.body.data.user.id
+      operator: equals
+      value: "{{userId}}"
+    - expression: res.body.extensions.echoedVariables.id
+      operator: equals
+      value: "{{userId}}"
+
