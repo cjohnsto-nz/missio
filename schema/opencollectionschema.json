@@ -2248,6 +2248,9 @@
               "items": {
                 "$ref": "#/$defs/GrpcMessageVariant"
               }
+            },
+            {
+              "$ref": "#/$defs/GrpcMessageSequence"
             }
           ]
         }
@@ -2751,6 +2754,14 @@
         "namespace"
       ],
       "additionalProperties": false
+    },
+    "GrpcMessageSequence": {
+      "type": "array",
+      "description": "Ordered gRPC request messages used by client-streaming and bidirectional-streaming calls",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/GrpcRequestMessage"
+      }
     }
   }
 }

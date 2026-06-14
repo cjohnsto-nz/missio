@@ -1,0 +1,17 @@
+info:
+  name: Stream users deterministic error
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/StreamUsersWithError
+  methodType: server-streaming
+  protoFilePath: proto/services/missio_demo.proto
+  message: |-
+    {
+      "userId": {{grpcUserId}},
+      "name": "{{grpcName}}",
+      "trace": {
+        "requestId": "{{grpcRequestId}}-error"
+      }
+    }
+docs: Run `node examples/demo-api/grpc-server.js`; this server-streaming request emits one response and then a deterministic gRPC INTERNAL error for diagnostics testing.
