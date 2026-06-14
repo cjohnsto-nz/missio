@@ -2,7 +2,7 @@ info:
   name: Runtime Intentional Failure
   type: http
   seq: 3
-  description: Run `node examples/demo-api/server.js`, then send this request to see failing assertions and tests surfaced in the Runtime tab and tool output.
+  description: Run `node examples/demo-api/server.js`, adjust the request Runtime tab, then send to see failing assertions and tests in the response Runtime tab and tool output.
 http:
   method: GET
   url: "{{baseUrl}}/runtime/assert-fail"

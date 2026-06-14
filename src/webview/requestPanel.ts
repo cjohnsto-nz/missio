@@ -84,6 +84,7 @@ import {
   type KeyValueEditorRow,
   type RequestEditorBodyModel,
   type RequestEditorModel,
+  type RuntimeEditorModel,
 } from '../models/schemaRoundTrip';
 
 // ── Document update scheduling ───────────────────
@@ -102,7 +103,7 @@ function scheduleDocumentUpdate(): void {
 }
 
 // ── Tab switching ──────────────────────────────
-const reqPanelIds = ['body', 'auth', 'headers', 'params', 'settings', 'export'];
+const reqPanelIds = ['body', 'auth', 'headers', 'params', 'runtime', 'settings', 'export'];
 const respPanelIds = ['resp-body', 'resp-headers', 'resp-runtime', 'resp-preview'];
 
 function updateBodyFormatterState(): void {
@@ -568,11 +569,182 @@ function addFormField(name = '', value: unknown = '', disabled = false, partType
   tbody.appendChild(tr);
 }
 
+const runtimeScriptTypes = ['before-request', 'after-response', 'tests', 'hooks'];
+const runtimeAssertionOperators = [
+  'equals',
+  'not-equals',
+  'contains',
+  'exists',
+  'not-exists',
+  'greater-than',
+  'greater-than-or-equal',
+  'less-than',
+  'less-than-or-equal',
+  'matches',
+];
+const runtimeActionPhases = ['before-request', 'after-response'];
+const runtimeVariableScopes = ['runtime', 'request', 'folder', 'collection', 'environment'];
+
+function optionsHtml(values: string[], selected: string | undefined): string {
+  return values.map(value => '<option value="' + esc(value) + '"' + (value === selected ? ' selected' : '') + '>' + esc(value) + '</option>').join('');
+}
+
+function moveRuntimeRow(row: HTMLElement, direction: -1 | 1): void {
+  const sibling = direction < 0 ? row.previousElementSibling : row.nextElementSibling;
+  if (!sibling || !row.parentElement) return;
+  if (direction < 0) row.parentElement.insertBefore(row, sibling);
+  else row.parentElement.insertBefore(sibling, row);
+  scheduleDocumentUpdate();
+}
+
+function wireRuntimeRow(row: HTMLElement): void {
+  row.addEventListener('input', scheduleDocumentUpdate);
+  row.addEventListener('change', scheduleDocumentUpdate);
+  row.querySelector<HTMLButtonElement>('.runtime-move-up')?.addEventListener('click', () => moveRuntimeRow(row, -1));
+  row.querySelector<HTMLButtonElement>('.runtime-move-down')?.addEventListener('click', () => moveRuntimeRow(row, 1));
+  row.querySelector<HTMLButtonElement>('.runtime-delete')?.addEventListener('click', () => {
+    row.remove();
+    updateRuntimeBadge();
+    scheduleDocumentUpdate();
+  });
+}
+
+function addRuntimeScript(type = 'before-request', code = '', disabled = false, originalIndex?: number): void {
+  const list = $('runtimeScriptsList');
+  const row = document.createElement('div');
+  row.className = 'runtime-editor-row runtime-script-row';
+  if (originalIndex !== undefined) row.dataset.originalIndex = String(originalIndex);
+  row.innerHTML =
+    '<div class="runtime-row-toolbar">' +
+      '<input type="checkbox" class="runtime-enabled rt-script-enabled" title="Enabled" ' + (disabled ? '' : 'checked') + ' />' +
+      '<select class="runtime-select rt-script-type">' + optionsHtml(runtimeScriptTypes, type) + '</select>' +
+      '<div class="runtime-row-actions">' +
+        '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
+        '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +
+        '<button class="runtime-icon-btn runtime-delete" type="button" title="Remove">&times;</button>' +
+      '</div>' +
+    '</div>' +
+    '<textarea class="runtime-code rt-script-code" spellcheck="false" placeholder="JavaScript">' + esc(code) + '</textarea>';
+  wireRuntimeRow(row);
+  list.appendChild(row);
+  updateRuntimeBadge();
+}
+
+function addRuntimeAssertion(
+  expression = 'res.status',
+  operator = 'equals',
+  value = '200',
+  disabled = false,
+  description = '',
+  originalIndex?: number,
+): void {
+  const list = $('runtimeAssertionsList');
+  const row = document.createElement('div');
+  row.className = 'runtime-editor-row runtime-assertion-row';
+  if (originalIndex !== undefined) row.dataset.originalIndex = String(originalIndex);
+  row.innerHTML =
+    '<div class="runtime-row-toolbar">' +
+      '<input type="checkbox" class="runtime-enabled rt-assertion-enabled" title="Enabled" ' + (disabled ? '' : 'checked') + ' />' +
+      '<input type="text" class="runtime-input rt-assertion-expression" value="' + esc(expression) + '" placeholder="res.status" />' +
+      '<select class="runtime-select rt-assertion-operator">' + optionsHtml(runtimeAssertionOperators, operator) + '</select>' +
+      '<input type="text" class="runtime-input rt-assertion-value" value="' + esc(value) + '" placeholder="expected" />' +
+      '<div class="runtime-row-actions">' +
+        '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
+        '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +
+        '<button class="runtime-icon-btn runtime-delete" type="button" title="Remove">&times;</button>' +
+      '</div>' +
+    '</div>' +
+    '<input type="text" class="runtime-input runtime-description rt-assertion-description" value="' + esc(description) + '" placeholder="description" />';
+  wireRuntimeRow(row);
+  list.appendChild(row);
+  updateRuntimeBadge();
+}
+
+function addRuntimeAction(
+  phase = 'after-response',
+  selectorExpression = '$.token',
+  variableScope = 'runtime',
+  variableName = 'token',
+  disabled = false,
+  description = '',
+  originalIndex?: number,
+): void {
+  const list = $('runtimeActionsList');
+  const row = document.createElement('div');
+  row.className = 'runtime-editor-row runtime-action-row';
+  if (originalIndex !== undefined) row.dataset.originalIndex = String(originalIndex);
+  row.innerHTML =
+    '<div class="runtime-row-toolbar">' +
+      '<input type="checkbox" class="runtime-enabled rt-action-enabled" title="Enabled" ' + (disabled ? '' : 'checked') + ' />' +
+      '<select class="runtime-select rt-action-phase">' + optionsHtml(runtimeActionPhases, phase) + '</select>' +
+      '<span class="runtime-action-type">set-variable</span>' +
+      '<input type="text" class="runtime-input rt-action-selector" value="' + esc(selectorExpression) + '" placeholder="$.token" />' +
+      '<select class="runtime-select rt-action-scope">' + optionsHtml(runtimeVariableScopes, variableScope) + '</select>' +
+      '<input type="text" class="runtime-input rt-action-name" value="' + esc(variableName) + '" placeholder="name" />' +
+      '<div class="runtime-row-actions">' +
+        '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
+        '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +
+        '<button class="runtime-icon-btn runtime-delete" type="button" title="Remove">&times;</button>' +
+      '</div>' +
+    '</div>' +
+    '<input type="text" class="runtime-input runtime-description rt-action-description" value="' + esc(description) + '" placeholder="description" />';
+  wireRuntimeRow(row);
+  list.appendChild(row);
+  updateRuntimeBadge();
+}
+
+function loadRuntimeEditor(runtime: any): void {
+  $('runtimeScriptsList').innerHTML = '';
+  $('runtimeAssertionsList').innerHTML = '';
+  $('runtimeActionsList').innerHTML = '';
+  (runtime?.scripts || []).forEach((script: any, index: number) => {
+    addRuntimeScript(script.type || 'before-request', script.code || '', script.disabled, index);
+  });
+  (runtime?.assertions || []).forEach((assertion: any, index: number) => {
+    const description = typeof assertion.description === 'string'
+      ? assertion.description
+      : assertion.description?.content || '';
+    addRuntimeAssertion(
+      assertion.expression || '',
+      assertion.operator || 'equals',
+      assertion.value ?? '',
+      assertion.disabled,
+      description,
+      index,
+    );
+  });
+  (runtime?.actions || []).forEach((action: any, index: number) => {
+    const description = typeof action.description === 'string'
+      ? action.description
+      : action.description?.content || '';
+    addRuntimeAction(
+      action.phase || 'after-response',
+      action.selector?.expression || '',
+      action.variable?.scope || 'runtime',
+      action.variable?.name || '',
+      action.disabled,
+      description,
+      index,
+    );
+  });
+  updateRuntimeBadge();
+}
+
+function updateRuntimeBadge(): void {
+  const count =
+    document.querySelectorAll('#runtimeScriptsList .runtime-editor-row').length +
+    document.querySelectorAll('#runtimeAssertionsList .runtime-editor-row').length +
+    document.querySelectorAll('#runtimeActionsList .runtime-editor-row').length;
+  const badge = document.getElementById('runtimeBadge');
+  if (badge) badge.textContent = String(count);
+}
+
 function updateBadges(): void {
   const params = document.querySelectorAll('#paramsBody tr');
   const headers = document.querySelectorAll('#headersBody tr:not(.auto-header)');
   $('paramsBadge').textContent = String(params.length);
   $('headersBadge').textContent = String(headers.length);
+  updateRuntimeBadge();
 }
 
 // ── Body Type (pills) ───────────────────────────
@@ -1128,6 +1300,47 @@ function collectBodyModel(): RequestEditorBodyModel {
   };
 }
 
+function collectRuntimeModel(): RuntimeEditorModel {
+  const scripts: RuntimeEditorModel['scripts'] = [];
+  document.querySelectorAll('#runtimeScriptsList .runtime-script-row').forEach((row) => {
+    scripts.push({
+      type: (row.querySelector('.rt-script-type') as HTMLSelectElement).value,
+      code: (row.querySelector('.rt-script-code') as HTMLTextAreaElement).value,
+      disabled: !(row.querySelector('.rt-script-enabled') as HTMLInputElement).checked,
+      originalIndex: originalIndexFrom(row),
+    });
+  });
+
+  const assertions: RuntimeEditorModel['assertions'] = [];
+  document.querySelectorAll('#runtimeAssertionsList .runtime-assertion-row').forEach((row) => {
+    assertions.push({
+      expression: (row.querySelector('.rt-assertion-expression') as HTMLInputElement).value.trim(),
+      operator: (row.querySelector('.rt-assertion-operator') as HTMLSelectElement).value,
+      value: (row.querySelector('.rt-assertion-value') as HTMLInputElement).value,
+      disabled: !(row.querySelector('.rt-assertion-enabled') as HTMLInputElement).checked,
+      description: (row.querySelector('.rt-assertion-description') as HTMLInputElement).value,
+      originalIndex: originalIndexFrom(row),
+    });
+  });
+
+  const actions: RuntimeEditorModel['actions'] = [];
+  document.querySelectorAll('#runtimeActionsList .runtime-action-row').forEach((row) => {
+    actions.push({
+      type: 'set-variable',
+      phase: (row.querySelector('.rt-action-phase') as HTMLSelectElement).value,
+      selectorMethod: 'jsonq',
+      selectorExpression: (row.querySelector('.rt-action-selector') as HTMLInputElement).value.trim(),
+      variableScope: (row.querySelector('.rt-action-scope') as HTMLSelectElement).value,
+      variableName: (row.querySelector('.rt-action-name') as HTMLInputElement).value.trim(),
+      disabled: !(row.querySelector('.rt-action-enabled') as HTMLInputElement).checked,
+      description: (row.querySelector('.rt-action-description') as HTMLInputElement).value,
+      originalIndex: originalIndexFrom(row),
+    });
+  });
+
+  return { scripts, assertions, actions };
+}
+
 function buildRequestWithSchemaMerge(): any {
   if (!isVisualEditableRequest(currentRequest)) {
     return cloneJson(currentRequest ?? {});
@@ -1136,12 +1349,13 @@ function buildRequestWithSchemaMerge(): any {
   const authType = ($('authType') as HTMLSelectElement).value;
   const model: RequestEditorModel = {
     protocol: _currentProtocol,
-    method: (methodSelect as HTMLSelectElement).value,
+    method: (_currentProtocol === 'http' || _currentProtocol === 'graphql') ? (methodSelect as HTMLSelectElement).value : undefined,
     url: getUrlText(),
-    params: collectParams(),
+    params: (_currentProtocol === 'http' || _currentProtocol === 'graphql') ? collectParams() : undefined,
     headers: collectHeaders(),
     body: collectBodyModel(),
     auth: buildAuthData(authType, 'auth'),
+    runtime: collectRuntimeModel(),
     settings: {
       timeout: parseInt($input('settingTimeout').value) || 30000,
       encodeUrl: $input('settingEncodeUrl').checked,
@@ -1234,7 +1448,8 @@ function loadRequest(req: any): void {
 
   // Headers
   $('headersBody').innerHTML = '';
-  (details.headers || []).forEach((h: any, index: number) => addHeader(h.name, h.value, h.disabled, index));
+  const headerRows = protocol === 'grpc' ? details.metadata : details.headers;
+  (headerRows || []).forEach((h: any, index: number) => addHeader(h.name, h.value, h.disabled, index));
 
   // Body
   _selectedBodyVariantIndex = undefined;
@@ -1311,6 +1526,7 @@ function loadRequest(req: any): void {
 
   // Auth — read from runtime.auth per OpenCollection schema
   const runtime = currentRequest.runtime || {};
+  loadRuntimeEditor(runtime);
   const auth = runtime.auth;
   if (auth === 'inherit') {
     ($('authType') as HTMLSelectElement).value = 'inherit';
@@ -1871,6 +2087,10 @@ $('exportSaveBtn').addEventListener('click', () => {
 $('addParamBtn').addEventListener('click', () => { addParam(); syncUrlFromParams(); });
 $('addHeaderBtn').addEventListener('click', () => addHeader());
 $('addFormFieldBtn').addEventListener('click', () => addFormField());
+$('addRuntimeScriptBtn').addEventListener('click', () => { addRuntimeScript('before-request', 'console.log("before request");'); scheduleDocumentUpdate(); });
+$('addRuntimeTestBtn').addEventListener('click', () => { addRuntimeScript('tests', 'test("response is successful", () => assert(response.status < 400));'); scheduleDocumentUpdate(); });
+$('addRuntimeAssertionBtn').addEventListener('click', () => { addRuntimeAssertion(); scheduleDocumentUpdate(); });
+$('addRuntimeActionBtn').addEventListener('click', () => { addRuntimeAction(); scheduleDocumentUpdate(); });
  ($('authType') as HTMLSelectElement).innerHTML = authTypeOptionsHtml(true);
 $('authType').addEventListener('change', () => { onAuthTypeChange(); scheduleDocumentUpdate(); });
 $('panel-auth').addEventListener('input', scheduleDocumentUpdate);

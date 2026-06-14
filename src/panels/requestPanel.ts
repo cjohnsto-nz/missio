@@ -839,6 +839,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <div class="tab" data-tab="auth">Auth</div>
         <div class="tab" data-tab="headers">Headers <span class="badge" id="headersBadge">0</span></div>
         <div class="tab" data-tab="params">Params <span class="badge" id="paramsBadge">0</span></div>
+        <div class="tab" data-tab="runtime">Runtime <span class="badge" id="runtimeBadge">0</span></div>
         <div class="tab" data-tab="settings">Settings</div>
         <div class="tab" data-tab="export">Export</div>
       </div>
@@ -945,6 +946,35 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <label>Max Redirects</label>
               <input type="number" id="settingMaxRedirects" value="5" />
             </div>
+          </div>
+        </div>
+        <!-- Runtime -->
+        <div class="tab-panel" id="panel-runtime">
+          <div class="runtime-authoring">
+            <section class="runtime-authoring-section">
+              <div class="runtime-authoring-header">
+                <h3>Scripts</h3>
+                <div class="runtime-authoring-actions">
+                  <button class="btn btn-secondary" id="addRuntimeScriptBtn" type="button">Add Script</button>
+                  <button class="btn btn-secondary" id="addRuntimeTestBtn" type="button">Add Test</button>
+                </div>
+              </div>
+              <div class="runtime-list" id="runtimeScriptsList"></div>
+            </section>
+            <section class="runtime-authoring-section">
+              <div class="runtime-authoring-header">
+                <h3>Assertions</h3>
+                <button class="btn btn-secondary" id="addRuntimeAssertionBtn" type="button">Add Assertion</button>
+              </div>
+              <div class="runtime-list" id="runtimeAssertionsList"></div>
+            </section>
+            <section class="runtime-authoring-section">
+              <div class="runtime-authoring-header">
+                <h3>Actions</h3>
+                <button class="btn btn-secondary" id="addRuntimeActionBtn" type="button">Add Action</button>
+              </div>
+              <div class="runtime-list" id="runtimeActionsList"></div>
+            </section>
           </div>
         </div>
         <!-- Export -->

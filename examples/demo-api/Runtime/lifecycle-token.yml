@@ -2,7 +2,7 @@ info:
   name: Runtime Lifecycle Token
   type: http
   seq: 1
-  description: Run `node examples/demo-api/server.js`, then send this request to see passing scripts, tests, assertions, logs, and a set-variable action.
+  description: Run `node examples/demo-api/server.js`, edit scripts/assertions/actions in the request Runtime tab if desired, then send to see passing runtime output.
 http:
   method: POST
   url: "{{baseUrl}}/runtime/token"
@@ -34,6 +34,10 @@ runtime:
       code: |-
         pm.test("status is 200", () => pm.expect(pm.response.code).to.eql(200));
         test("token action source exists", () => assert(response.json().nested.owner === "script-owner"));
+    - type: tests
+      disabled: true
+      code: |-
+        test("disabled test is preserved", () => assert(false));
   assertions:
     - expression: res.status
       operator: equals
