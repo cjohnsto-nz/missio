@@ -186,6 +186,231 @@ function isPreviewable(ct: string): boolean {
     || lower.startsWith('image/');
 }
 
+export function clampMediaZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return DEFAULT_MEDIA_TRANSFORM.zoom;
+  return Math.min(MEDIA_ZOOM_MAX, Math.max(MEDIA_ZOOM_MIN, Math.round(zoom * 100) / 100));
+}
+
+export function normalizeMediaRotation(rotation: number): number {
+  const normalized = rotation % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+export function applyMediaTransformAction(
+  state: PreviewMediaTransform,
+  action: PreviewMediaTransformAction,
+): PreviewMediaTransform {
+  switch (action) {
+    case 'zoomIn':
+      return { ...state, zoom: clampMediaZoom(state.zoom + MEDIA_ZOOM_STEP), fit: false };
+    case 'zoomOut':
+      return { ...state, zoom: clampMediaZoom(state.zoom - MEDIA_ZOOM_STEP), fit: false };
+    case 'wheelZoomIn':
+      return { ...state, zoom: clampMediaZoom(state.zoom + MEDIA_WHEEL_ZOOM_STEP), fit: false };
+    case 'wheelZoomOut':
+      return { ...state, zoom: clampMediaZoom(state.zoom - MEDIA_WHEEL_ZOOM_STEP), fit: false };
+    case 'reset':
+      return { ...DEFAULT_MEDIA_TRANSFORM };
+    case 'fit':
+      return { ...state, fit: true };
+    case 'rotateLeft':
+      return { ...state, rotation: normalizeMediaRotation(state.rotation - 90) };
+    case 'rotateRight':
+      return { ...state, rotation: normalizeMediaRotation(state.rotation + 90) };
+    default:
+      return state;
+  }
+}
+
+export function getPreviewMediaKind(contentType: string, response: any): PreviewMediaKind {
+  const lower = contentType.toLowerCase();
+  if (lower.includes('application/pdf') && response?.bodyBase64) {
+    return 'pdf';
+  }
+  if (lower.startsWith('image/') && (response?.bodyBase64 || (lower.startsWith('image/svg') && response?.body))) {
+    return 'image';
+  }
+  return 'none';
+}
+
+export function getPreviewMediaTransform(): PreviewMediaTransform {
+  return { ...mediaTransform };
+}
+
+function formatZoomLabel(zoom: number): string {
+  return Math.round(clampMediaZoom(zoom) * 100) + '%';
+}
+
+function getMediaToolbarLabel(resolvedZoom?: number): string {
+  const zoom = resolvedZoom ?? mediaTransform.zoom;
+  return mediaTransform.fit ? `Fit ${formatZoomLabel(zoom)}` : formatZoomLabel(zoom);
+}
+
+function clearScheduledPdfRender(): void {
+  if (pdfRenderTimer) {
+    clearTimeout(pdfRenderTimer);
+    pdfRenderTimer = null;
+  }
+}
+
+function cancelActivePdfRenderTasks(): void {
+  activePdfRenderTasks.forEach((task) => {
+    try {
+      task.cancel?.();
+    } catch {
+      // Best effort only; generation checks still prevent stale canvases.
+    }
+  });
+  activePdfRenderTasks.clear();
+}
+
+function invalidatePdfRender(): void {
+  pdfRenderGeneration++;
+  clearScheduledPdfRender();
+  cancelActivePdfRenderTasks();
+}
+
+function beginPdfRender(): number {
+  invalidatePdfRender();
+  return pdfRenderGeneration;
+}
+
+export function isCurrentPdfRenderGeneration(generation: number): boolean {
+  return generation === pdfRenderGeneration;
+}
+
+function updateMediaToolbar(resolvedZoom?: number): void {
+  const toolbar = document.getElementById('previewMediaBar') as HTMLElement | null;
+  const label = document.getElementById('previewZoomLabel') as HTMLElement | null;
+  if (toolbar) {
+    toolbar.style.display = mediaKind === 'none' ? 'none' : 'flex';
+  }
+  if (label) {
+    label.textContent = getMediaToolbarLabel(resolvedZoom);
+  }
+}
+
+function setMediaKind(kind: PreviewMediaKind): void {
+  mediaKind = kind;
+  updateMediaToolbar();
+}
+
+function resetPreviewMediaState(hideControls = true): void {
+  mediaTransform = { ...DEFAULT_MEDIA_TRANSFORM };
+  if (hideControls) {
+    mediaKind = 'none';
+  }
+  invalidatePdfRender();
+  updateMediaToolbar();
+}
+
+function getPreviewPanel(): HTMLElement | null {
+  return document.getElementById('panel-resp-preview') as HTMLElement | null;
+}
+
+function getImageNaturalSize(img: HTMLImageElement): { width: number; height: number } {
+  return {
+    width: Math.max(1, img.naturalWidth || img.width || 1),
+    height: Math.max(1, img.naturalHeight || img.height || 1),
+  };
+}
+
+function getRotatedBox(width: number, height: number, rotation: number): { width: number; height: number } {
+  const quarterTurn = normalizeMediaRotation(rotation) % 180 !== 0;
+  return quarterTurn ? { width: height, height: width } : { width, height };
+}
+
+function getAvailablePreviewWidth(container: HTMLElement): number {
+  const panel = getPreviewPanel();
+  return Math.max(1, (panel?.clientWidth || container.clientWidth || 1) - 32);
+}
+
+function resolveImageZoom(img: HTMLImageElement, frame: HTMLElement): number {
+  if (!mediaTransform.fit) {
+    return mediaTransform.zoom;
+  }
+
+  const natural = getImageNaturalSize(img);
+  const rotated = getRotatedBox(natural.width, natural.height, mediaTransform.rotation);
+  return clampMediaZoom(getAvailablePreviewWidth(frame) / rotated.width);
+}
+
+function applyImageTransform(): void {
+  const frame = document.getElementById('respImageFrame') as HTMLElement | null;
+  const img = document.getElementById('respPreviewImage') as HTMLImageElement | null;
+  if (!frame || !img) return;
+
+  const natural = getImageNaturalSize(img);
+  const resolvedZoom = resolveImageZoom(img, frame);
+  const rotated = getRotatedBox(natural.width, natural.height, mediaTransform.rotation);
+
+  frame.style.width = Math.ceil(rotated.width * resolvedZoom) + 'px';
+  frame.style.height = Math.ceil(rotated.height * resolvedZoom) + 'px';
+  img.style.width = natural.width + 'px';
+  img.style.height = natural.height + 'px';
+  img.style.transform = `translate(-50%, -50%) rotate(${mediaTransform.rotation}deg) scale(${resolvedZoom})`;
+  updateMediaToolbar(resolvedZoom);
+}
+
+function rerenderCurrentPreview(coalescePdf = false): void {
+  if (mediaKind === 'image') {
+    applyImageTransform();
+    return;
+  }
+
+  if (mediaKind !== 'pdf') {
+    updateMediaToolbar();
+    return;
+  }
+
+  const resp = lastResponse;
+  const pdfContainer = document.getElementById('respPdfContainer');
+  if (!resp?.bodyBase64 || !pdfContainer) return;
+
+  if (coalescePdf) {
+    clearScheduledPdfRender();
+    pdfRenderTimer = setTimeout(() => {
+      pdfRenderTimer = null;
+      void renderPdfPreview(pdfContainer, resp.bodyBase64);
+    }, 40);
+    return;
+  }
+
+  void renderPdfPreview(pdfContainer, resp.bodyBase64);
+}
+
+function applyPreviewMediaAction(action: PreviewMediaTransformAction, coalescePdf = false): void {
+  if (mediaKind === 'none') return;
+  mediaTransform = applyMediaTransformAction(mediaTransform, action);
+  updateMediaToolbar();
+  rerenderCurrentPreview(coalescePdf);
+}
+
+export function handlePreviewMediaWheel(event: WheelEvent): boolean {
+  if (!(event.ctrlKey || event.metaKey) || mediaKind === 'none') {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  applyPreviewMediaAction(event.deltaY < 0 ? 'wheelZoomIn' : 'wheelZoomOut', true);
+  return true;
+}
+
+export function initPreviewMediaControls(): void {
+  if (mediaControlsInitialized) return;
+  mediaControlsInitialized = true;
+
+  document.getElementById('previewZoomOutBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomOut'));
+  document.getElementById('previewZoomInBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomIn'));
+  document.getElementById('previewResetBtn')?.addEventListener('click', () => applyPreviewMediaAction('reset'));
+  document.getElementById('previewFitBtn')?.addEventListener('click', () => applyPreviewMediaAction('fit'));
+  document.getElementById('previewRotateLeftBtn')?.addEventListener('click', () => applyPreviewMediaAction('rotateLeft'));
+  document.getElementById('previewRotateRightBtn')?.addEventListener('click', () => applyPreviewMediaAction('rotateRight'));
+  getPreviewPanel()?.addEventListener('wheel', handlePreviewMediaWheel, { passive: false });
+  updateMediaToolbar();
+}
+
 export function showLoading(text?: string): void {
   $('respLoading').style.display = 'flex';
   if (text) setLoadingText(text);
@@ -221,12 +446,15 @@ function stopLoadingTimer(): void {
 }
 
 export function clearResponse(): void {
+  resetPreviewMediaState();
+  if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = undefined; }
   $('responseBar').style.display = 'none';
   $('respTabs').style.display = 'none';
   $('respBodyWrap').style.display = 'none';
   $('respEmpty').style.display = 'block';
   lastResponse = null;
   lastResponseBody = '';
+  lastContentType = '';
   lastResponseLines = [];
   lastResponseLowerLines = [];
   lastResponseLang = 'text';
@@ -535,11 +763,14 @@ type TimingEntry = { label: string; start: number; end: number };
 export function showResponse(resp: any, preRequestMs?: number, timing?: TimingEntry[], usedOAuth2?: boolean): void {
   const renderStart = Date.now();
   hideLoading();
+  resetPreviewMediaState();
   // Reset virtualization for new response
   teardownVirtualization();
   // Invalidate previous preview content
   const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
   if (iframe) { iframe.removeAttribute('src'); iframe.removeAttribute('srcdoc'); iframe.style.display = 'none'; }
+  const imageContainer = document.getElementById('respImageContainer');
+  if (imageContainer) { imageContainer.innerHTML = ''; imageContainer.style.display = 'none'; }
   const pdfContainer = document.getElementById('respPdfContainer');
   if (pdfContainer) { pdfContainer.innerHTML = ''; pdfContainer.style.display = 'none'; }
   if (lastBlobUrl) { URL.revokeObjectURL(lastBlobUrl); lastBlobUrl = undefined; }
@@ -873,45 +1104,41 @@ function setIframeBlobSrc(iframe: HTMLIFrameElement, blob: Blob): void {
 /** Populate the preview with the last response content. Called when Preview tab is activated. */
 export function renderPreview(): void {
   const iframe = document.getElementById('respPreviewFrame') as HTMLIFrameElement | null;
+  const imageContainer = document.getElementById('respImageContainer');
   const pdfContainer = document.getElementById('respPdfContainer');
-  if (!iframe || !pdfContainer) return;
+  if (!iframe || !imageContainer || !pdfContainer) return;
 
   const resp = lastResponse;
-  if (!resp) return;
+  if (!resp) {
+    resetPreviewMediaState();
+    return;
+  }
 
   const ct = lastContentType.toLowerCase();
-  const isPdf = ct.includes('application/pdf') && resp.bodyBase64;
-  const isImage = ct.startsWith('image/') && resp.bodyBase64;
+  const previewKind = getPreviewMediaKind(ct, resp);
+  const isPdf = previewKind === 'pdf';
+  const isImage = previewKind === 'image';
 
-  // Toggle visibility: PDF uses canvas container, everything else uses iframe
-  iframe.style.display = isPdf ? 'none' : 'block';
+  // Toggle visibility: media uses controlled containers, everything else uses iframe.
+  iframe.style.display = (isPdf || isImage) ? 'none' : 'block';
+  imageContainer.style.display = isImage ? 'flex' : 'none';
   pdfContainer.style.display = isPdf ? 'block' : 'none';
 
-  // Show overlay on top of iframe for binary content so right-click context menu works
   const overlay = document.getElementById('previewOverlay');
-  if (overlay) overlay.style.display = isImage ? 'block' : 'none';
+  if (overlay) overlay.style.display = 'none';
 
   if (isPdf) {
-    renderPdfPreview(pdfContainer, resp.bodyBase64!);
+    setMediaKind('pdf');
+    void renderPdfPreview(pdfContainer, resp.bodyBase64!);
+  } else if (isImage) {
+    setMediaKind('image');
+    renderImagePreview(imageContainer, resp, ct);
   } else if (ct.includes('text/html') || ct.includes('application/xhtml')) {
+    resetPreviewMediaState();
     setIframeBlobSrc(iframe, new Blob([resp.body ?? ''], { type: 'text/html' }));
     iframe.style.background = 'transparent';
-  } else if (ct.startsWith('image/') && resp.bodyBase64) {
-    const mimeType = ct.split(';')[0].trim();
-    const html = `<!DOCTYPE html>
-<html><head><style>
-  body { margin:0; display:flex; align-items:center; justify-content:center;
-    min-height:100vh; background:transparent; }
-  img { max-width:100%; max-height:100vh; object-fit:contain; }
-</style></head><body>
-<img src="data:${mimeType};base64,${resp.bodyBase64}" />
-</body></html>`;
-    setIframeBlobSrc(iframe, new Blob([html], { type: 'text/html' }));
-    iframe.style.background = 'transparent';
-  } else if (ct.startsWith('image/svg') && resp.body) {
-    setIframeBlobSrc(iframe, new Blob([resp.body], { type: 'text/html' }));
-    iframe.style.background = 'transparent';
   } else {
+    resetPreviewMediaState();
     const escaped = (resp.body ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const html = `<pre style="margin:16px;font-family:monospace;white-space:pre-wrap;">${escaped}</pre>`;
     setIframeBlobSrc(iframe, new Blob([html], { type: 'text/html' }));
@@ -919,11 +1146,30 @@ export function renderPreview(): void {
   }
 }
 
+function renderImagePreview(container: HTMLElement, resp: any, contentType: string): void {
+  const mimeType = contentType.split(';')[0].trim() || 'image/png';
+  const src = resp.bodyBase64
+    ? `data:${mimeType};base64,${resp.bodyBase64}`
+    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(resp.body ?? '')}`;
+
+  container.innerHTML =
+    '<div class="preview-image-frame" id="respImageFrame">' +
+    `<img class="preview-image" id="respPreviewImage" alt="Response preview" src="${src}" />` +
+    '</div>';
+
+  const img = document.getElementById('respPreviewImage') as HTMLImageElement | null;
+  if (!img) return;
+  img.addEventListener('load', applyImageTransform, { once: true });
+  applyImageTransform();
+}
+
 /** Render PDF pages to canvas elements using PDF.js (loaded in the webview) */
-async function renderPdfPreview(container: HTMLElement, base64: string): Promise<void> {
+export async function renderPdfPreview(container: HTMLElement, base64: string): Promise<void> {
+  const generation = beginPdfRender();
   container.innerHTML = '';
 
   const pdfjsLib = (window as any).pdfjsLib ?? await (window as any).missioPdfJsReady;
+  if (!isCurrentPdfRenderGeneration(generation)) return;
   if (!pdfjsLib) {
     container.innerHTML = '<div style="padding:24px;color:var(--vscode-foreground);font-family:system-ui;">PDF.js not available</div>';
     return;
@@ -934,14 +1180,19 @@ async function renderPdfPreview(container: HTMLElement, base64: string): Promise
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-    const containerWidth = container.clientWidth - 32; // 16px padding each side
+    const loadingTask = pdfjsLib.getDocument({ data: bytes });
+    const pdf = await loadingTask.promise;
+    if (!isCurrentPdfRenderGeneration(generation)) return;
+    const containerWidth = Math.max(1, container.clientWidth - 32); // 16px padding each side
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const unscaledVp = page.getViewport({ scale: 1 });
-      const scale = Math.min(containerWidth / unscaledVp.width, 2);
-      const vp = page.getViewport({ scale });
+      if (!isCurrentPdfRenderGeneration(generation)) return;
+      const unscaledVp = page.getViewport({ scale: 1, rotation: mediaTransform.rotation });
+      const scale = mediaTransform.fit
+        ? clampMediaZoom(containerWidth / unscaledVp.width)
+        : mediaTransform.zoom;
+      const vp = page.getViewport({ scale, rotation: mediaTransform.rotation });
 
       const canvas = document.createElement('canvas');
       canvas.width = vp.width;
@@ -949,11 +1200,25 @@ async function renderPdfPreview(container: HTMLElement, base64: string): Promise
       canvas.style.display = 'block';
       canvas.style.margin = '0 auto 8px';
       canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,.4)';
-      container.appendChild(canvas);
 
-      await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise;
+      const renderTask = page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp });
+      activePdfRenderTasks.add(renderTask);
+      try {
+        await renderTask.promise;
+      } finally {
+        activePdfRenderTasks.delete(renderTask);
+      }
+      if (!isCurrentPdfRenderGeneration(generation)) {
+        canvas.remove();
+        return;
+      }
+      container.appendChild(canvas);
+      if (i === 1) {
+        updateMediaToolbar(scale);
+      }
     }
   } catch (e: any) {
+    if (!isCurrentPdfRenderGeneration(generation)) return;
     container.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground);font-family:system-ui;">Failed to render PDF: ${e.message}</div>`;
   }
 }
