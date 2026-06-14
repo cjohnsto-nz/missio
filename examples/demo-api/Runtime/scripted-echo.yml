@@ -2,7 +2,7 @@ info:
   name: Runtime Scripted Echo
   type: http
   seq: 2
-  description: Run `node examples/demo-api/server.js`, then send this request to verify before-request scripts can set headers and runtime variables before HTTP execution.
+  description: Run `node examples/demo-api/server.js`, edit the before-request script from the request Runtime tab, then send to verify script-authored headers and variables.
 http:
   method: POST
   url: "{{baseUrl}}/runtime/echo"

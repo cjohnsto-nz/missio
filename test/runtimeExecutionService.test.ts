@@ -164,6 +164,40 @@ describe('RuntimeExecutionService lifecycle', () => {
     expect(response.runtime?.tests[1].message).toMatch(/Code generation from strings disallowed/);
   });
 
+  it('skips disabled runtime scripts without deleting them from authored requests', async () => {
+    const service = new RuntimeExecutionService();
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        scripts: [
+          {
+            type: 'before-request',
+            disabled: true,
+            code: 'missio.request.setHeader("X-Disabled-Script", "ran");',
+          },
+          {
+            type: 'tests',
+            disabled: true,
+            code: 'test("disabled test", () => assert(false));',
+          },
+          {
+            type: 'tests',
+            code: 'test("enabled test", () => assert(response.status === 200));',
+          },
+        ],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    expect(prepared.request.runtime?.scripts).toEqual(request.runtime?.scripts);
+    expect(prepared.request.http?.headers?.find(header => header.name === 'X-Disabled-Script')).toBeUndefined();
+
+    const response = await service.completeHttpRequest(prepared, makeResponse({ ok: true }));
+
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.tests.map(test => test.name)).toEqual(['enabled test']);
+  });
+
   it('records assertion and action failure diagnostics without hiding the response', async () => {
     const service = new RuntimeExecutionService();
     const request: HttpRequest = {

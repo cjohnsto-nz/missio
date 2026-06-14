@@ -48,4 +48,4 @@ runtime:
       variable:
         scope: runtime
         name: runtimeSocketMessages
-docs: Run `node examples/demo-api/server.js`, select the LOCAL environment, then send this request to see WebSocket before/after scripts, assertions, tests, and set-variable actions.
+docs: Run `node examples/demo-api/server.js`, select the LOCAL environment, optionally edit the request Runtime tab, then send to see WebSocket scripts, assertions, tests, and set-variable actions.

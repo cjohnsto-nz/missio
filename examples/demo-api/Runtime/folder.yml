@@ -1,7 +1,7 @@
 info:
   name: Runtime
   type: folder
-  description: Run `node examples/demo-api/server.js` before sending these runtime demo requests.
+  description: Run `node examples/demo-api/server.js`, then open a request's Runtime tab to edit scripts, tests, assertions, and set-variable actions before sending.
 request:
   headers:
     - name: X-Demo-Folder

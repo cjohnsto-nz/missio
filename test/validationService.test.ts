@@ -44,6 +44,7 @@ describe('validationService', () => {
     writeYaml(rootDir, 'get-users.yml', {
       info: { name: 'Get users', type: 'http' },
       http: { method: 'GET', url: 'https://api.example.com/users' },
+      runtime: { scripts: [{ type: 'before-request', code: 'console.log("skip");', disabled: true }] },
     });
     writeYaml(rootDir, 'graphql-users.yml', {
       info: { name: 'GraphQL users', type: 'graphql' },
@@ -52,10 +53,12 @@ describe('validationService', () => {
         url: 'https://api.example.com/graphql',
         body: { query: 'query Users { users { id } }', variables: '{"limit":10}' },
       },
+      runtime: { scripts: [{ type: 'tests', code: 'test("skip", () => assert(false));', disabled: true }] },
     });
     writeYaml(rootDir, 'socket.yml', {
       info: { name: 'Socket ping', type: 'websocket' },
       websocket: { url: 'wss://api.example.com/socket', message: { type: 'text', data: 'ping' } },
+      runtime: { scripts: [{ type: 'after-response', code: 'console.log("skip");', disabled: true }] },
     });
     writeYaml(rootDir, 'grpc-user.yml', {
       info: { name: 'Get user', type: 'grpc' },
@@ -65,6 +68,7 @@ describe('validationService', () => {
         methodType: 'unary',
         message: '{"id":"42"}',
       },
+      runtime: { scripts: [{ type: 'before-request', code: 'console.log("skip");', disabled: true }] },
     });
     writeYaml(rootDir, 'grpc-upload-users.yml', {
       info: { name: 'Upload users', type: 'grpc' },

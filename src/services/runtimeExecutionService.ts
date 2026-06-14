@@ -444,7 +444,7 @@ function lifecycleScripts(
     ...(collectionScripts ?? []),
     ...(folderScripts ?? []),
     ...(requestScripts ?? []),
-  ].filter(script => script.type === type);
+  ].filter(script => !script.disabled && script.type === type);
 }
 
 function cloneJson<T>(value: T): T {

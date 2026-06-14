@@ -69,6 +69,7 @@ export type ScriptType = 'before-request' | 'after-response' | 'tests' | 'hooks'
 export interface Script {
   type: ScriptType;
   code: string;
+  disabled?: boolean;
 }
 
 export type Scripts = Script[];

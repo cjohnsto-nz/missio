@@ -2,7 +2,7 @@ info:
   name: GraphQL Health
   type: graphql
   seq: 1
-  description: Run node examples/demo-api/server.js first, then send this health query to the local GraphQL fixture.
+  description: Run node examples/demo-api/server.js first, optionally edit assertions in the request Runtime tab, then send this health query.
 graphql:
   method: POST
   url: "{{baseUrl}}/graphql"

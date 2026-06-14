@@ -2508,6 +2508,10 @@
         "code": {
           "type": "string",
           "description": "The script code"
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the runtime script is disabled"
         }
       },
       "required": [
