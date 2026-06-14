@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Ajv, { type ErrorObject } from 'ajv';
 import { parse as parseYaml } from 'yaml';
+import { isGraphQLRequest, isGrpcRequest, isScriptFile, isWebSocketRequest } from '../models/types';
 
 // ── File classification (mirrors yamlParser.ts logic) ───────────────
 
@@ -52,6 +53,22 @@ export interface ValidationReport {
   issues: ValidationIssue[];
 }
 
+interface Validators {
+  collection: any;
+  httpRequest: any;
+  graphQLRequest: any;
+  grpcRequest: any;
+  webSocketRequest: any;
+  folder: any;
+  workspace: any;
+  scriptFile: any;
+}
+
+interface ValidationRoute {
+  validator: any;
+  schemaLabel: string;
+}
+
 // ── Validator ───────────────────────────────────────────────────────
 
 function buildSubSchema(schema: any, defName: string): any {
@@ -60,6 +77,52 @@ function buildSubSchema(schema: any, defName: string): any {
     $id: `${schema.$id}#sub-${defName}`,
     $ref: `${schema.$id}#/$defs/${defName}`,
     $defs: schema.$defs,
+  };
+}
+
+function buildWorkspaceSchema(): any {
+  return {
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    $id: 'https://schema.opencollection.com/json/draft-07/opencollection-workspace/v1.0.0',
+    type: 'object',
+    properties: {
+      workspace: { type: 'string' },
+      info: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          summary: { type: 'string' },
+          version: { type: 'string' },
+          links: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                url: { type: 'string' },
+              },
+              required: ['name', 'url'],
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+      collections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            path: { type: 'string' },
+          },
+          required: ['name', 'path'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['collections'],
+    additionalProperties: false,
   };
 }
 
@@ -114,9 +177,16 @@ export async function validateCollection(
   const schema = JSON.parse(schemaContent);
 
   const ajv = new Ajv({ allErrors: true, strict: false });
-  const validateCollectionSchema = ajv.compile(schema);
-  const validateHttpRequest = ajv.compile(buildSubSchema(schema, 'HttpRequest'));
-  const validateFolder = ajv.compile(buildSubSchema(schema, 'Folder'));
+  const validators: Validators = {
+    collection: ajv.compile(schema),
+    httpRequest: ajv.compile(buildSubSchema(schema, 'HttpRequest')),
+    graphQLRequest: ajv.compile(buildSubSchema(schema, 'GraphQLRequest')),
+    grpcRequest: ajv.compile(buildSubSchema(schema, 'GrpcRequest')),
+    webSocketRequest: ajv.compile(buildSubSchema(schema, 'WebSocketRequest')),
+    folder: ajv.compile(buildSubSchema(schema, 'Folder')),
+    workspace: ajv.compile(buildWorkspaceSchema()),
+    scriptFile: ajv.compile(buildSubSchema(schema, 'ScriptFile')),
+  };
 
   const report: ValidationReport = {
     collectionName: path.basename(rootDir),
@@ -127,7 +197,7 @@ export async function validateCollection(
     issues: [],
   };
 
-  await scanDirectory(rootDir, rootDir, report, validateCollectionSchema, validateHttpRequest, validateFolder);
+  await scanDirectory(rootDir, rootDir, report, validators);
   return report;
 }
 
@@ -135,9 +205,7 @@ async function scanDirectory(
   dir: string,
   rootDir: string,
   report: ValidationReport,
-  validateCollectionSchema: any,
-  validateHttpRequest: any,
-  validateFolder: any,
+  validators: Validators,
 ): Promise<void> {
   let entries: fs.Dirent[];
   try {
@@ -150,7 +218,7 @@ async function scanDirectory(
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      await scanDirectory(fullPath, rootDir, report, validateCollectionSchema, validateHttpRequest, validateFolder);
+      await scanDirectory(fullPath, rootDir, report, validators);
       continue;
     }
 
@@ -199,15 +267,33 @@ async function scanDirectory(
     }
 
     if (isCollectionFile(name)) {
-      validateFile(fullPath, rootDir, data, validateCollectionSchema, 'OpenCollection', report);
+      validateFile(fullPath, rootDir, data, validators.collection, 'OpenCollection', report);
     } else if (isFolderFile(name)) {
-      validateFile(fullPath, rootDir, data, validateFolder, 'Folder', report);
+      validateFile(fullPath, rootDir, data, validators.folder, 'Folder', report);
     } else if (isWorkspaceFile(name)) {
-      // Workspace files — skip for now
+      validateFile(fullPath, rootDir, data, validators.workspace, 'OpenCollectionWorkspace', report);
     } else if (isRequestFile(name)) {
-      validateFile(fullPath, rootDir, data, validateHttpRequest, 'HttpRequest', report);
+      const route = getRequestValidationRoute(data, validators);
+      validateFile(fullPath, rootDir, data, route.validator, route.schemaLabel, report);
     }
   }
+}
+
+function getRequestValidationRoute(data: any, validators: Validators): ValidationRoute {
+  const infoType = data?.info?.type;
+  if (isGraphQLRequest(data) || infoType === 'graphql') {
+    return { validator: validators.graphQLRequest, schemaLabel: 'GraphQLRequest' };
+  }
+  if (isGrpcRequest(data) || infoType === 'grpc') {
+    return { validator: validators.grpcRequest, schemaLabel: 'GrpcRequest' };
+  }
+  if (isWebSocketRequest(data) || infoType === 'websocket') {
+    return { validator: validators.webSocketRequest, schemaLabel: 'WebSocketRequest' };
+  }
+  if (isScriptFile(data) || data?.type === 'script') {
+    return { validator: validators.scriptFile, schemaLabel: 'ScriptFile' };
+  }
+  return { validator: validators.httpRequest, schemaLabel: 'HttpRequest' };
 }
 
 function validateFile(

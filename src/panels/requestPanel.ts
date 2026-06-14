@@ -2,8 +2,10 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest, RequestDefaults, MissioCollection } from '../models/types';
-import { type HttpClient, requestLog, type ResolvedRequest } from '../services/httpClient';
+import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollection } from '../models/types';
+import { getItemKind, isHttpRequest, isProtocolRequest } from '../models/types';
+import { requestLog, type ResolvedRequest } from '../services/httpClient';
+import type { RequestExecutionService } from '../services/requestExecutionService';
 import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
 import { resolveFileVariantToBuffer } from '../services/fileBodyHelper';
 import type { CollectionService } from '../services/collectionService';
@@ -27,7 +29,7 @@ import { BaseEditorProvider, type EditorContext } from './basePanel';
 export class RequestEditorProvider extends BaseEditorProvider {
   public static readonly viewType = 'missio.requestEditor';
   private static _panels = new Map<string, vscode.WebviewPanel>();
-  private readonly _httpClient: HttpClient;
+  private readonly _requestExecutionService: RequestExecutionService;
   // Pending resolver for the webview-based unresolved-vars prompt
   private _unresolvedVarsResolver: ((result: Map<string, string> | undefined) => void) | null = null;
   // Pending resolver for CLI auth approval prompt
@@ -50,25 +52,25 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   constructor(
     context: vscode.ExtensionContext,
-    httpClient: HttpClient,
+    requestExecutionService: RequestExecutionService,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
     secretService: SecretService,
   ) {
     super(context, collectionService, environmentService, oauth2Service, secretService);
-    this._httpClient = httpClient;
+    this._requestExecutionService = requestExecutionService;
   }
 
   static register(
     context: vscode.ExtensionContext,
-    httpClient: HttpClient,
+    requestExecutionService: RequestExecutionService,
     collectionService: CollectionService,
     environmentService: EnvironmentService,
     oauth2Service: OAuth2Service,
     secretService: SecretService,
   ): vscode.Disposable {
-    const provider = new RequestEditorProvider(context, httpClient, collectionService, environmentService, oauth2Service, secretService);
+    const provider = new RequestEditorProvider(context, requestExecutionService, collectionService, environmentService, oauth2Service, secretService);
     const registration = vscode.window.registerCustomEditorProvider(
       RequestEditorProvider.viewType,
       provider,
@@ -100,15 +102,33 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   protected _sendDocumentToWebview(webview: vscode.Webview, document: vscode.TextDocument): void {
     try {
-      const request = parseYaml(document.getText()) as HttpRequest;
+      const request = parseYaml(document.getText()) as OpenCollectionRequest;
       migrateRequest(request);
       webview.postMessage({ type: 'requestLoaded', request, filePath: document.uri.fsPath });
     } catch { /* Invalid YAML, don't update webview */ }
   }
 
+  private _readDocumentRequest(document: vscode.TextDocument): OpenCollectionRequest | undefined {
+    try {
+      const request = parseYaml(document.getText()) as OpenCollectionRequest;
+      migrateRequest(request);
+      return request;
+    } catch {
+      return undefined;
+    }
+  }
+
   protected _getDocumentDataKey(): string { return 'request'; }
   protected _getScriptFilename(): string { return 'requestPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
+
+  protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
+    const current = this._readDocumentRequest(document);
+    if (current && !isHttpRequest(current)) {
+      return;
+    }
+    await super._applyDocumentEdit(document, msg);
+  }
 
   protected _getHtml(webview: vscode.Webview): string {
     const html = super._getHtml(webview);
@@ -174,6 +194,11 @@ export class RequestEditorProvider extends BaseEditorProvider {
     const filePath = ctx.document.uri.fsPath;
     switch (msg.type) {
       case 'saveDocument': {
+        const current = this._readDocumentRequest(ctx.document);
+        if (current && !isHttpRequest(current)) {
+          webview.postMessage({ type: 'error', message: 'Protocol request files are read-only in the HTTP request editor.' });
+          return true;
+        }
         await ctx.applyEdit(msg.request);
         await ctx.document.save();
         webview.postMessage({ type: 'saved' });
@@ -185,13 +210,18 @@ export class RequestEditorProvider extends BaseEditorProvider {
           webview.postMessage({ type: 'error', message: 'Collection not found' });
           return true;
         }
+        const request = this._readDocumentRequest(ctx.document) ?? msg.request;
+        if (!isProtocolRequest(request)) {
+          webview.postMessage({ type: 'error', message: 'File does not contain an executable OpenCollection request.' });
+          return true;
+        }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
-        await this._sendRequest(webview, msg.request, collection, folderDefaults);
+        await this._sendRequest(webview, request, collection, folderDefaults);
         return true;
       }
       case 'cancelRequest': {
         this._resolvePendingPromptsOnClose();
-        this._httpClient.cancelAll();
+        this._requestExecutionService.cancelAll();
         return true;
       }
       case 'editVariable':
@@ -256,12 +286,17 @@ export class RequestEditorProvider extends BaseEditorProvider {
           return true;
         }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
+        const request = this._readDocumentRequest(ctx.document) ?? msg.request;
+        if (!isHttpRequest(request)) {
+          await this._sendRequest(webview, request, collection, folderDefaults);
+          return true;
+        }
         // Clear the existing OAuth2 token before retrying
         let effectiveAuth;
         if (collection.data.config?.forceAuthInherit) {
           effectiveAuth = collection.data.request?.auth;
         } else {
-          effectiveAuth = msg.request?.runtime?.auth;
+          effectiveAuth = request.runtime?.auth;
           if (effectiveAuth === 'inherit') effectiveAuth = folderDefaults?.auth ?? 'inherit';
           if (effectiveAuth === 'inherit') effectiveAuth = collection.data.request?.auth;
         }
@@ -274,7 +309,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             await this._oauth2Service.clearToken(collection.id, envName, url, auth.credentialsId);
           }
         }
-        await this._sendRequest(webview, msg.request, collection, folderDefaults);
+        await this._sendRequest(webview, request, collection, folderDefaults);
         return true;
       }
       case 'saveExample': {
@@ -302,7 +337,19 @@ export class RequestEditorProvider extends BaseEditorProvider {
             RequestEditorProvider._folderDefaultsCache.set(cacheKey, folderDefaults);
             if (seq !== undefined && seq !== this._exportSeq) return true;
           }
-          await this._exportRequest(webview, msg.request, collection, folderDefaults, {
+          const request = this._readDocumentRequest(ctx.document) ?? msg.request;
+          if (!isHttpRequest(request)) {
+            const diagnostic = getUnsupportedSnippetDiagnostic(request);
+            webview.postMessage({
+              type: 'exportPreview',
+              content: `Error: ${diagnostic.message}`,
+              format: msg.format ?? '',
+              lang: '',
+              seq,
+            });
+            return true;
+          }
+          await this._exportRequest(webview, request, collection, folderDefaults, {
             format: msg.format ?? 'shell:curl',
             includeAuth: !!msg.includeAuth,
             includeHeaders: msg.includeHeaders !== false,
@@ -363,7 +410,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
   }
 
 
-  private async _sendRequest(webview: vscode.Webview, requestData: HttpRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
+  private async _sendRequest(webview: vscode.Webview, requestData: OpenCollectionRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
     const _rlog = (msg: string) => {
       const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
       requestLog.appendLine(`[${ts}] ${msg}`);
@@ -427,6 +474,28 @@ export class RequestEditorProvider extends BaseEditorProvider {
       };
     };
 
+    if (!isHttpRequest(requestData)) {
+      const _t0 = Date.now();
+      webview.postMessage({ type: 'sending', message: `Preparing ${describeProtocol(requestData)} request...` });
+      try {
+        const response = await this._requestExecutionService.send(requestData, collection, folderDefaults, (msg) => {
+          webview.postMessage({ type: 'sending', message: msg });
+        });
+        const timing = (response as any).timing ?? [];
+        webview.postMessage({ type: 'response', response, timing, usedOAuth2: false });
+      } catch (e: any) {
+        if (e.message === 'Request cancelled') {
+          webview.postMessage({ type: 'cancelled' });
+          return;
+        }
+        webview.postMessage({
+          type: 'response',
+          response: _buildErrorResponse(e, Date.now() - _t0),
+        });
+      }
+      return;
+    }
+
     // Detect unresolved variables and prompt via webview modal
     const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
     let extraVariables: Map<string, string> | undefined = new Map();
@@ -476,9 +545,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
     }
 
     try {
-      // httpClient.send handles the full pipeline: variable resolution, auth
+      // The execution facade delegates HTTP to HttpClient while keeping protocol dispatch centralized.
       // (including OAuth2 with $secret references), headers, body, and secrets.
-      const response = await this._httpClient.send(requestData, collection, folderDefaults, (msg) => {
+      const response = await this._requestExecutionService.send(requestData, collection, folderDefaults, (msg) => {
         webview.postMessage({ type: 'sending', message: msg });
       }, extraVariables.size > 0 ? extraVariables : undefined, undefined, cliApprovalPrompt);
 
@@ -490,7 +559,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       }
 
       const totalMs = Date.now() - _t0;
-      _rlog(`  httpClient.send done: ${totalMs}ms`);
+      _rlog(`  requestExecutionService.send done: ${totalMs}ms`);
       const timing = (response as any).timing ?? [];
       webview.postMessage({ type: 'response', response, timing, usedOAuth2: !!isOAuth2 });
     } catch (e: any) {
@@ -528,7 +597,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
       if (opts.resolveVariables) {
         // For export, don't prompt for unresolved variables — just leave them as {{template}} syntax.
-        resolved = await this._httpClient.buildResolvedRequest(
+        resolved = await this._requestExecutionService.buildResolvedRequest(
           requestData, collection, folderDefaults, new Map(),
           undefined, undefined, { includeAuth: isCliAuth ? false : opts.includeAuth, includeBody: opts.includeBody },
         );
@@ -910,4 +979,14 @@ export class RequestEditorProvider extends BaseEditorProvider {
     </div>
   </div>`;
   }
+}
+
+function describeProtocol(request: OpenCollectionRequest): string {
+  const labels: Record<string, string> = {
+    http: 'HTTP',
+    graphql: 'GraphQL',
+    websocket: 'WebSocket',
+    grpc: 'gRPC',
+  };
+  return labels[getItemKind(request)] ?? 'OpenCollection';
 }
