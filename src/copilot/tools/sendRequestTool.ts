@@ -2,13 +2,15 @@ import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
 import { EnvironmentService } from '../../services/environmentService';
-import { HttpClient } from '../../services/httpClient';
+import { getUnsupportedProtocolDiagnostic } from '../../services/requestExecutionService';
+import type { RequestExecutionService } from '../../services/requestExecutionService';
 import { readFolderFile } from '../../services/yamlParser';
 import { detectUnresolvedVars } from '../../services/unresolvedVars';
 import { varPatternGlobal } from '../../models/varPattern';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { Auth } from '../../models/types';
+import type { Auth, OpenCollectionRequest } from '../../models/types';
+import { isHttpRequest, isProtocolRequest } from '../../models/types';
 
 export interface SendRequestParams {
   requestFilePath: string;
@@ -26,7 +28,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
   constructor(
     private _collectionService: CollectionService,
     private _environmentService: EnvironmentService,
-    private _httpClient: HttpClient,
+    private _requestExecutionService: RequestExecutionService,
   ) {
     super();
   }
@@ -51,6 +53,9 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     if (!request) {
       return JSON.stringify({ success: false, message: `Failed to load request: ${requestFilePath}` });
     }
+    if (!isProtocolRequest(request)) {
+      return JSON.stringify({ success: false, message: `File is not an executable OpenCollection request: ${requestFilePath}` });
+    }
 
     // Find collection: prefer explicit collectionId, fall back to path-based
     const collection = collectionId
@@ -62,6 +67,10 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
 
     // Read folder defaults if a folder.yml exists alongside the request
     const folderDefaults = await this._readFolderDefaults(requestFilePath, collection.rootDir);
+
+    if (!isHttpRequest(request)) {
+      return this._unsupportedProtocolResult(request, dryRun);
+    }
 
     // Convert typed variable values to strings for the resolution map.
     const extraVariables = variables
@@ -106,7 +115,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       });
     }
 
-    const response = await this._httpClient.send(request, collection, folderDefaults, undefined, extraVariables, environment);
+    const response = await this._requestExecutionService.send(request, collection, folderDefaults, undefined, extraVariables, environment);
 
     // Write response body to file if requested
     let savedTo: string | undefined;
@@ -224,6 +233,18 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     }
 
     return referenced;
+  }
+
+  private _unsupportedProtocolResult(request: OpenCollectionRequest, dryRun?: boolean): string {
+    const diagnostic = getUnsupportedProtocolDiagnostic(request);
+    return JSON.stringify({
+      success: false,
+      dryRun: !!dryRun,
+      code: diagnostic.code,
+      protocol: diagnostic.protocol,
+      taskId: diagnostic.taskId,
+      message: diagnostic.message,
+    });
   }
 
   private _selectEffectiveAuth(

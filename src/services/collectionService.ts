@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
-import type { MissioCollection, OpenCollectionWorkspace, HttpRequest, Item, Folder } from '../models/types';
+import type { MissioCollection, OpenCollectionWorkspace, RequestFileItem, Item, Folder } from '../models/types';
+import { isProtocolRequest, isScriptFile } from '../models/types';
 
 const _log = vscode.window.createOutputChannel('Missio');
 
@@ -147,7 +148,7 @@ export class CollectionService implements vscode.Disposable {
     this._onDidChange.fire();
   }
 
-  async loadRequestFile(filePath: string): Promise<HttpRequest | undefined> {
+  async loadRequestFile(filePath: string): Promise<RequestFileItem | undefined> {
     try {
       return await readRequestFile(filePath);
     } catch (e) {
@@ -535,11 +536,10 @@ export class CollectionService implements vscode.Disposable {
           items.push(folder);
         } else if ((type & vscode.FileType.File) !== 0 && isRequestFile(name)) {
           try {
-            const req = await readRequestFile(fullPath);
-            if (req.info || req.http) {
-              // Tag with the source path via extensions for runtime use
-              (req as any)._filePath = fullPath;
-              items.push(req);
+            const item = await readRequestFile(fullPath);
+            if (isProtocolRequest(item) || isScriptFile(item)) {
+              (item as any)._filePath = fullPath;
+              items.push(item);
             }
           } catch {
             // Skip unparseable files
