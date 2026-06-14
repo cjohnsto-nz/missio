@@ -1,0 +1,33 @@
+info:
+  name: OAuth2 Query Token
+  type: http
+  seq: 2
+  description: Run `node examples/demo-api/server.js`; this request fetches a local OAuth2 token and sends it as `access_token` query auth.
+http:
+  method: GET
+  url: "{{baseUrl}}/oauth/resource"
+runtime:
+  auth:
+    type: oauth2
+    flow: client_credentials
+    accessTokenUrl: "{{baseUrl}}/oauth/token?trace=oauth-demo"
+    credentials:
+      clientId: demo-client
+      clientSecret: demo-secret
+      placement: body
+    additionalParameters:
+      accessTokenRequest:
+        - name: X-Demo-Tenant
+          value: demo-tenant
+          placement: header
+        - name: audience
+          value: missio-demo
+          placement: body
+    tokenConfig:
+      placement:
+        query: access_token
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5

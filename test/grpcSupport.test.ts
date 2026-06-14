@@ -326,6 +326,22 @@ describe('gRPC execution', () => {
     }, collection)).rejects.toThrow(/was not found/);
   });
 
+  it('fails unsupported schema auth loudly', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    const client = new GrpcClient(environmentService);
+
+    await expect(client.send({
+      ...makeUnaryRequest(address),
+      runtime: { auth: { type: 'digest', username: 'u', password: 'p' } as any },
+    }, collection)).rejects.toThrow(/digest.*not supported for gRPC/);
+
+    await expect(client.send({
+      ...makeUnaryRequest(address),
+      runtime: { auth: { type: 'apikey', key: 'api_key', value: 'secret', placement: 'query' } },
+    }, collection)).rejects.toThrow(/API key query auth is not supported for gRPC/);
+  });
+
   it('executes server-streaming calls and returns ordered response events', async () => {
     const environmentService = makeEnvironmentService();
     const collection = makeCollection();
