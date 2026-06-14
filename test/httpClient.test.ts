@@ -270,6 +270,35 @@ describe('HttpClient OC-050 auth and transport behavior', () => {
     }
   });
 
+  it('inherits boolean request settings instead of treating inherit as false', async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(302, { Location: '/final' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ path: req.url }));
+    });
+    const port = await listen(server);
+
+    try {
+      const client = new HttpClient(makeEnvService());
+      const response = await client.send(
+        {
+          http: { method: 'GET', url: `http://127.0.0.1:${port}/start` },
+          settings: { followRedirects: 'inherit', encodeUrl: 'inherit' },
+        },
+        makeCollection(),
+      );
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ path: '/final' });
+    } finally {
+      await close(server);
+    }
+  });
+
   it('fails clearly when redirects exceed maxRedirects', async () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(302, { Location: '/loop' });

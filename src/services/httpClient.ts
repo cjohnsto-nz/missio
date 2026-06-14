@@ -641,10 +641,14 @@ export class HttpClient implements vscode.Disposable {
   ): ResolvedHttpRequestSettings {
     return {
       timeout: (settings?.timeout !== 'inherit' ? settings?.timeout : undefined) ?? config.get<number>('timeout', 30000),
-      followRedirects: (settings?.followRedirects !== 'inherit' && settings?.followRedirects) ?? config.get<boolean>('followRedirects', true),
+      followRedirects: this._resolveInheritedBoolean(settings?.followRedirects, config.get<boolean>('followRedirects', true)),
       maxRedirects: (settings?.maxRedirects !== 'inherit' ? settings?.maxRedirects : undefined) ?? config.get<number>('maxRedirects', 5),
-      encodeUrl: (settings?.encodeUrl !== 'inherit' && settings?.encodeUrl) ?? true,
+      encodeUrl: this._resolveInheritedBoolean(settings?.encodeUrl, true),
     };
+  }
+
+  private _resolveInheritedBoolean(value: boolean | 'inherit' | undefined, fallback: boolean): boolean {
+    return value === undefined || value === 'inherit' ? fallback : value;
   }
 
   private _resolveBody(body: HttpRequestDetails['body']): HttpRequestBody | undefined {
