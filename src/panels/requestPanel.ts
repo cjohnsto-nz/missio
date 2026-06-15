@@ -984,8 +984,8 @@ window.missioPdfJsReady = import('${pdfJsUri}')
       <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="Loading request..."></div>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
-    <button class="btn btn-primary" id="sendBtn">Send</button>
-    <button class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn" style="display:none;" title="Send WebSocket message">Send</button>
+    <button class="btn btn-primary" id="sendBtn" type="button" disabled aria-disabled="true" title="Request editor is loading">Send</button>
+    <button class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn" type="button" style="display:none;" disabled aria-disabled="true" title="Request editor is loading">Send</button>
   </div>
 
   <div class="main-content">
