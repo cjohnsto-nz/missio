@@ -127,6 +127,21 @@ export class RequestEditorProvider extends BaseEditorProvider {
     }
   }
 
+  private _readPostedWebSocketRequest(msg: any): OpenCollectionRequest | undefined {
+    const request = msg?.request as OpenCollectionRequest | undefined;
+    if (!request || typeof request !== 'object') return undefined;
+    try {
+      migrateRequest(request);
+    } catch {
+      return undefined;
+    }
+    return isWebSocketRequest(request) ? request : undefined;
+  }
+
+  private _readWebSocketLifecycleRequest(document: vscode.TextDocument, msg: any): OpenCollectionRequest | undefined {
+    return this._readPostedWebSocketRequest(msg) ?? this._readDocumentRequest(document);
+  }
+
   protected _getDocumentDataKey(): string { return 'request'; }
   protected _getScriptFilename(): string { return 'requestPanel.js'; }
   protected _getCssFilenames(): string[] { return ['requestPanel.css']; }
@@ -488,7 +503,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
       webview.postMessage({ type: 'error', message: 'Collection not found' });
       return;
     }
-    const request = this._readDocumentRequest(ctx.document) ?? msg.request;
+    const request = this._readWebSocketLifecycleRequest(ctx.document, msg);
     if (!isWebSocketRequest(request)) {
       webview.postMessage({ type: 'error', message: 'File does not contain a WebSocket request.' });
       return;
@@ -527,7 +542,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
 
   private async _sendWebSocketMessage(webview: vscode.Webview, msg: any, ctx: EditorContext): Promise<void> {
     const filePath = ctx.document.uri.fsPath;
-    const request = this._readDocumentRequest(ctx.document) ?? msg.request;
+    const request = this._readWebSocketLifecycleRequest(ctx.document, msg);
     if (!isWebSocketRequest(request)) {
       webview.postMessage({ type: 'error', message: 'File does not contain a WebSocket request.' });
       return;

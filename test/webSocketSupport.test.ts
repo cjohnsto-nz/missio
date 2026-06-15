@@ -687,6 +687,68 @@ websocket:
     });
   });
 
+  it('connects with the freshly posted WebSocket request when document YAML is stale', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const collection = makeCollection(rootDir);
+    const requestExecutionService = {
+      connectWebSocket: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 0,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+      sendWebSocketMessage: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      { getCollections: () => [collection] } as any,
+      makeEnvService({ tenant: 'nz' }),
+      {} as any,
+      {} as any,
+    );
+    const staleYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/stale"',
+      '  message: { type: text, data: "stale" }',
+      '',
+    ].join('\n');
+    const postedRequest: WebSocketRequest = {
+      info: { name: 'Editor Socket', type: 'websocket' },
+      websocket: {
+        url: 'ws://127.0.0.1:7777/ws/current',
+        headers: [{ name: 'X-Current', value: 'yes' }],
+        message: { type: 'text', data: 'current' },
+      },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._connectWebSocket(
+        webview,
+        { request: postedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => staleYaml,
+          },
+        },
+      );
+
+      const connectedRequest = requestExecutionService.connectWebSocket.mock.calls[0][0] as WebSocketRequest;
+      expect(connectedRequest.websocket.url).toBe('ws://127.0.0.1:7777/ws/current');
+      expect(connectedRequest.websocket.headers).toEqual([{ name: 'X-Current', value: 'yes' }]);
+      expect(connectedRequest.websocket.message).toEqual({ type: 'text', data: 'current' });
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('detects unresolved variables across WebSocket URL, inherited headers, message, and auth', async () => {
     const collection = makeCollection();
     collection.data.request!.headers = [{ name: 'X-Collection', value: '{{collectionHeader}}' }];
