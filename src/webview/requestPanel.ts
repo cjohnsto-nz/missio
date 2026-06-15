@@ -204,6 +204,14 @@ function syncResponseLayoutForProtocol(): void {
   responseSection.classList.remove('websocket-response-ledger-only');
 
   if (!isWebSocket) {
+    const response = getLastResponse();
+    const hasResponse = !!response;
+    const binaryOverlay = document.getElementById('respBinaryOverlay');
+    const isBinary = !!response?.bodyBase64;
+    $('respTabs').style.display = hasResponse ? 'flex' : 'none';
+    $('respEmpty').style.display = hasResponse ? 'none' : 'block';
+    $('respBodyWrap').style.display = hasResponse && !isBinary ? 'block' : 'none';
+    if (binaryOverlay) binaryOverlay.style.display = hasResponse && isBinary ? 'block' : 'none';
     return;
   }
 

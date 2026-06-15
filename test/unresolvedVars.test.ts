@@ -105,15 +105,18 @@ describe('unresolvedVars', () => {
     expect(result).toContain('clientSecret');
   });
 
-  it('detects unresolved vars in runtime assertion expression, value, and description fields', async () => {
+  it('does not preflight-block runtime assertion placeholders that may be produced during runtime', async () => {
     const request = makeRequest() as any;
     request.runtime = {
-      variables: [{ name: 'expectedStatus', value: '200' }],
+      scripts: [{
+        type: 'after-response',
+        code: 'missio.variables.set("expectedName", response.json().name);',
+      }],
       assertions: [{
-        expression: 'res.body.{{missingField}}',
+        expression: 'res.body.{{fieldName}}',
         operator: 'equals',
-        value: '{{expectedStatus}}',
-        description: { content: 'Missing {{assertionDescription}}', type: 'text/markdown' },
+        value: '{{expectedName}}',
+        description: { content: 'Runtime {{expectedName}}', type: 'text/markdown' },
       }],
     };
 
@@ -123,7 +126,7 @@ describe('unresolvedVars', () => {
       service,
     );
 
-    expect(result).toEqual(['missingField', 'assertionDescription']);
+    expect(result).toEqual([]);
   });
 
   it('detects unresolved vars in apikey auth', async () => {

@@ -353,6 +353,40 @@ describe('OC-130 request editor first paint', () => {
     expect(runtimeResults.textContent).toContain('Expected hello equals ok');
   });
 
+  it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('restores normal response layout when switching from WebSocket to %s', async (protocol) => {
+    const { dom } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          state: 'closed',
+          events: [{ timestamp: '2026-06-15T01:02:03.789Z', direction: 'inbound', type: 'text', data: 'hello' }],
+        }),
+        duration: 12,
+        size: 0,
+      },
+    });
+
+    expect(document.getElementById('responseSection')?.className).toContain('websocket-response-tabs');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
+
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
+
+    expect(document.getElementById('responseSection')?.className).not.toContain('websocket-response-tabs');
+    expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Body');
+    expect((document.getElementById('respTabs') as HTMLElement).style.display).toBe('flex');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('block');
+    expect((document.getElementById('respBinaryOverlay') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('webSocketSessionPanel') as HTMLElement).style.display).toBe('none');
+  });
+
   it('keeps invalid YAML in a neutral fallback instead of revealing HTTP controls', async () => {
     const { dom } = await loadRequestPanel();
 

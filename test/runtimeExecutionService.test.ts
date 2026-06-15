@@ -157,6 +157,16 @@ describe('RuntimeExecutionService lifecycle', () => {
     ];
 
     for (const testCase of cases) {
+      const unresolved = await detectUnresolvedVars(
+        testCase.request as any,
+        makeCollection(),
+        makeEnvService(new Map([
+          ['fieldName', 'name'],
+          ['descriptionOwner', 'Ada'],
+        ])),
+      );
+      expect(unresolved).toEqual([]);
+
       const prepared = await testCase.prepare(testCase.request as never);
       const response = await testCase.complete(prepared, makeResponse({ name: 'Ada' }));
 
@@ -483,7 +493,6 @@ describe('RequestExecutionService runtime integration', () => {
     };
     const runtime = new RuntimeExecutionService(async () => new Map([
       ['gqlField', 'name'],
-      ['expectedName', 'Ada'],
     ]));
     const executionService = new RequestExecutionService(httpClient as any, undefined, undefined, runtime);
     const request: GraphQLRequest = {
@@ -494,6 +503,10 @@ describe('RequestExecutionService runtime integration', () => {
         body: { query: 'query User { user { name } }', variables: '{}' },
       },
       runtime: {
+        scripts: [{
+          type: 'after-response',
+          code: 'missio.variables.set("expectedName", response.json().data.user.name);',
+        }],
         assertions: [{
           expression: 'res.body.data.user.{{gqlField}}',
           operator: 'equals',
@@ -502,6 +515,13 @@ describe('RequestExecutionService runtime integration', () => {
         }],
       },
     };
+
+    const unresolved = await detectUnresolvedVars(
+      request,
+      makeCollection(),
+      makeEnvService(new Map([['gqlField', 'name']])),
+    );
+    expect(unresolved).toEqual([]);
 
     const response = await executionService.send(request, makeCollection());
 
