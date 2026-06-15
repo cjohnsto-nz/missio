@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import Ajv from 'ajv';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as grpc from '@grpc/grpc-js';
@@ -89,6 +90,92 @@ function makeCollection(): MissioCollection {
       },
     },
   };
+}
+
+function makeDemoCollection(): MissioCollection {
+  const filePath = path.join(demoRoot, 'opencollection.yml');
+  return {
+    id: filePath,
+    filePath,
+    rootDir: demoRoot,
+    data: parseYaml(fs.readFileSync(filePath, 'utf-8')) as any,
+  };
+}
+
+function readDemoGrpcRequest(fileName: string) {
+  return parseYaml(fs.readFileSync(path.join(demoRoot, 'gRPC', fileName), 'utf-8'));
+}
+
+function readDemoGrpcFolderDefaults(): RequestDefaults | undefined {
+  return parseYaml(fs.readFileSync(path.join(demoRoot, 'gRPC', 'folder.yml'), 'utf-8')).request;
+}
+
+function makeDemoGrpcExecution(environmentService: EnvironmentService): RequestExecutionService {
+  return new RequestExecutionService(
+    { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+    undefined,
+    new GrpcClient(environmentService),
+    new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+      environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+    ),
+  );
+}
+
+function startDemoGrpcServerProcess(): Promise<ChildProcessWithoutNullStreams> {
+  const child = spawn(process.execPath, [path.join(demoRoot, 'grpc-server.js')], {
+    cwd: path.resolve(__dirname, '..'),
+    stdio: 'pipe',
+    windowsHide: true,
+  });
+
+  return new Promise((resolve, reject) => {
+    let output = '';
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      child.off('exit', onExit);
+      child.off('error', onError);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(child);
+    };
+    const onData = (chunk: Buffer) => {
+      output += chunk.toString('utf-8');
+      if (/Listening on 127\.0\.0\.1:50051/i.test(output)) {
+        finish();
+      }
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(new Error(`gRPC demo server exited before readiness (code=${code}, signal=${signal}). Output:\n${output}`));
+    };
+    const onError = (error: Error) => finish(error);
+    const timer = setTimeout(() => {
+      finish(new Error(`Timed out waiting for gRPC demo server readiness. Output:\n${output}`));
+    }, 10_000);
+
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('exit', onExit);
+    child.once('error', onError);
+  });
+}
+
+async function stopDemoGrpcServerProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null) return;
+  child.kill();
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 2_000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function makeUnaryRequest(url: string) {
@@ -751,4 +838,120 @@ describe('gRPC integration surfaces', () => {
     expect(response.runtime?.success).toBe(true);
     expect(response.runtime?.actions[0]).toMatchObject({ target: 'runtime.grpcRuntimeRequestId' });
   });
+});
+
+describe('gRPC demo server reliability', () => {
+  it('reports the local fixture start command when packaged demo requests target closed localhost:50051', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeDemoCollection();
+    const request = readDemoGrpcRequest('echo-unary.yml');
+    const execution = makeDemoGrpcExecution(environmentService);
+
+    await expect(execution.send(
+      request as any,
+      collection,
+      readDemoGrpcFolderDefaults(),
+      undefined,
+      undefined,
+      'LOCAL',
+    )).rejects.toThrow(/node examples\/demo-api\/grpc-server\.js/);
+  });
+
+  it('starts the documented fixture and smokes every packaged gRPC demo request through Missio execution', async () => {
+    const child = await startDemoGrpcServerProcess();
+    try {
+      const environmentService = makeEnvironmentService();
+      const collection = makeDemoCollection();
+      await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+      const execution = makeDemoGrpcExecution(environmentService);
+      const folderDefaults = readDemoGrpcFolderDefaults();
+      const send = (fileName: string) => execution.send(
+        readDemoGrpcRequest(fileName) as any,
+        collection,
+        folderDefaults,
+        undefined,
+        undefined,
+        'LOCAL',
+        undefined,
+        { requestId: path.join(demoRoot, 'gRPC', fileName) },
+      );
+
+      const unary = JSON.parse((await send('echo-unary.yml')).body);
+      expect(unary).toMatchObject({
+        message: 'Hello Ada',
+        name: 'Ada',
+        userId: 42,
+        requestId: 'demo-trace-001',
+        authorization: 'Bearer demo-token',
+        defaultMetadata: 'request-override-demo-trace-001',
+        folderMetadata: 'folder-demo-trace-001',
+        requestMetadata: 'request-demo-trace-001',
+      });
+
+      const metadata = JSON.parse((await send('echo-metadata-defaults.yml')).body);
+      expect(metadata).toMatchObject({
+        message: 'Hello Metadata Ada',
+        defaultMetadata: 'collection-demo-trace-001',
+        folderMetadata: 'folder-demo-trace-001',
+        requestMetadata: 'metadata-defaults-demo-trace-001',
+      });
+
+      const serverStream = JSON.parse((await send('stream-users.yml')).body);
+      expect(serverStream).toMatchObject({
+        methodType: 'server-streaming',
+        sentMessageCount: 1,
+        receivedMessageCount: 2,
+      });
+      expect(serverStream.receivedMessages.map((entry: any) => entry.message.name)).toEqual(['Ada', 'Grace']);
+
+      const clientStream = JSON.parse((await send('upload-users-client-streaming.yml')).body);
+      expect(clientStream).toMatchObject({
+        methodType: 'client-streaming',
+        sentMessageCount: 2,
+        receivedMessageCount: 1,
+      });
+      expect(clientStream.receivedMessages[0].message).toMatchObject({
+        count: 2,
+        names: 'Ada,Grace',
+        requestIds: 'demo-trace-001-1,demo-trace-001-2',
+        authorization: 'Bearer demo-token',
+        defaultMetadata: 'collection-demo-trace-001',
+      });
+
+      const bidiStream = JSON.parse((await send('chat-users-bidi-streaming.yml')).body);
+      expect(bidiStream).toMatchObject({
+        methodType: 'bidi-streaming',
+        sentMessageCount: 2,
+        receivedMessageCount: 2,
+      });
+      expect(bidiStream.receivedMessages.map((entry: any) => entry.message.name)).toEqual(['ack:Ada', 'ack:Grace']);
+
+      const errorResponse = await send('stream-users-error.yml');
+      const errorStream = JSON.parse(errorResponse.body);
+      expect(errorResponse.status).toBe(0);
+      expect(errorStream.receivedMessages[0].message).toMatchObject({
+        id: 42,
+        name: 'Ada',
+        requestId: 'demo-trace-001-error',
+      });
+      expect(errorStream.error).toMatchObject({
+        name: 'INTERNAL',
+        details: 'Demo stream failure after partial data',
+      });
+
+      const runtimeResponse = await send('runtime-unary-lifecycle.yml');
+      const runtimeBody = JSON.parse(runtimeResponse.body);
+      expect(runtimeBody).toMatchObject({
+        name: 'Ada Runtime',
+        userId: 77,
+        requestMetadata: 'script-demo-trace-001',
+        requestId: 'runtime-demo-trace-001',
+      });
+      expect(runtimeResponse.runtime?.success).toBe(true);
+      expect(runtimeResponse.runtime?.summary).toEqual({ passed: 4, failed: 0, skipped: 0 });
+      expect(runtimeResponse.runtime?.actions[0]).toMatchObject({ target: 'runtime.grpcRuntimeRequestId' });
+    } finally {
+      await stopDemoGrpcServerProcess(child);
+    }
+  }, 20_000);
 });

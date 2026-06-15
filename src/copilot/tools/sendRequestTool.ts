@@ -177,6 +177,9 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       if ((err as any)?.runtime) {
         result.runtime = (err as any).runtime;
       }
+      if (typeof (err as any)?.hint === 'string') {
+        result.hint = (err as any).hint;
+      }
       return JSON.stringify(result);
     }
 

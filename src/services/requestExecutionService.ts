@@ -436,6 +436,7 @@ function buildProtocolErrorResponse(protocol: 'websocket' | 'grpc', error: unkno
     code,
     grpcStatus,
     grpcDetails: typeof (err as any).grpcDetails === 'string' ? (err as any).grpcDetails : undefined,
+    hint: typeof (err as any).hint === 'string' ? (err as any).hint : undefined,
     stack: typeof err.stack === 'string' ? err.stack : undefined,
   };
   const body = JSON.stringify({ protocol, error: details }, null, 2);
@@ -448,6 +449,9 @@ function buildProtocolErrorResponse(protocol: 'websocket' | 'grpc', error: unkno
   if (code) headers['x-missio-error-code'] = code;
   if (grpcStatus !== undefined) {
     headers['x-missio-grpc-status'] = String(grpcStatus);
+  }
+  if (details.hint) {
+    headers['x-missio-error-hint'] = details.hint;
   }
 
   return {

@@ -63,4 +63,4 @@ runtime:
       variable:
         scope: runtime
         name: grpcRuntimeRequestId
-docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, optionally edit the request Runtime tab, then send to see unary gRPC metadata/message mutation plus runtime tests, assertions, logs, and set-variable actions.
+docs: Run `node examples/demo-api/grpc-server.js` from the repository root, select the LOCAL environment, optionally edit the request Runtime tab, then send to `LOCAL.grpcBaseUrl=localhost:50051` to see unary gRPC metadata/message mutation plus runtime tests, assertions, logs, and set-variable actions.

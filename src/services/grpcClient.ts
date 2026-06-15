@@ -76,6 +76,7 @@ interface GrpcStatusSummary {
 
 interface GrpcErrorSummary extends GrpcStatusSummary {
   message: string;
+  hint?: string;
 }
 
 export class GrpcStreamingUnsupportedError extends Error {
@@ -266,7 +267,7 @@ export class GrpcClient implements vscode.Disposable {
           }
           if (err) {
             finish();
-            reject(this._normalizeGrpcError(err, args.displayMethod));
+            reject(this._normalizeGrpcError(err, args.displayMethod, args.target));
             return;
           }
 
@@ -349,6 +350,7 @@ export class GrpcClient implements vscode.Disposable {
           responseMetadata,
           finalStatus,
           error,
+          target: args.target,
           duration: Date.now() - startTime,
           timing: args.timing,
         });
@@ -378,7 +380,7 @@ export class GrpcClient implements vscode.Disposable {
         events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
       });
       call.on('error', err => {
-        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        events.push({ type: 'error', error: this._errorSummary(err, args.target), elapsedMs: Date.now() - startTime });
         settle(err);
       });
       call.on('end', () => {
@@ -437,6 +439,7 @@ export class GrpcClient implements vscode.Disposable {
           responseMetadata,
           finalStatus,
           error,
+          target: args.target,
           duration: Date.now() - startTime,
           timing: args.timing,
         });
@@ -449,7 +452,7 @@ export class GrpcClient implements vscode.Disposable {
         { deadline: new Date(Date.now() + timeout) },
         (err: grpc.ServiceError | null, response: unknown) => {
           if (err) {
-            events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+            events.push({ type: 'error', error: this._errorSummary(err, args.target), elapsedMs: Date.now() - startTime });
             settle(err);
             return;
           }
@@ -468,7 +471,7 @@ export class GrpcClient implements vscode.Disposable {
         events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
       });
       call.on('error', err => {
-        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        events.push({ type: 'error', error: this._errorSummary(err, args.target), elapsedMs: Date.now() - startTime });
         settle(err);
       });
 
@@ -538,6 +541,7 @@ export class GrpcClient implements vscode.Disposable {
           responseMetadata,
           finalStatus,
           error,
+          target: args.target,
           duration: Date.now() - startTime,
           timing: args.timing,
         });
@@ -565,7 +569,7 @@ export class GrpcClient implements vscode.Disposable {
         events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
       });
       call.on('error', err => {
-        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        events.push({ type: 'error', error: this._errorSummary(err, args.target), elapsedMs: Date.now() - startTime });
         settle(err);
       });
       call.on('end', () => {
@@ -599,10 +603,11 @@ export class GrpcClient implements vscode.Disposable {
     responseMetadata: grpc.Metadata;
     finalStatus?: grpc.StatusObject;
     error?: grpc.ServiceError | Error;
+    target: ResolvedGrpcTarget;
     duration: number;
     timing: { label: string; start: number; end: number }[];
   }): HttpResponse {
-    const error = args.error ? this._errorSummary(args.error) : undefined;
+    const error = args.error ? this._errorSummary(args.error, args.target) : undefined;
     const status = args.finalStatus
       ? this._statusSummary(args.finalStatus)
       : error
@@ -660,29 +665,44 @@ export class GrpcClient implements vscode.Disposable {
     return vscode.workspace.getConfiguration('missio').get<number>('timeout', 30000);
   }
 
-  private _normalizeGrpcError(err: grpc.ServiceError, method: string): Error {
-    const summary = this._errorSummary(err);
+  private _normalizeGrpcError(err: grpc.ServiceError, method: string, target: ResolvedGrpcTarget): Error {
+    const summary = this._errorSummary(err, target);
     const message = `gRPC ${method} failed with ${summary.name}: ${summary.details || summary.message}`;
     const normalized = new Error(message);
     (normalized as any).code = `GRPC_${summary.name}`;
     (normalized as any).grpcStatus = summary.code;
     (normalized as any).grpcDetails = summary.details;
+    if (summary.hint) {
+      (normalized as any).hint = summary.hint;
+    }
     return normalized;
   }
 
-  private _errorSummary(err: grpc.ServiceError | Error): GrpcErrorSummary {
+  private _errorSummary(err: grpc.ServiceError | Error, target?: ResolvedGrpcTarget): GrpcErrorSummary {
     const grpcCode = typeof (err as grpc.ServiceError).code === 'number'
       ? (err as grpc.ServiceError).code
       : grpc.status.UNKNOWN;
     const details = typeof (err as grpc.ServiceError).details === 'string' && (err as grpc.ServiceError).details
       ? (err as grpc.ServiceError).details
       : err.message;
+    const hint = this._localDemoFixtureHint(target, grpcCode, details || err.message);
     return {
       code: grpcCode,
       name: this._statusName(grpcCode),
-      details,
+      details: hint ? `${details} ${hint}` : details,
       message: err.message,
+      hint,
     };
+  }
+
+  private _localDemoFixtureHint(target: ResolvedGrpcTarget | undefined, grpcCode: number, details: string): string | undefined {
+    if (grpcCode !== grpc.status.UNAVAILABLE) return undefined;
+    const normalizedTarget = target?.target.trim().toLowerCase();
+    if (!normalizedTarget || !['localhost:50051', '127.0.0.1:50051', '[::1]:50051', '::1:50051'].includes(normalizedTarget)) {
+      return undefined;
+    }
+    if (!/connect|connection|unavailable|refused|failed/i.test(details)) return undefined;
+    return 'Start the local Missio gRPC demo fixture with `node examples/demo-api/grpc-server.js` from the repository root. It binds 127.0.0.1:50051.';
   }
 
   private _statusSummary(status: grpc.StatusObject): GrpcStatusSummary {

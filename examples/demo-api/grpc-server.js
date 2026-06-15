@@ -105,6 +105,8 @@ server.bindAsync(ADDRESS, grpc.ServerCredentials.createInsecure(), (err, port) =
   }
   server.start();
   console.log(`Missio gRPC Demo Server -> ${ADDRESS}`);
+  console.log('Start command: node examples/demo-api/grpc-server.js');
+  console.log('OpenCollection LOCAL.grpcBaseUrl: localhost:50051');
   console.log(`Proto: ${PROTO_PATH}`);
   console.log('Methods:');
   console.log('  missio.demo.DemoService/EchoUnary');
