@@ -359,6 +359,7 @@ body {
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
 .btn-primary.btn-cancel { background: var(--vscode-errorForeground, #f14c4c); animation: none; }
+.ws-lifecycle-btn { white-space: nowrap; }
 .btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--input-border); }
 .btn-secondary:hover { border-color: var(--btn-bg); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
@@ -706,6 +707,86 @@ body {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+}
+.websocket-session-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 112px;
+  max-height: 190px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.websocket-session-header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.websocket-state-badge {
+  flex: 0 0 auto;
+  min-width: 84px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--input-bg);
+  color: var(--m-fg-muted);
+}
+.websocket-state-connected { background: rgba(46, 160, 67, .18); color: var(--badge-success); }
+.websocket-state-connecting,
+.websocket-state-disconnecting { background: rgba(187, 128, 9, .18); color: var(--badge-warn); }
+.websocket-state-error { background: rgba(248, 81, 73, .18); color: var(--badge-error); }
+.websocket-session-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--m-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.websocket-session-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.websocket-history-btn {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.websocket-history {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+.websocket-history-empty {
+  padding: 14px 10px;
+  color: var(--m-fg-muted);
+}
+.websocket-history-row {
+  display: grid;
+  grid-template-columns: 72px 74px 56px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.websocket-history-label { font-weight: 700; }
+.websocket-history-outbound .websocket-history-label { color: var(--m-method-post); }
+.websocket-history-inbound .websocket-history-label { color: var(--badge-success); }
+.websocket-history-error .websocket-history-label { color: var(--badge-error); }
+.websocket-history-time,
+.websocket-history-type { color: var(--m-fg-muted); }
+.websocket-history-data {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg);
 }
 .response-bar {
   display: flex;

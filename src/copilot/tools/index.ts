@@ -7,5 +7,6 @@ export { ListEnvironmentsTool } from './listEnvironmentsTool';
 export { SetEnvironmentTool } from './setEnvironmentTool';
 export { ResolveVariablesTool } from './resolveVariablesTool';
 export { SendRequestTool } from './sendRequestTool';
+export { WebSocketSessionTool } from './webSocketSessionTool';
 export { ValidateCollectionTool } from './validateCollectionTool';
 export { SendRawRequestTool } from './sendRawRequestTool';

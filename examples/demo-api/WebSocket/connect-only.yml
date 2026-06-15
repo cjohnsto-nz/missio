@@ -1,0 +1,7 @@
+info:
+  name: WebSocket connect only
+  type: websocket
+  seq: 7
+websocket:
+  url: "{{wsBaseUrl}}/ws/session"
+docs: Connect to this request first, then use Send WebSocket Message repeatedly without reconnecting.

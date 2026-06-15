@@ -1,7 +1,7 @@
 info:
   name: WebSocket
   type: folder
-  description: Run node examples/demo-api/server.js before sending these local WebSocket demo requests.
+  description: Run node examples/demo-api/server.js, then use Connect, Send Message, and Disconnect on these local WebSocket demo requests.
 request:
   headers:
     - name: X-Demo-Client

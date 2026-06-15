@@ -229,7 +229,7 @@ describe('OC-130 request editor first paint', () => {
       expect((document.querySelector('#reqTabs [data-tab="params"]') as HTMLElement).style.display).toBe('none');
       expect((document.querySelector('#reqTabs [data-tab="settings"]') as HTMLElement).style.display).toBe('none');
       expect((document.querySelector('#reqTabs [data-tab="export"]') as HTMLElement).style.display).toBe('none');
-      expect(document.getElementById('sendBtn')?.textContent).toBe(protocol === 'grpc' ? 'Invoke' : 'Connect + Send');
+      expect(document.getElementById('sendBtn')?.textContent).toBe(protocol === 'grpc' ? 'Invoke' : 'Connect');
     } else {
       expect(methodPicker.style.display).toBe('');
       expect(bodyTab?.textContent).toBe('Body');

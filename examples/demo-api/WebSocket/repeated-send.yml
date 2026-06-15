@@ -1,0 +1,10 @@
+info:
+  name: WebSocket repeated send
+  type: websocket
+  seq: 8
+websocket:
+  url: "{{wsBaseUrl}}/ws/session"
+  message:
+    type: json
+    data: '{"user":"{{socketUser}}","messageId":"{{socketMessageId}}","action":"repeat"}'
+docs: Connect once, then send this JSON message more than once to see the fixture increment messageCount.

@@ -7,6 +7,7 @@ import type {
   OpenCollectionRequest,
   RequestDefaults,
   RequestProtocol,
+  WebSocketMessage,
   WebSocketRequest,
 } from '../models/types';
 import {
@@ -17,7 +18,8 @@ import {
 } from '../models/types';
 import type { CliApprovalPrompt, HttpClient, ResolvedRequest } from './httpClient';
 import { buildGraphQLHttpRequest } from './graphqlSupport';
-import { RuntimeExecutionService } from './runtimeExecutionService';
+import { RuntimeExecutionService, type RuntimePreparedRequest } from './runtimeExecutionService';
+import type { WebSocketSessionSnapshot } from './webSocketClient';
 
 export interface UnsupportedProtocolDiagnostic {
   code: 'MISSIO_UNSUPPORTED_PROTOCOL';
@@ -53,6 +55,7 @@ export interface RequestExecutor<TRequest extends OpenCollectionRequest> {
 }
 
 interface WebSocketRequestClient {
+  readonly onDidChangeSession?: (listener: (snapshot: WebSocketSessionSnapshot) => unknown) => { dispose(): void };
   send(
     request: WebSocketRequest,
     collection: MissioCollection,
@@ -64,6 +67,24 @@ interface WebSocketRequestClient {
   ): Promise<HttpResponse>;
   cancelAll(): void;
   disconnect(requestId: string): boolean;
+  connect(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    options?: { requestId?: string; requestFilePath?: string; requestName?: string },
+  ): Promise<WebSocketSessionSnapshot>;
+  sendMessage(
+    requestId: string,
+    message?: WebSocketMessage,
+    onProgress?: (message: string) => void,
+  ): Promise<WebSocketSessionSnapshot>;
+  disconnectSession(requestId: string, reason?: string): Promise<HttpResponse | undefined>;
+  disconnectAllSessions(): void;
+  listSessions(options?: { includeClosed?: boolean }): WebSocketSessionSnapshot[];
+  getSession(requestId: string): WebSocketSessionSnapshot | undefined;
 }
 
 interface GrpcRequestClient {
@@ -80,6 +101,8 @@ interface GrpcRequestClient {
 }
 
 export class RequestExecutionService {
+  private readonly _webSocketRuntimeSessions = new Map<string, RuntimePreparedRequest<WebSocketRequest>>();
+
   constructor(
     private readonly _httpClient: HttpClient,
     private readonly _webSocketClient?: WebSocketRequestClient,
@@ -122,6 +145,91 @@ export class RequestExecutionService {
       );
     }
     throw new UnsupportedProtocolError(getUnsupportedProtocolDiagnostic(request));
+  }
+
+  get onDidChangeWebSocketSession() {
+    return this._webSocketClient?.onDidChangeSession;
+  }
+
+  listWebSocketSessions(options: { includeClosed?: boolean } = {}): WebSocketSessionSnapshot[] {
+    return this._webSocketClient?.listSessions(options) ?? [];
+  }
+
+  getWebSocketSession(requestId: string): WebSocketSessionSnapshot | undefined {
+    return this._webSocketClient?.getSession(requestId);
+  }
+
+  async connectWebSocket(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    options?: { requestId?: string; requestFilePath?: string; requestName?: string },
+  ): Promise<WebSocketSessionSnapshot> {
+    if (!this._webSocketClient) {
+      throw new UnsupportedProtocolError(getUnsupportedProtocolDiagnostic(request));
+    }
+
+    const requestId = options?.requestId ?? options?.requestFilePath ?? request.info?.name ?? `${Date.now()}-${Math.random()}`;
+    if (this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults)) {
+      const prepared = await this._runtimeExecutionService.prepareWebSocketRequest(
+        request,
+        collection,
+        folderDefaults,
+        extraVariables,
+        environmentName,
+      );
+      this._webSocketRuntimeSessions.set(requestId, prepared);
+      return this._webSocketClient.connect(
+        prepared.request,
+        collection,
+        folderDefaults,
+        onProgress,
+        prepared.extraVariables,
+        environmentName,
+        { ...options, requestId },
+      );
+    }
+
+    this._webSocketRuntimeSessions.delete(requestId);
+    return this._webSocketClient.connect(
+      request,
+      collection,
+      folderDefaults,
+      onProgress,
+      extraVariables,
+      environmentName,
+      { ...options, requestId },
+    );
+  }
+
+  async sendWebSocketMessage(
+    requestId: string,
+    message?: WebSocketMessage,
+    onProgress?: (message: string) => void,
+  ): Promise<WebSocketSessionSnapshot> {
+    if (!this._webSocketClient) {
+      throw new UnsupportedProtocolError(getUnsupportedProtocolDiagnostic({
+        info: { name: 'WebSocket', type: 'websocket' },
+        websocket: {},
+      } as WebSocketRequest));
+    }
+    return this._webSocketClient.sendMessage(requestId, message, onProgress);
+  }
+
+  async disconnectWebSocketSession(requestId: string, reason?: string): Promise<HttpResponse | undefined> {
+    const response = await this._webSocketClient?.disconnectSession(requestId, reason);
+    const prepared = this._webSocketRuntimeSessions.get(requestId);
+    if (!response || !prepared) return response;
+    this._webSocketRuntimeSessions.delete(requestId);
+    return this._runtimeExecutionService.completeWebSocketRequest(prepared, response);
+  }
+
+  disconnectAllWebSocketSessions(): void {
+    this._webSocketClient?.disconnectAllSessions();
+    this._webSocketRuntimeSessions.clear();
   }
 
   async send(

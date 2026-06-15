@@ -1,0 +1,10 @@
+info:
+  name: WebSocket server push
+  type: websocket
+  seq: 9
+websocket:
+  url: "{{wsBaseUrl}}/ws/push"
+  message:
+    type: text
+    data: "client hello from {{socketUser}}"
+docs: Connect and wait for the delayed server-push event, then optionally send the sample text message.
