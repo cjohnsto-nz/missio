@@ -1,6 +1,7 @@
 param(
   [string]$OutputPath,
-  [string]$CodeCommand
+  [string]$CodeCommand,
+  [switch]$SkipNpmCi
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,7 +25,13 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 Push-Location $repoRoot
 
 try {
-  if (-not (Test-Path -LiteralPath 'node_modules')) {
+  if ($SkipNpmCi) {
+    if (-not (Test-Path -LiteralPath 'node_modules')) {
+      throw 'node_modules was not found. Run without -SkipNpmCi to install dependencies before packaging.'
+    }
+    Write-Host ""
+    Write-Host "==> Skipping dependency install"
+  } else {
     Invoke-Checked 'Install dependencies' { npm ci }
   }
 
