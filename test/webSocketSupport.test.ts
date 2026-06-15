@@ -610,6 +610,10 @@ describe('WebSocket editor, variables, and tools', () => {
     expect(css).toContain('.response-section.websocket-response-tabs #respBodyWrap');
     expect(css).not.toContain('.response-section.websocket-response-ledger-only .response-body');
     expect(css).toContain('max-height: none;');
+    expect(css).toContain('#sendBtn:not(.btn-cancel), #wsSendBtn');
+    expect(css).toContain('color: var(--btn-bg, #0078d4);');
+    expect(css).toContain('#sendBtn:not(.btn-cancel):hover:not(:disabled), #wsSendBtn:hover:not(:disabled)');
+    expect(css).toContain('border-color: var(--btn-bg, #0078d4);');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
     expect(css).toContain('#sendBtn.ws-disconnect-state');
     expect(css).toContain('background: transparent;');

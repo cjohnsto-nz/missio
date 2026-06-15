@@ -355,10 +355,23 @@ body {
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
 #sendBtn { min-width: 70px; text-align: center; }
 #exportCopyBtn, #exportSaveBtn { width: 70px; text-align: center; }
+#sendBtn:not(.btn-cancel), #wsSendBtn {
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--btn-bg, #0078d4);
+}
+#sendBtn:not(.btn-cancel):hover:not(:disabled), #wsSendBtn:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--btn-bg, #0078d4);
+}
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
-.btn-primary.btn-cancel { background: var(--vscode-errorForeground, #f14c4c); animation: none; }
+.btn-primary.btn-cancel {
+  background: var(--vscode-errorForeground, #f14c4c);
+  border-color: var(--vscode-errorForeground, #f14c4c);
+  animation: none;
+}
 .request-editor-shell[data-protocol="websocket"] #sendBtn {
   flex: 0 0 90px;
   width: 90px;
