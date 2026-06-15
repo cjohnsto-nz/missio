@@ -106,8 +106,14 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 /goal Complete OC-160 gRPC demo server reliability review using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until the current failing demo-request behavior is reproduced or concretely explained, every packaged gRPC demo request has a documented local start flow, localhost:50051 is served by a deterministic fixture or all request endpoints are corrected, unary/server-streaming/client-streaming/bidirectional-streaming/error/runtime demo requests pass live smoke tests through Missio execution where applicable, missing-fixture diagnostics are clear, AGENT_PROGRESS updates are complete, and demo collection validation plus complete automated gRPC/demo regression, build, package, and install verification are passing.
 ```
 
+## Request Action First-Click Reliability
+
+```text
+/goal Complete OC-170 request action first-click reliability using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until the first-click ignored behavior after opening HTTP, GraphQL, WebSocket, and gRPC request editors is reproduced or concretely ruled out, Send/Connect/Disconnect/Send Message/CodeLens/toolbar actions are armed on first paint without requiring a focus priming click, hydration/focus/event-listener races are fixed, AGENT_PROGRESS updates are complete, and automated webview startup, action-click, protocol-layout, command, CodeLens, keyboard, accessibility, regression, build, package, and install verification are passing.
+```
+
 ## Final Integration
 
 ```text
-/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-160 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-170 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
 ```
