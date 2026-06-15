@@ -215,6 +215,12 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Verified: `npx vitest run test/webSocketSupport.test.ts` passed 26 tests; `npm run compile` passed; `npx vitest run test/protocolLayoutStability.test.ts test/webSocketSupport.test.ts` passed 2 files/40 tests; `npm run build` passed.
   Next: commit this docs/ledger evidence update; OC-150 remains Done.
 
+- 2026-06-15 16:23 NZT - Codex Supervisor: Reviewed the WebSocket Runtime tab and lifecycle theme follow-ups, rebuilt, packaged, and installed for user testing.
+  GitButler: `feature/oc-150-runtime-assertion-variables` includes runtime-tab commit `32076b7`, lifecycle restyle commit `6ed6f42`, and follow-up ledger commit `2007952`; `but status -fv` was clean before this supervisor ledger update.
+  Findings: none. The WebSocket Runtime tab remains visible before runtime results exist, and the lifecycle button styling now uses no-fill theme success/error text with hover borders instead of hardcoded filled red/green backgrounds.
+  Verified: focused `npx vitest run test/protocolLayoutStability.test.ts test/webSocketSupport.test.ts test/runtimeAuthoringUx.test.ts test/runtimeExecutionService.test.ts test/unresolvedVars.test.ts` passed 5 files/79 tests; `npm run compile` passed; `node scripts/validate-collection.js examples/demo-api` passed 47/47 files; `npm test` passed 25 files/477 tests; `npm run build` passed; `npx @vscode/vsce package --out $env:TEMP\missio-0.8.0-oc150-theme-review.vsix` passed; `code.cmd --install-extension $env:TEMP\missio-0.8.0-oc150-theme-review.vsix --force` installed `missio.missio@0.8.0`.
+  Next: Ready for user testing.
+
 ### OC-140 First-Class WebSocket Lifecycle UX
 
 - 2026-06-15 14:32 NZT - Codex: Removed the unused HTTP-style response body area from the WebSocket editor layout.
