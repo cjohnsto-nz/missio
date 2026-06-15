@@ -597,6 +597,9 @@ describe('WebSocket editor, variables, and tools', () => {
     expect(html).toContain('id="webSocketHistory"');
     expect(css).toContain('.websocket-session-panel');
     expect(css).toContain('.websocket-history-row');
+    expect(css).toContain('.response-section.websocket-response-ledger-only .websocket-session-panel');
+    expect(css).toContain('.response-section.websocket-response-ledger-only .response-body');
+    expect(css).toContain('max-height: none;');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
     expect(css).toContain('#sendBtn.ws-disconnect-state');
     expect(css).toContain('width: 90px;');

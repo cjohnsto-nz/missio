@@ -735,6 +735,18 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--bg);
 }
+.response-section.websocket-response-ledger-only .websocket-session-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  border-bottom: none;
+}
+.response-section.websocket-response-ledger-only .response-bar,
+.response-section.websocket-response-ledger-only #respTabs,
+.response-section.websocket-response-ledger-only .resp-search-bar,
+.response-section.websocket-response-ledger-only .response-body {
+  display: none !important;
+}
 .websocket-session-header {
   min-height: 34px;
   display: flex;

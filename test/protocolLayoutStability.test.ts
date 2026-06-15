@@ -213,6 +213,7 @@ describe('OC-130 request editor first paint', () => {
     const shell = document.getElementById('requestEditorShell') as HTMLElement;
     const methodPicker = document.getElementById('methodPicker') as HTMLElement;
     const protocolIcon = document.getElementById('protocolIcon') as HTMLElement;
+    const responseSection = document.getElementById('responseSection') as HTMLElement;
     const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
 
     expect(shell.dataset.hydrationState).toBe('ready');
@@ -252,6 +253,7 @@ describe('OC-130 request editor first paint', () => {
       expect(sendMessageBtn.textContent).toBe('Send');
       expect(sendMessageBtn.className).toContain('btn-primary');
       expect(document.getElementById('wsDisconnectBtn')).toBeNull();
+      expect(responseSection.className).toContain('websocket-response-ledger-only');
 
       dispatchPanelMessage(dom, { type: 'webSocketConnecting' });
       expect(connectBtn.textContent).toBe('Disconnect');
@@ -274,6 +276,8 @@ describe('OC-130 request editor first paint', () => {
       const messageCount = messages.length;
       connectBtn.click();
       expect(messages.slice(messageCount)).toContainEqual({ type: 'webSocketDisconnect' });
+    } else {
+      expect(responseSection.className).not.toContain('websocket-response-ledger-only');
     }
   });
 

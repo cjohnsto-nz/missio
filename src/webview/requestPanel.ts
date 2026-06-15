@@ -1050,6 +1050,7 @@ function setProtocolUi(protocol: PanelProtocol): void {
   }
   ($('wsSendBtn') as HTMLElement).style.display = isWebSocket ? '' : 'none';
   $('webSocketSessionPanel').style.display = isWebSocket ? 'flex' : 'none';
+  $('responseSection').classList.toggle('websocket-response-ledger-only', isWebSocket);
   $('saveExampleBtn').style.display = (isWebSocket || isGrpc) ? 'none' : '';
   $('refreshOAuthRetryBtn').style.display = 'none';
 
