@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-120 accepted; OC-130 in progress; OC-140 queued as a focused WebSocket lifecycle UX follow-up. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-120 and OC-130 accepted; OC-140 queued as a focused WebSocket lifecycle UX follow-up. |
 
 ## Test Coverage Rules
 
