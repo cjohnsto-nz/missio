@@ -368,9 +368,14 @@ body {
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
 .btn-primary.btn-cancel {
-  background: var(--vscode-errorForeground, #f14c4c);
-  border-color: var(--vscode-errorForeground, #f14c4c);
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--badge-error, #ef4444);
   animation: none;
+}
+.btn-primary.btn-cancel:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--badge-error, #ef4444);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn {
   flex: 0 0 90px;

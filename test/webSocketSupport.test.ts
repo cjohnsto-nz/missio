@@ -614,6 +614,9 @@ describe('WebSocket editor, variables, and tools', () => {
     expect(css).toContain('color: var(--btn-bg, #0078d4);');
     expect(css).toContain('#sendBtn:not(.btn-cancel):hover:not(:disabled), #wsSendBtn:hover:not(:disabled)');
     expect(css).toContain('border-color: var(--btn-bg, #0078d4);');
+    expect(css).toContain('.btn-primary.btn-cancel');
+    expect(css).toContain('.btn-primary.btn-cancel:hover:not(:disabled)');
+    expect(css).not.toContain('background: var(--vscode-errorForeground, #f14c4c);');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
     expect(css).toContain('#sendBtn.ws-disconnect-state');
     expect(css).toContain('background: transparent;');
