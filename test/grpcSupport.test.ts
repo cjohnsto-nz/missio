@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
@@ -38,6 +39,11 @@ function validateGrpcRequestData(data: unknown): void {
 
 let server: grpc.Server | undefined;
 let address = '';
+
+interface DemoGrpcServerProcess {
+  child: ChildProcessWithoutNullStreams;
+  target: string;
+}
 
 function makeContext() {
   const state = new Map<string, unknown>();
@@ -110,6 +116,32 @@ function readDemoGrpcFolderDefaults(): RequestDefaults | undefined {
   return parseYaml(fs.readFileSync(path.join(demoRoot, 'gRPC', 'folder.yml'), 'utf-8')).request;
 }
 
+function setDemoGrpcBaseUrl(collection: MissioCollection, value: string): void {
+  const environments = collection.data.config?.environments ?? [];
+  const local = environments.find(env => env.name === 'LOCAL');
+  if (!local) throw new Error('Demo collection is missing LOCAL environment.');
+  local.variables ??= [];
+  const variable = local.variables.find(item => item.name === 'grpcBaseUrl');
+  if (variable) variable.value = value;
+  else local.variables.push({ name: 'grpcBaseUrl', value });
+}
+
+async function reserveClosedLocalPort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+  const bound = server.address();
+  if (!bound || typeof bound === 'string') {
+    throw new Error('Unable to reserve a local TCP port for gRPC failure testing.');
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close(error => error ? reject(error) : resolve());
+  });
+  return bound.port;
+}
+
 function makeDemoGrpcExecution(environmentService: EnvironmentService): RequestExecutionService {
   return new RequestExecutionService(
     { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
@@ -121,9 +153,10 @@ function makeDemoGrpcExecution(environmentService: EnvironmentService): RequestE
   );
 }
 
-function startDemoGrpcServerProcess(): Promise<ChildProcessWithoutNullStreams> {
+function startDemoGrpcServerProcess(): Promise<DemoGrpcServerProcess> {
   const child = spawn(process.execPath, [path.join(demoRoot, 'grpc-server.js')], {
     cwd: path.resolve(__dirname, '..'),
+    env: { ...process.env, MISSIO_GRPC_PORT: '0' },
     stdio: 'pipe',
     windowsHide: true,
   });
@@ -138,17 +171,18 @@ function startDemoGrpcServerProcess(): Promise<ChildProcessWithoutNullStreams> {
       child.off('exit', onExit);
       child.off('error', onError);
     };
-    const finish = (error?: Error) => {
+    const finish = (error?: Error, port?: string) => {
       if (settled) return;
       settled = true;
       cleanup();
       if (error) reject(error);
-      else resolve(child);
+      else resolve({ child, target: `127.0.0.1:${port}` });
     };
     const onData = (chunk: Buffer) => {
       output += chunk.toString('utf-8');
-      if (/Listening on 127\.0\.0\.1:50051/i.test(output)) {
-        finish();
+      const match = output.match(/Listening on 127\.0\.0\.1:(\d+)/i);
+      if (match) {
+        finish(undefined, match[1]);
       }
     };
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
@@ -166,12 +200,12 @@ function startDemoGrpcServerProcess(): Promise<ChildProcessWithoutNullStreams> {
   });
 }
 
-async function stopDemoGrpcServerProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode !== null) return;
-  child.kill();
+async function stopDemoGrpcServerProcess(process: DemoGrpcServerProcess): Promise<void> {
+  if (process.child.exitCode !== null) return;
+  process.child.kill();
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 2_000);
-    child.once('exit', () => {
+    process.child.once('exit', () => {
       clearTimeout(timer);
       resolve();
     });
@@ -841,27 +875,68 @@ describe('gRPC integration surfaces', () => {
 });
 
 describe('gRPC demo server reliability', () => {
-  it('reports the local fixture start command when packaged demo requests target closed localhost:50051', async () => {
+  it('keeps closed local gRPC target diagnostics generic and unbranded', async () => {
+    const closedTarget = `127.0.0.1:${await reserveClosedLocalPort()}`;
     const environmentService = makeEnvironmentService();
     const collection = makeDemoCollection();
-    const request = readDemoGrpcRequest('echo-unary.yml');
+    const request = readDemoGrpcRequest('echo-unary.yml') as any;
+    request.grpc.url = closedTarget;
     const execution = makeDemoGrpcExecution(environmentService);
 
-    await expect(execution.send(
+    let error: unknown;
+    try {
+      await execution.send(
+        request,
+        collection,
+        readDemoGrpcFolderDefaults(),
+        undefined,
+        undefined,
+        'LOCAL',
+      );
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as any).code).toBe('GRPC_UNAVAILABLE');
+    expect((error as any).grpcStatus).toBe(grpc.status.UNAVAILABLE);
+    expect((error as any).grpcDetails).toEqual(expect.any(String));
+    expect((error as Error).message).toMatch(/UNAVAILABLE/i);
+    expect((error as Error).message).not.toMatch(/Missio gRPC demo fixture|node examples\/demo-api\/grpc-server\.js/i);
+    expect((error as any).hint).toBeUndefined();
+  });
+
+  it('keeps runtime-wrapped gRPC transport errors generic without hint headers', async () => {
+    const closedTarget = `127.0.0.1:${await reserveClosedLocalPort()}`;
+    const environmentService = makeEnvironmentService();
+    const collection = makeDemoCollection();
+    setDemoGrpcBaseUrl(collection, closedTarget);
+    const request = readDemoGrpcRequest('runtime-unary-lifecycle.yml');
+    const execution = makeDemoGrpcExecution(environmentService);
+
+    const response = await execution.send(
       request as any,
       collection,
       readDemoGrpcFolderDefaults(),
       undefined,
       undefined,
       'LOCAL',
-    )).rejects.toThrow(/node examples\/demo-api\/grpc-server\.js/);
+    );
+    const body = JSON.parse(response.body);
+
+    expect(response.status).toBe(0);
+    expect(response.headers['x-missio-grpc-status']).toBe(String(grpc.status.UNAVAILABLE));
+    expect(response.headers['x-missio-error-hint']).toBeUndefined();
+    expect(body.error.hint).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/Missio gRPC demo fixture|node examples\/demo-api\/grpc-server\.js/i);
   });
 
   it('starts the documented fixture and smokes every packaged gRPC demo request through Missio execution', async () => {
-    const child = await startDemoGrpcServerProcess();
+    const demoServer = await startDemoGrpcServerProcess();
     try {
       const environmentService = makeEnvironmentService();
       const collection = makeDemoCollection();
+      setDemoGrpcBaseUrl(collection, demoServer.target);
       await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
       const execution = makeDemoGrpcExecution(environmentService);
       const folderDefaults = readDemoGrpcFolderDefaults();
@@ -951,7 +1026,7 @@ describe('gRPC demo server reliability', () => {
       expect(runtimeResponse.runtime?.summary).toEqual({ passed: 4, failed: 0, skipped: 0 });
       expect(runtimeResponse.runtime?.actions[0]).toMatchObject({ target: 'runtime.grpcRuntimeRequestId' });
     } finally {
-      await stopDemoGrpcServerProcess(child);
+      await stopDemoGrpcServerProcess(demoServer);
     }
   }, 20_000);
 });
