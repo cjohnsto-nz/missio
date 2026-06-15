@@ -183,8 +183,10 @@ describe('preview media toolbar markup', () => {
     expect(html).toContain('id="previewFitBtn"');
     expect(html).toContain('aria-label="Fit to width"');
     expect(html).toContain('id="previewRotateLeftBtn"');
-    expect(html).toContain('codicon-discard');
-    expect(html).toContain('codicon-redo');
+    expect(html).toContain('codicon-debug-step-back');
+    expect(html).toContain('codicon-debug-step-over');
+    expect(html).not.toContain('codicon-discard');
+    expect(html).not.toContain('codicon-redo');
     expect(html).not.toContain('codicon-arrow-left');
     expect(html).not.toContain('codicon-arrow-right');
     expect(html).toContain('id="respImageContainer"');
@@ -201,9 +203,11 @@ describe('preview media toolbar markup', () => {
     expect(css).toContain('.preview-media-btn');
     expect(css).toContain('.preview-image-frame');
     expect(css).toContain('.preview-pdf-container');
-    for (const icon of ['zoom-in', 'zoom-out', 'screen-full', 'refresh', 'discard', 'redo']) {
+    for (const icon of ['zoom-in', 'zoom-out', 'screen-full', 'refresh', 'debug-step-back', 'debug-step-over']) {
       expect(basePanel).toContain(`.codicon-${icon}::before`);
     }
+    expect(basePanel).not.toContain('.codicon-discard::before');
+    expect(basePanel).not.toContain('.codicon-redo::before');
     expect(esbuild).toContain('pdf.min.mjs');
     expect(esbuild).toContain('pdf.worker.min.mjs');
     expect(ignore).not.toMatch(/^media\/pdf\.min\.mjs$/m);
