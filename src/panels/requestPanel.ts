@@ -1073,8 +1073,8 @@ window.missioPdfJsReady = import('${pdfJsUri}')
             <button class="preview-media-btn" id="previewZoomInBtn" type="button" title="Zoom in" aria-label="Zoom in"><span class="codicon codicon-zoom-in"></span></button>
             <button class="preview-media-btn" id="previewFitBtn" type="button" title="Fit to width" aria-label="Fit to width"><span class="codicon codicon-screen-full"></span></button>
             <button class="preview-media-btn" id="previewResetBtn" type="button" title="Reset zoom and rotation" aria-label="Reset zoom and rotation"><span class="codicon codicon-refresh"></span></button>
-            <button class="preview-media-btn" id="previewRotateLeftBtn" type="button" title="Rotate left" aria-label="Rotate left"><span class="codicon codicon-arrow-left"></span></button>
-            <button class="preview-media-btn" id="previewRotateRightBtn" type="button" title="Rotate right" aria-label="Rotate right"><span class="codicon codicon-arrow-right"></span></button>
+            <button class="preview-media-btn" id="previewRotateLeftBtn" type="button" title="Rotate left" aria-label="Rotate left"><span class="codicon codicon-discard"></span></button>
+            <button class="preview-media-btn" id="previewRotateRightBtn" type="button" title="Rotate right" aria-label="Rotate right"><span class="codicon codicon-redo"></span></button>
           </div>
           <iframe id="respPreviewFrame" sandbox="allow-same-origin" class="preview-frame" style="display:none;"></iframe>
           <div id="previewOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></div>

@@ -20,6 +20,12 @@ function flushPromises(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
+async function flushMicrotasks(count = 6): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await Promise.resolve();
+  }
+}
+
 async function loadResponseModule(): Promise<ResponseModule> {
   vi.resetModules();
   (globalThis as any).acquireVsCodeApi = () => ({
@@ -132,6 +138,7 @@ function textResponse() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   delete (globalThis as any).window;
@@ -176,6 +183,10 @@ describe('preview media toolbar markup', () => {
     expect(html).toContain('id="previewFitBtn"');
     expect(html).toContain('aria-label="Fit to width"');
     expect(html).toContain('id="previewRotateLeftBtn"');
+    expect(html).toContain('codicon-discard');
+    expect(html).toContain('codicon-redo');
+    expect(html).not.toContain('codicon-arrow-left');
+    expect(html).not.toContain('codicon-arrow-right');
     expect(html).toContain('id="respImageContainer"');
     expect(html).toContain('id="respPdfContainer"');
   });
@@ -190,7 +201,7 @@ describe('preview media toolbar markup', () => {
     expect(css).toContain('.preview-media-btn');
     expect(css).toContain('.preview-image-frame');
     expect(css).toContain('.preview-pdf-container');
-    for (const icon of ['zoom-in', 'zoom-out', 'screen-full', 'refresh', 'arrow-left', 'arrow-right']) {
+    for (const icon of ['zoom-in', 'zoom-out', 'screen-full', 'refresh', 'discard', 'redo']) {
       expect(basePanel).toContain(`.codicon-${icon}::before`);
     }
     expect(esbuild).toContain('pdf.min.mjs');
@@ -320,6 +331,70 @@ describe('preview media controls in the response webview', () => {
     expect(page.getViewport).toHaveBeenCalledWith({ scale: 1, rotation: 90 });
   });
 
+  it('coalesces repeated PDF toolbar zooms before rerendering', async () => {
+    vi.useFakeTimers();
+    mountResponseDom();
+    const response = await loadResponseModule();
+    response.initPreviewMediaControls();
+
+    const page = {
+      getViewport: vi.fn(({ scale, rotation = 0 }) => ({
+        width: (rotation % 180 === 0 ? 400 : 600) * scale,
+        height: (rotation % 180 === 0 ? 600 : 400) * scale,
+      })),
+      render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+    };
+    const getDocument = vi.fn(() => ({
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(page) }),
+      destroy: vi.fn(),
+    }));
+    (window as any).pdfjsLib = { getDocument };
+
+    response.showResponse(pdfResponse());
+    response.renderPreview();
+    await flushMicrotasks();
+    expect(getDocument).toHaveBeenCalledTimes(1);
+
+    document.getElementById('previewZoomInBtn')?.click();
+    document.getElementById('previewZoomInBtn')?.click();
+    document.getElementById('previewZoomInBtn')?.click();
+    expect(response.getPreviewMediaTransform().zoom).toBe(1.75);
+    expect(getDocument).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(response.PDF_RENDER_DEBOUNCE_MS - 1);
+    expect(getDocument).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks();
+    expect(getDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps large PDF canvas pixels while preserving visual zoom dimensions', async () => {
+    mountResponseDom();
+    const response = await loadResponseModule();
+    const container = document.getElementById('respPdfContainer')!;
+
+    const page = {
+      getViewport: vi.fn(({ scale }) => ({ width: 5000 * scale, height: 4000 * scale })),
+      render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
+    };
+    const loadingTask = {
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(page) }),
+      destroy: vi.fn(),
+    };
+    (window as any).pdfjsLib = {
+      getDocument: vi.fn(() => loadingTask),
+    };
+
+    await response.renderPdfPreview(container, 'JVBERi0x');
+
+    const canvas = container.querySelector('canvas') as HTMLCanvasElement;
+    expect(canvas.width * canvas.height).toBeLessThanOrEqual(response.PDF_MAX_CANVAS_PIXELS + 5000);
+    expect(canvas.width).toBeLessThan(5000);
+    expect(canvas.style.width).toBe('5000px');
+    expect(canvas.style.height).toBe('4000px');
+    expect(loadingTask.destroy).toHaveBeenCalledOnce();
+  });
+
   it('cancels stale PDF renders and prevents old canvases from being appended', async () => {
     mountResponseDom();
     const response = await loadResponseModule();
@@ -335,10 +410,18 @@ describe('preview media controls in the response webview', () => {
       getViewport: vi.fn(({ scale }) => ({ width: 400 * scale, height: 600 * scale })),
       render: vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() })),
     };
+    const firstLoadingTask = {
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(firstPage) }),
+      destroy: vi.fn(),
+    };
+    const secondLoadingTask = {
+      promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(secondPage) }),
+      destroy: vi.fn(),
+    };
     (window as any).pdfjsLib = {
       getDocument: vi.fn()
-        .mockReturnValueOnce({ promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(firstPage) }) })
-        .mockReturnValueOnce({ promise: Promise.resolve({ numPages: 1, getPage: vi.fn().mockResolvedValue(secondPage) }) }),
+        .mockReturnValueOnce(firstLoadingTask)
+        .mockReturnValueOnce(secondLoadingTask),
     };
 
     const oldRender = response.renderPdfPreview(container, 'JVBERi0x');
@@ -350,6 +433,8 @@ describe('preview media controls in the response webview', () => {
     await Promise.all([oldRender, newRender]);
 
     expect(firstRenderTask.cancel).toHaveBeenCalledOnce();
+    expect(firstLoadingTask.destroy).toHaveBeenCalledOnce();
+    expect(secondLoadingTask.destroy).toHaveBeenCalledOnce();
     expect(container.querySelectorAll('canvas')).toHaveLength(1);
     expect(secondPage.render).toHaveBeenCalledOnce();
   });

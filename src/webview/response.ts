@@ -39,6 +39,14 @@ export const MEDIA_ZOOM_MIN = 0.25;
 export const MEDIA_ZOOM_MAX = 5;
 export const MEDIA_ZOOM_STEP = 0.25;
 export const MEDIA_WHEEL_ZOOM_STEP = 0.1;
+export const PDF_RENDER_DEBOUNCE_MS = 160;
+export const PDF_MAX_RENDER_SCALE = 2.5;
+export const PDF_MAX_CANVAS_PIXELS = 4_000_000;
+
+type PdfLoadingTask = {
+  promise: Promise<any>;
+  destroy?: () => Promise<void> | void;
+};
 
 const DEFAULT_MEDIA_TRANSFORM: PreviewMediaTransform = {
   zoom: 1,
@@ -52,6 +60,7 @@ let mediaControlsInitialized = false;
 let pdfRenderGeneration = 0;
 let pdfRenderTimer: ReturnType<typeof setTimeout> | null = null;
 const activePdfRenderTasks = new Set<{ cancel?: () => void }>();
+const activePdfLoadingTasks = new Set<PdfLoadingTask>();
 
 // Virtualized response rendering (for very large text responses)
 let virtLines: string[] | null = null;
@@ -264,10 +273,23 @@ function cancelActivePdfRenderTasks(): void {
   activePdfRenderTasks.clear();
 }
 
+function cancelActivePdfLoadingTasks(): void {
+  const loadingTasks = Array.from(activePdfLoadingTasks);
+  activePdfLoadingTasks.clear();
+  loadingTasks.forEach((task) => {
+    try {
+      void task.destroy?.();
+    } catch {
+      // Best effort; generation checks still prevent stale canvases.
+    }
+  });
+}
+
 function invalidatePdfRender(): void {
   pdfRenderGeneration++;
   clearScheduledPdfRender();
   cancelActivePdfRenderTasks();
+  cancelActivePdfLoadingTasks();
 }
 
 function beginPdfRender(): number {
@@ -325,6 +347,13 @@ function getAvailablePreviewWidth(container: HTMLElement): number {
   return Math.max(1, (panel?.clientWidth || container.clientWidth || 1) - 32);
 }
 
+export function getSafePdfRenderScale(width: number, height: number, requestedScale: number): number {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const maxAreaScale = Math.sqrt(PDF_MAX_CANVAS_PIXELS / (safeWidth * safeHeight));
+  return Math.max(0.1, Math.min(requestedScale, PDF_MAX_RENDER_SCALE, maxAreaScale));
+}
+
 function resolveImageZoom(img: HTMLImageElement, frame: HTMLElement): number {
   if (!mediaTransform.fit) {
     return mediaTransform.zoom;
@@ -372,7 +401,7 @@ function rerenderCurrentPreview(coalescePdf = false): void {
     pdfRenderTimer = setTimeout(() => {
       pdfRenderTimer = null;
       void renderPdfPreview(pdfContainer, resp.bodyBase64);
-    }, 40);
+    }, PDF_RENDER_DEBOUNCE_MS);
     return;
   }
 
@@ -401,8 +430,8 @@ export function initPreviewMediaControls(): void {
   if (mediaControlsInitialized) return;
   mediaControlsInitialized = true;
 
-  document.getElementById('previewZoomOutBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomOut'));
-  document.getElementById('previewZoomInBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomIn'));
+  document.getElementById('previewZoomOutBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomOut', true));
+  document.getElementById('previewZoomInBtn')?.addEventListener('click', () => applyPreviewMediaAction('zoomIn', true));
   document.getElementById('previewResetBtn')?.addEventListener('click', () => applyPreviewMediaAction('reset'));
   document.getElementById('previewFitBtn')?.addEventListener('click', () => applyPreviewMediaAction('fit'));
   document.getElementById('previewRotateLeftBtn')?.addEventListener('click', () => applyPreviewMediaAction('rotateLeft'));
@@ -1167,6 +1196,7 @@ function renderImagePreview(container: HTMLElement, resp: any, contentType: stri
 export async function renderPdfPreview(container: HTMLElement, base64: string): Promise<void> {
   const generation = beginPdfRender();
   container.innerHTML = '';
+  let loadingTask: PdfLoadingTask | undefined;
 
   const pdfjsLib = (window as any).pdfjsLib ?? await (window as any).missioPdfJsReady;
   if (!isCurrentPdfRenderGeneration(generation)) return;
@@ -1180,7 +1210,8 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
-    const loadingTask = pdfjsLib.getDocument({ data: bytes });
+    loadingTask = pdfjsLib.getDocument({ data: bytes });
+    activePdfLoadingTasks.add(loadingTask);
     const pdf = await loadingTask.promise;
     if (!isCurrentPdfRenderGeneration(generation)) return;
     const containerWidth = Math.max(1, container.clientWidth - 32); // 16px padding each side
@@ -1189,19 +1220,25 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
       const page = await pdf.getPage(i);
       if (!isCurrentPdfRenderGeneration(generation)) return;
       const unscaledVp = page.getViewport({ scale: 1, rotation: mediaTransform.rotation });
-      const scale = mediaTransform.fit
+      const requestedScale = mediaTransform.fit
         ? clampMediaZoom(containerWidth / unscaledVp.width)
         : mediaTransform.zoom;
-      const vp = page.getViewport({ scale, rotation: mediaTransform.rotation });
+      const renderScale = getSafePdfRenderScale(unscaledVp.width, unscaledVp.height, requestedScale);
+      const renderVp = page.getViewport({ scale: renderScale, rotation: mediaTransform.rotation });
+      const displayVp = renderScale === requestedScale
+        ? renderVp
+        : page.getViewport({ scale: requestedScale, rotation: mediaTransform.rotation });
 
       const canvas = document.createElement('canvas');
-      canvas.width = vp.width;
-      canvas.height = vp.height;
+      canvas.width = Math.ceil(renderVp.width);
+      canvas.height = Math.ceil(renderVp.height);
+      canvas.style.width = Math.ceil(displayVp.width) + 'px';
+      canvas.style.height = Math.ceil(displayVp.height) + 'px';
       canvas.style.display = 'block';
       canvas.style.margin = '0 auto 8px';
       canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,.4)';
 
-      const renderTask = page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp });
+      const renderTask = page.render({ canvasContext: canvas.getContext('2d')!, viewport: renderVp });
       activePdfRenderTasks.add(renderTask);
       try {
         await renderTask.promise;
@@ -1214,11 +1251,19 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
       }
       container.appendChild(canvas);
       if (i === 1) {
-        updateMediaToolbar(scale);
+        updateMediaToolbar(requestedScale);
       }
     }
   } catch (e: any) {
     if (!isCurrentPdfRenderGeneration(generation)) return;
     container.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground);font-family:system-ui;">Failed to render PDF: ${e.message}</div>`;
+  } finally {
+    if (loadingTask && activePdfLoadingTasks.delete(loadingTask)) {
+      try {
+        await loadingTask.destroy?.();
+      } catch {
+        // Ignore PDF.js cleanup failures after the canvases have rendered.
+      }
+    }
   }
 }
