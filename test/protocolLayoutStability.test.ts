@@ -245,17 +245,17 @@ describe('OC-130 request editor first paint', () => {
     if (protocol === 'websocket') {
       const connectBtn = document.getElementById('sendBtn') as HTMLButtonElement;
       const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
-      const disconnectBtn = document.getElementById('wsDisconnectBtn') as HTMLButtonElement;
 
       expect(connectBtn.textContent).toBe('Connect');
+      expect(connectBtn.className).toContain('ws-lifecycle-action');
+      expect(connectBtn.className).not.toContain('ws-disconnect-state');
       expect(sendMessageBtn.textContent).toBe('Send');
       expect(sendMessageBtn.className).toContain('btn-primary');
-      expect(disconnectBtn.textContent).toBe('Disconnect');
-      expect(disconnectBtn.className).toContain('btn-danger');
+      expect(document.getElementById('wsDisconnectBtn')).toBeNull();
 
       dispatchPanelMessage(dom, { type: 'webSocketConnecting' });
-      expect(connectBtn.textContent).toBe('Connect');
-      expect(disconnectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.className).toContain('ws-disconnect-state');
 
       dispatchPanelMessage(dom, {
         type: 'webSocketSession',
@@ -267,9 +267,13 @@ describe('OC-130 request editor first paint', () => {
           outboundCount: 0,
         },
       });
-      expect(connectBtn.textContent).toBe('Connect');
-      expect(disconnectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.disabled).toBe(false);
       expect(document.querySelector('.websocket-history-time')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+
+      const messageCount = messages.length;
+      connectBtn.click();
+      expect(messages.slice(messageCount)).toContainEqual({ type: 'webSocketDisconnect' });
     }
   });
 

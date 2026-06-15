@@ -577,7 +577,7 @@ describe('WebSocket execution lifecycle', () => {
 });
 
 describe('WebSocket editor, variables, and tools', () => {
-  it('renders separate WebSocket lifecycle controls and message history shell', () => {
+  it('renders a stateful WebSocket lifecycle control, message send, and history shell', () => {
     const provider = new RequestEditorProvider(
       { extensionUri: { fsPath: process.cwd() } } as any,
       { disconnectWebSocketSession: vi.fn(), getWebSocketSession: vi.fn() } as any,
@@ -592,15 +592,16 @@ describe('WebSocket editor, variables, and tools', () => {
 
     expect(html).toContain('id="sendBtn">Send</button>');
     expect(html).toContain('class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn"');
-    expect(html).toContain('class="btn btn-danger ws-lifecycle-btn ws-disconnect-btn" id="wsDisconnectBtn"');
+    expect(html).not.toContain('id="wsDisconnectBtn"');
     expect(html).toContain('id="webSocketSessionPanel"');
     expect(html).toContain('id="webSocketHistory"');
     expect(css).toContain('.websocket-session-panel');
     expect(css).toContain('.websocket-history-row');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
+    expect(css).toContain('#sendBtn.ws-disconnect-state');
     expect(css).toContain('width: 90px;');
-    expect(script).toContain("connectBtn.textContent = 'Connect';");
-    expect(script).toContain("disconnectBtn.textContent = 'Disconnect';");
+    expect(script).toContain("connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';");
+    expect(script).toContain("connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);");
     expect(script).toContain('fractionalSecondDigits: 3');
   });
 

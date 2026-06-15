@@ -986,7 +986,6 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
     <button class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn" style="display:none;" title="Send WebSocket message">Send</button>
-    <button class="btn btn-danger ws-lifecycle-btn ws-disconnect-btn" id="wsDisconnectBtn" style="display:none;" title="Disconnect WebSocket">Disconnect</button>
   </div>
 
   <div class="main-content">

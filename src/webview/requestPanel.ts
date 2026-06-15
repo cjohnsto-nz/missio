@@ -170,28 +170,29 @@ function updateWebSocketControls(): void {
   const isWebSocket = _currentProtocol === 'websocket';
   const connectBtn = $('sendBtn') as HTMLButtonElement;
   const sendMessageBtn = $('wsSendBtn') as HTMLButtonElement;
-  const disconnectBtn = $('wsDisconnectBtn') as HTMLButtonElement;
   sendMessageBtn.style.display = isWebSocket ? '' : 'none';
-  disconnectBtn.style.display = isWebSocket ? '' : 'none';
-  if (!isWebSocket) return;
+  connectBtn.classList.toggle('ws-lifecycle-action', isWebSocket);
+  if (!isWebSocket) {
+    connectBtn.classList.remove('ws-disconnect-state');
+    return;
+  }
 
   const state = _webSocketSession.state;
   const connecting = state === 'connecting';
   const connected = state === 'connected';
   const disconnecting = state === 'disconnecting';
-  connectBtn.textContent = 'Connect';
-  disconnectBtn.textContent = 'Disconnect';
-  connectBtn.disabled = connecting || connected || disconnecting;
+  const canDisconnect = connecting || connected || disconnecting;
+  connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';
+  connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);
+  connectBtn.disabled = disconnecting;
   connectBtn.title = connecting
-    ? 'Connecting WebSocket'
+    ? 'Disconnect WebSocket while connecting'
     : connected
-      ? 'WebSocket is connected'
+      ? 'Disconnect WebSocket'
       : disconnecting
         ? 'Disconnecting WebSocket'
         : 'Connect WebSocket';
   sendMessageBtn.disabled = !connected;
-  disconnectBtn.disabled = !(connecting || connected);
-  disconnectBtn.title = disconnecting ? 'Disconnecting WebSocket' : 'Disconnect WebSocket';
 }
 
 function formatWebSocketEventTime(timestamp: string): string {
@@ -1048,7 +1049,6 @@ function setProtocolUi(protocol: PanelProtocol): void {
     $('sendBtn').textContent = isWebSocket ? 'Connect' : isGrpc ? 'Invoke' : 'Send';
   }
   ($('wsSendBtn') as HTMLElement).style.display = isWebSocket ? '' : 'none';
-  ($('wsDisconnectBtn') as HTMLElement).style.display = isWebSocket ? '' : 'none';
   $('webSocketSessionPanel').style.display = isWebSocket ? 'flex' : 'none';
   $('saveExampleBtn').style.display = (isWebSocket || isGrpc) ? 'none' : '';
   $('refreshOAuthRetryBtn').style.display = 'none';
@@ -2149,16 +2149,17 @@ $('varToggleBtn').addEventListener('click', () => {
 });
 $('sendBtn').addEventListener('click', () => {
   if (_currentProtocol === 'websocket') {
-    connectWebSocket();
+    if (_webSocketSession.state === 'connecting' || _webSocketSession.state === 'connected') {
+      disconnectWebSocket();
+    } else if (_webSocketSession.state !== 'disconnecting') {
+      connectWebSocket();
+    }
     return;
   }
   if (isSending) { cancelRequest(); } else { sendRequest(); }
 });
 $('wsSendBtn').addEventListener('click', () => {
   sendWebSocketMessage();
-});
-$('wsDisconnectBtn').addEventListener('click', () => {
-  disconnectWebSocket();
 });
 $('wsClearHistoryBtn').addEventListener('click', () => {
   _webSocketVisibleEvents = [];
