@@ -195,6 +195,16 @@ function updateWebSocketControls(): void {
   sendMessageBtn.disabled = !connected;
 }
 
+function syncRuntimeTabForProtocol(): void {
+  const runtimeTab = document.getElementById('respRuntimeTab');
+  if (!runtimeTab) return;
+  const showRuntimeTab = _currentProtocol === 'websocket' || !!getLastResponse()?.runtime;
+  runtimeTab.style.display = showRuntimeTab ? '' : 'none';
+  if (!showRuntimeTab && runtimeTab.classList.contains('active')) {
+    (document.querySelector('#respTabs [data-tab="resp-body"]') as HTMLElement | null)?.click();
+  }
+}
+
 function syncResponseLayoutForProtocol(): void {
   const isWebSocket = _currentProtocol === 'websocket';
   const responseSection = $('responseSection');
@@ -202,6 +212,7 @@ function syncResponseLayoutForProtocol(): void {
   if (respBodyTab) respBodyTab.textContent = isWebSocket ? 'Messages' : 'Body';
   responseSection.classList.toggle('websocket-response-tabs', isWebSocket);
   responseSection.classList.remove('websocket-response-ledger-only');
+  syncRuntimeTabForProtocol();
 
   if (!isWebSocket) {
     const response = getLastResponse();

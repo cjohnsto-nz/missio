@@ -216,6 +216,7 @@ describe('OC-130 request editor first paint', () => {
     const responseSection = document.getElementById('responseSection') as HTMLElement;
     const responseTabs = document.getElementById('respTabs') as HTMLElement;
     const responseBodyTab = document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]');
+    const runtimeTab = document.getElementById('respRuntimeTab') as HTMLElement;
     const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
 
     expect(shell.dataset.hydrationState).toBe('ready');
@@ -259,6 +260,7 @@ describe('OC-130 request editor first paint', () => {
       expect(responseSection.className).not.toContain('websocket-response-ledger-only');
       expect(responseTabs.style.display).toBe('flex');
       expect(responseBodyTab?.textContent).toBe('Messages');
+      expect(runtimeTab.style.display).toBe('');
       expect(document.getElementById('webSocketSessionPanel')?.parentElement?.id).toBe('panel-resp-body');
       expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
       expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
@@ -288,7 +290,44 @@ describe('OC-130 request editor first paint', () => {
       expect(responseSection.className).not.toContain('websocket-response-tabs');
       expect(responseSection.className).not.toContain('websocket-response-ledger-only');
       expect(responseBodyTab?.textContent).toBe('Body');
+      expect(runtimeTab.style.display).toBe('none');
     }
+  });
+
+  it('keeps the WebSocket Runtime tab visible before runtime results exist', async () => {
+    const { dom } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+
+    const runtimeTab = document.getElementById('respRuntimeTab') as HTMLElement;
+    const runtimeResults = document.getElementById('runtimeResults') as HTMLElement;
+    expect(runtimeTab.style.display).toBe('');
+    expect(runtimeResults.textContent).toBe('');
+
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          url: 'ws://example.test/socket',
+          state: 'connected',
+          messageCount: 1,
+          events: [{ timestamp: '2026-06-15T01:02:03.789Z', direction: 'inbound', type: 'text', data: 'hello' }],
+        }),
+        duration: 12,
+        size: 0,
+      },
+    });
+
+    expect(document.getElementById('responseSection')?.className).toContain('websocket-response-tabs');
+    expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Messages');
+    expect(runtimeTab.style.display).toBe('');
+    expect(runtimeResults.textContent).toBe('');
+    expect((document.getElementById('webSocketHistory') as HTMLElement).textContent).toContain('hello');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
   });
 
   it('renders WebSocket messages and runtime results in the existing response tabs', async () => {
@@ -375,6 +414,7 @@ describe('OC-130 request editor first paint', () => {
     expect(document.getElementById('responseSection')?.className).toContain('websocket-response-tabs');
     expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
     expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respRuntimeTab') as HTMLElement).style.display).toBe('');
 
     dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
 
@@ -384,6 +424,7 @@ describe('OC-130 request editor first paint', () => {
     expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
     expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('block');
     expect((document.getElementById('respBinaryOverlay') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respRuntimeTab') as HTMLElement).style.display).toBe('none');
     expect((document.getElementById('webSocketSessionPanel') as HTMLElement).style.display).toBe('none');
   });
 
