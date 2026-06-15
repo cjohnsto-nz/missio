@@ -179,11 +179,31 @@ function updateWebSocketControls(): void {
   const connecting = state === 'connecting';
   const connected = state === 'connected';
   const disconnecting = state === 'disconnecting';
-  connectBtn.textContent = connecting ? 'Connecting' : connected ? 'Connected' : 'Connect';
+  connectBtn.textContent = 'Connect';
+  disconnectBtn.textContent = 'Disconnect';
   connectBtn.disabled = connecting || connected || disconnecting;
+  connectBtn.title = connecting
+    ? 'Connecting WebSocket'
+    : connected
+      ? 'WebSocket is connected'
+      : disconnecting
+        ? 'Disconnecting WebSocket'
+        : 'Connect WebSocket';
   sendMessageBtn.disabled = !connected;
-  disconnectBtn.disabled = !(connecting || connected || disconnecting);
-  disconnectBtn.textContent = disconnecting ? 'Disconnecting' : 'Disconnect';
+  disconnectBtn.disabled = !(connecting || connected);
+  disconnectBtn.title = disconnecting ? 'Disconnecting WebSocket' : 'Disconnect WebSocket';
+}
+
+function formatWebSocketEventTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return date.toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  });
 }
 
 function setWebSocketSession(session: WebSocketSessionSnapshot): void {
@@ -232,7 +252,7 @@ function renderWebSocketSession(): void {
       const detail = event.type === 'close'
         ? [event.closeCode ? String(event.closeCode) : '', event.reason || ''].filter(Boolean).join(' ')
         : event.data ?? event.reason ?? '';
-      const time = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
+      const time = event.timestamp ? formatWebSocketEventTime(event.timestamp) : '';
       return [
         '<div class="websocket-history-row websocket-history-' + event.direction + '">',
         '<span class="websocket-history-time">' + escHtml(time) + '</span>',

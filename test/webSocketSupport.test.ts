@@ -588,14 +588,20 @@ describe('WebSocket editor, variables, and tools', () => {
     );
     const html = (provider as any)._getBodyHtml({} as any) as string;
     const css = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
+    const script = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.ts'), 'utf8');
 
     expect(html).toContain('id="sendBtn">Send</button>');
-    expect(html).toContain('id="wsSendBtn"');
-    expect(html).toContain('id="wsDisconnectBtn"');
+    expect(html).toContain('class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn"');
+    expect(html).toContain('class="btn btn-danger ws-lifecycle-btn ws-disconnect-btn" id="wsDisconnectBtn"');
     expect(html).toContain('id="webSocketSessionPanel"');
     expect(html).toContain('id="webSocketHistory"');
     expect(css).toContain('.websocket-session-panel');
     expect(css).toContain('.websocket-history-row');
+    expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
+    expect(css).toContain('width: 90px;');
+    expect(script).toContain("connectBtn.textContent = 'Connect';");
+    expect(script).toContain("disconnectBtn.textContent = 'Disconnect';");
+    expect(script).toContain('fractionalSecondDigits: 3');
   });
 
   it('wires VS Code bottom status bar session management in extension activation', () => {

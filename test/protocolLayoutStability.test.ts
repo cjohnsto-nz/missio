@@ -241,6 +241,36 @@ describe('OC-130 request editor first paint', () => {
       expect((document.getElementById('graphqlVariablesEditor') as HTMLElement).style.display).toBe('flex');
       expect((document.getElementById('method') as HTMLSelectElement).value).toBe('POST');
     }
+
+    if (protocol === 'websocket') {
+      const connectBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+      const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
+      const disconnectBtn = document.getElementById('wsDisconnectBtn') as HTMLButtonElement;
+
+      expect(connectBtn.textContent).toBe('Connect');
+      expect(sendMessageBtn.textContent).toBe('Send');
+      expect(sendMessageBtn.className).toContain('btn-primary');
+      expect(disconnectBtn.textContent).toBe('Disconnect');
+      expect(disconnectBtn.className).toContain('btn-danger');
+
+      dispatchPanelMessage(dom, { type: 'webSocketConnecting' });
+      expect(connectBtn.textContent).toBe('Connect');
+      expect(disconnectBtn.textContent).toBe('Disconnect');
+
+      dispatchPanelMessage(dom, {
+        type: 'webSocketSession',
+        session: {
+          requestId: 'websocket.yml',
+          state: 'connected',
+          events: [{ timestamp: '2026-06-15T01:02:03.456Z', direction: 'inbound', type: 'text', data: 'hello' }],
+          inboundCount: 1,
+          outboundCount: 0,
+        },
+      });
+      expect(connectBtn.textContent).toBe('Connect');
+      expect(disconnectBtn.textContent).toBe('Disconnect');
+      expect(document.querySelector('.websocket-history-time')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+    }
   });
 
   it('keeps invalid YAML in a neutral fallback instead of revealing HTTP controls', async () => {
