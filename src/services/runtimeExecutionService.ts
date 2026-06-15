@@ -1,4 +1,5 @@
 import * as vm from 'vm';
+import { randomUUID } from 'crypto';
 import type {
   Action,
   ActionPhase,
@@ -30,6 +31,7 @@ import type {
   WebSocketMessageVariant,
   WebSocketRequest,
 } from '../models/types';
+import { varPatternGlobal } from '../models/varPattern';
 
 export type RuntimeVariableResolver = (
   collection: MissioCollection,
@@ -100,7 +102,11 @@ export class RuntimeExecutionService {
     request: RuntimeCapableRequest,
     extraVariables?: Map<string, string>,
   ): Promise<Map<string, string> | undefined> {
-    const requestVariables = variablesToMap(runtimeConfig(request)?.variables);
+    const requestVariables = resolveVariableMapValues(
+      variablesToMap(runtimeConfig(request)?.variables),
+      new Map(),
+      extraVariables,
+    );
     if (requestVariables.size === 0 && (!extraVariables || extraVariables.size === 0)) {
       return undefined;
     }
@@ -175,9 +181,14 @@ export class RuntimeExecutionService {
     const baseVariables = this._variableResolver
       ? await this._variableResolver(collection, folderDefaults, environmentName)
       : new Map<string, string>();
+    const requestVariables = resolveVariableMapValues(
+      variablesToMap(runtime?.variables),
+      baseVariables,
+      extraVariables,
+    );
     const variables: RuntimeVariableScopes = {
       base: new Map(baseVariables),
-      request: variablesToMap(runtime?.variables),
+      request: requestVariables,
       runtime: new Map(extraVariables),
     };
     const state: RuntimeState = { request: clonedRequest, variables, result };
@@ -249,9 +260,10 @@ export class RuntimeExecutionService {
       name: 'missio-runtime',
       codeGeneration: { strings: false, wasm: false },
     });
-    const compiled = new vm.Script(script.code, {
-      filename: `missio-${script.type}.js`,
-    });
+    const compiled = new vm.Script(
+      interpolateRuntimeTemplate(script.code, buildVisibleVariables(state.variables)),
+      { filename: `missio-${script.type}.js` },
+    );
     compiled.runInContext(context, { timeout: 1000, displayErrors: true });
   }
 
@@ -481,6 +493,55 @@ function variablesToMap(variables: Variable[] | undefined): Map<string, string> 
     }
   }
   return map;
+}
+
+function resolveVariableMapValues(
+  variables: Map<string, string>,
+  baseVariables: Map<string, string>,
+  extraVariables?: Map<string, string>,
+): Map<string, string> {
+  const resolved = new Map(variables);
+  for (let pass = 0; pass < 10; pass++) {
+    let changed = false;
+    const visible = new Map(baseVariables);
+    mergeInto(visible, resolved);
+    if (extraVariables) mergeInto(visible, extraVariables);
+
+    for (const [key, value] of resolved) {
+      const next = value.replace(varPatternGlobal(), (match, name) => {
+        const ref = String(name).trim();
+        if (ref === key) return match;
+        const builtin = resolveRuntimeBuiltin(ref);
+        if (builtin !== undefined) return builtin;
+        return visible.has(ref) ? visible.get(ref)! : match;
+      });
+      if (next !== value) {
+        resolved.set(key, next);
+        changed = true;
+      }
+    }
+
+    if (!changed) break;
+  }
+  return resolved;
+}
+
+function interpolateRuntimeTemplate(template: string, variables: Map<string, string>): string {
+  return template.replace(varPatternGlobal(), (match, name) => {
+    const key = String(name).trim();
+    const builtin = resolveRuntimeBuiltin(key);
+    if (builtin !== undefined) return builtin;
+    return variables.has(key) ? variables.get(key)! : match;
+  });
+}
+
+function resolveRuntimeBuiltin(name: string): string | undefined {
+  switch (name) {
+    case '$guid': return randomUUID();
+    case '$timestamp': return String(Math.floor(Date.now() / 1000));
+    case '$randomInt': return String(Math.floor(Math.random() * 1001));
+    default: return undefined;
+  }
 }
 
 function resolveVariableValue(value: Variable['value']): string | undefined {

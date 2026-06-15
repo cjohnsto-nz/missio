@@ -391,6 +391,9 @@ describe('WebSocket execution lifecycle', () => {
       wsBaseUrl: fixture.baseUrl,
       tenant: 'nz',
       token: 'token-abc',
+      runtimeCountSeed: '7',
+      runtimeHeaderSeed: 'scripted',
+      runtimeUserSeed: 'Ada Runtime',
     });
     const client = new WebSocketClient(envService);
     const runtime = new RuntimeExecutionService((collection, folderDefaults, environmentName) =>
@@ -410,15 +413,22 @@ describe('WebSocket execution lifecycle', () => {
       },
       runtime: {
         auth: { type: 'bearer', token: '{{token}}' },
-        variables: [{ name: 'runtimeCount', value: '7' }],
+        variables: [
+          { name: 'runtimeCount', value: '{{runtimeCountSeed}}' },
+          { name: 'runtimeHeader', value: '{{runtimeHeaderSeed}}' },
+          { name: 'runtimeUserName', value: '{{runtimeUserSeed}}' },
+        ],
         scripts: [
           {
             type: 'before-request',
+            code: 'missio.variables.set("runtimeUser", "{{runtimeUserName}}");',
+          },
+          {
+            type: 'before-request',
             code: [
-              'missio.variables.set("runtimeUser", "Ada Runtime");',
               'missio.request.headers.set("X-Demo-Client", "missio-demo");',
-              'missio.request.headers.set("X-Runtime-Header", "scripted");',
-              'missio.request.body = { user: missio.variables.get("runtimeUser"), count: Number(missio.variables.get("runtimeCount")) };',
+              'missio.request.headers.set("X-Runtime-Header", "{{runtimeHeader}}");',
+              'missio.request.body = { user: "{{runtimeUser}}", count: Number("{{runtimeCount}}") };',
             ].join('\n'),
           },
           {
@@ -1168,6 +1178,9 @@ describe('WebSocket demo fixtures', () => {
     const envService = makeEnvService({
       wsBaseUrl: fixture.baseUrl,
       demoToken: 'token-abc',
+      socketUser: 'Ada',
+      socketMessageId: 'ws-demo-001',
+      runtimeSocketCountSeed: '7',
       tenant: 'nz',
     });
     const request = parseYaml(fs.readFileSync(path.join(demoRoot, 'WebSocket', 'runtime-lifecycle.yml'), 'utf-8')) as WebSocketRequest;

@@ -356,6 +356,8 @@ describe('gRPC execution', () => {
     const collection = makeCollection();
     const localEnv = collection.data.config?.environments?.find(env => env.name === 'LOCAL');
     localEnv?.variables?.push({ name: 'grpcBaseUrl', value: address });
+    localEnv?.variables?.push({ name: 'grpcRuntimeNameSeed', value: 'Runtime Ada' });
+    localEnv?.variables?.push({ name: 'grpcRuntimeUserIdSeed', value: '77' });
     await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
     const grpcClient = new GrpcClient(environmentService);
     const runtime = new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
@@ -375,15 +377,21 @@ describe('gRPC execution', () => {
       },
       runtime: {
         auth: { type: 'bearer' as const, token: '{{grpcToken}}' },
-        variables: [{ name: 'grpcRuntimeUserId', value: '77' }],
+        variables: [
+          { name: 'grpcRuntimeUserId', value: '{{grpcRuntimeUserIdSeed}}' },
+          { name: 'grpcRuntimeNameSeeded', value: '{{grpcRuntimeNameSeed}}' },
+        ],
         scripts: [
           {
             type: 'before-request' as const,
+            code: 'missio.variables.set("grpcRuntimeName", "{{grpcRuntimeNameSeeded}}");',
+          },
+          {
+            type: 'before-request' as const,
             code: [
-              'missio.variables.set("grpcRuntimeName", "Runtime Ada");',
-              'missio.variables.set("grpcRuntimeTrace", "runtime-" + missio.variables.get("grpcRequestId"));',
-              'missio.request.metadata.set("x-demo-request", "script-" + missio.variables.get("grpcRequestId"));',
-              'missio.request.body = { name: missio.variables.get("grpcRuntimeName"), userId: Number(missio.variables.get("grpcRuntimeUserId")), trace: { requestId: missio.variables.get("grpcRuntimeTrace") } };',
+              'missio.variables.set("grpcRuntimeTrace", "runtime-{{grpcRequestId}}");',
+              'missio.request.metadata.set("x-demo-request", "script-{{grpcRequestId}}");',
+              'missio.request.body = { name: "{{grpcRuntimeName}}", userId: Number("{{grpcRuntimeUserId}}"), trace: { requestId: "{{grpcRuntimeTrace}}" } };',
             ].join('\n'),
           },
           {
@@ -736,7 +744,7 @@ describe('gRPC integration surfaces', () => {
     const body = JSON.parse(response.body);
 
     expect(body).toMatchObject({
-      name: 'Runtime Ada',
+      name: 'Ada Runtime',
       userId: 77,
       requestMetadata: 'script-trace-123',
     });

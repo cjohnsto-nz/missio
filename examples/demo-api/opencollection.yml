@@ -52,6 +52,8 @@ config:
           value: Ada
         - name: socketMessageId
           value: ws-demo-001
+        - name: runtimeSocketCountSeed
+          value: "7"
         - name: demoToken
           value: demo-token
       color: charts.blue

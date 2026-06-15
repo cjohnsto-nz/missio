@@ -12,17 +12,21 @@ runtime:
     type: bearer
     token: "{{demoToken}}"
   variables:
+    - name: runtimeSocketUserName
+      value: "{{socketUser}} Runtime"
     - name: runtimeSocketCount
-      value: "7"
+      value: "{{runtimeSocketCountSeed}}"
   scripts:
     - type: before-request
       code: |-
-        missio.variables.set("runtimeSocketUser", "Ada Runtime");
+        missio.variables.set("runtimeSocketUser", "{{runtimeSocketUserName}}");
+    - type: before-request
+      code: |-
         missio.request.headers.set("X-Demo-Client", "missio-demo");
-        missio.request.headers.set("X-Runtime-Header", "scripted-websocket");
+        missio.request.headers.set("X-Runtime-Header", "scripted-{{socketMessageId}}");
         missio.request.body = {
-          user: missio.variables.get("runtimeSocketUser"),
-          count: Number(missio.variables.get("runtimeSocketCount"))
+          user: "{{runtimeSocketUser}}",
+          count: Number("{{runtimeSocketCount}}")
         };
     - type: after-response
       code: |-
