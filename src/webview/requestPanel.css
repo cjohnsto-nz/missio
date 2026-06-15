@@ -363,24 +363,21 @@ body {
   flex: 0 0 90px;
   width: 90px;
   min-width: 90px;
-  background: var(--badge-success);
-  color: var(--m-status-badge-text);
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--badge-success, #22c55e);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: transparent;
+  border-color: var(--badge-success, #22c55e);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state {
-  background: var(--badge-error);
+  background: transparent;
+  color: var(--badge-error, #ef4444);
 }
-body.vscode-dark .request-editor-shell[data-protocol="websocket"] #sendBtn,
-.vscode-dark .request-editor-shell[data-protocol="websocket"] #sendBtn {
-  background: #2aa32a;
-  color: #fff;
-}
-body.vscode-dark .request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state,
-.vscode-dark .request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state {
-  background: #a33e2a;
-  color: #fff;
+.request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--badge-error, #ef4444);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn:disabled {
   opacity: 0.5;

@@ -612,9 +612,14 @@ describe('WebSocket editor, variables, and tools', () => {
     expect(css).toContain('max-height: none;');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
     expect(css).toContain('#sendBtn.ws-disconnect-state');
-    expect(css).toContain('background: #2aa32a;');
-    expect(css).toContain('background: #a33e2a;');
-    expect(css).toContain('color: #fff;');
+    expect(css).toContain('background: transparent;');
+    expect(css).toContain('border: 1px solid var(--input-border);');
+    expect(css).toContain('color: var(--badge-success, #22c55e);');
+    expect(css).toContain('border-color: var(--badge-success, #22c55e);');
+    expect(css).toContain('color: var(--badge-error, #ef4444);');
+    expect(css).toContain('border-color: var(--badge-error, #ef4444);');
+    expect(css).not.toContain('background: #2aa32a;');
+    expect(css).not.toContain('background: #a33e2a;');
     expect(css).toContain('width: 90px;');
     expect(script).toContain("connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';");
     expect(script).toContain("connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);");
