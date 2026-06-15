@@ -168,6 +168,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
 </script>`;
     return html
       .replace('</body>', pdfScripts + '\n</body>')
+      .replace(/script-src ('nonce-[^']+')/, `script-src $1 ${webview.cspSource}`)
       .replace(/img-src data:/, 'img-src blob: data:')
       .replace(/frame-src data: blob:;/, `frame-src data: blob:; worker-src ${webview.cspSource} blob:;`);
   }
