@@ -133,6 +133,15 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Verified: task references and goal prompt added; implementation tests not required for docs-only task creation.
   Next: launch OC-140 after OC-130 settles request editor startup changes, or in parallel only with explicit coordination around shared request editor, WebSocket client, CodeLens, and Copilot surfaces.
 
+### OC-130 Protocol-Native Request Editor First Paint
+
+- 2026-06-15 12:03 NZT - Codex: Completed OC-130 with a neutral first-paint shell and protocol-native hydration for HTTP, GraphQL, WebSocket, and gRPC request editors.
+  GitButler: `feature/oc-130-protocol-layout-stability` (g0), stacked on `feature/oc-120-preview-media-controls`; implementation/test commit `a3d3251` (`Add OC-130 protocol first paint stability`). Earlier `but commit --changes ...` failed with `Unexpected hunk with neither newlines or oldlines being 0`, so the owned files were staged by path to g0 and committed with `--only`.
+  Coverage: implemented `test/protocolLayoutStability.test.ts` for neutral startup markup, hidden pending/invalid controls with stable dimensions, direct protocol hydration for HTTP/GraphQL/WebSocket/gRPC, invalid-YAML fallback, host parse-failure messaging, and no-op round-trip/validation; updated request type UX startup assertions so static HTML is protocol-pending instead of HTTP.
+  Changed: `src/panels/requestPanel.ts`, `src/webview/requestPanel.ts`, `src/webview/requestPanel.css`, `test/protocolLayoutStability.test.ts`, `test/requestTypeUx.test.ts`, and this ledger.
+  Verified: `npx vitest run test/protocolLayoutStability.test.ts` passed 9 tests; `npm run compile` passed; focused `npx vitest run test/protocolLayoutStability.test.ts test/requestTypeUx.test.ts test/runtimeAuthoringUx.test.ts test/schemaRoundTrip.test.ts test/validationService.test.ts` passed 5 files/34 tests; targeted `npx vitest run test/protocolLayoutStability.test.ts test/requestTypeUx.test.ts test/runtimeAuthoringUx.test.ts test/graphqlSupport.test.ts test/webSocketSupport.test.ts test/grpcSupport.test.ts test/openCollectionFoundation.test.ts test/schemaRoundTrip.test.ts test/validationService.test.ts` passed 9 files/89 tests; `node scripts\validate-collection.js examples\demo-api` passed 44/44 files; `npm test` passed 25 files/454 tests; `npm run build` passed.
+  Next: OC-130 is complete. Remaining unassigned changes are parallel/unrelated OC-140 planning IDs `wp`/`tks`/`tkt`/`uxu` and PDF.js media churn IDs `qp`/`ko`.
+
 - 2026-06-15 00:57 NZT - Codex: Added OC-110 as a separate runtime authoring UX task after confirming snippet export belongs to OC-070 and non-HTTP runtime execution belongs to OC-080.
   GitButler: planning update is on `supervisor/add-runtime-authoring-ux-task`, stacked on `supervisor/oc-050-090-100-audit`; active OC-070 implementation changes in `zz` were not edited or committed.
   Coverage: documentation-only planning change; no runtime behavior changed.
