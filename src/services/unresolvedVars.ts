@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { Auth, MissioCollection, OpenCollectionRequest, RequestDefaults, Variable } from '../models/types';
+import type { Assertion, Auth, MissioCollection, OpenCollectionRequest, RequestDefaults, Variable } from '../models/types';
 import { isGraphQLRequest, isGrpcRequest, isHttpRequest, isWebSocketRequest } from '../models/types';
 import { varPatternGlobal } from '../models/varPattern';
 import type { EnvironmentService } from './environmentService';
@@ -119,6 +119,8 @@ export async function detectUnresolvedVars(
     scanAllStrings(auth, varNames);
   }
 
+  scanRuntimeAssertions(requestData.runtime?.assertions, scan);
+
   if (varNames.size === 0) return [];
 
   // Resolve variables, then find which referenced names remain unresolved
@@ -231,6 +233,19 @@ function scanGrpcMessageTemplates(message: unknown, scan: (s: string | undefined
 
   const selected = message.find(entry => isRecord(entry) && entry.selected === true) ?? message[0];
   scan(isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined);
+}
+
+function scanRuntimeAssertions(assertions: Assertion[] | undefined, scan: (s: string | undefined) => void): void {
+  for (const assertion of assertions ?? []) {
+    if (assertion.disabled) continue;
+    scan(assertion.expression);
+    scan(assertion.value);
+    if (typeof assertion.description === 'string') {
+      scan(assertion.description);
+    } else {
+      scan(assertion.description?.content);
+    }
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

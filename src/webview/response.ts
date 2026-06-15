@@ -1059,11 +1059,12 @@ function renderRuntimeResults(runtime: any): string {
     esc(String(test.message ?? '')),
   ]));
 
-  sections.push(renderRuntimeTable('Assertions', ['Result', 'Expression', 'Expected', 'Actual'], runtime.assertions ?? [], (assertion: any) => [
+  sections.push(renderRuntimeTable('Assertions', ['Result', 'Expression', 'Expected', 'Actual', 'Message'], runtime.assertions ?? [], (assertion: any) => [
     runtimeStateCell(assertion.passed, assertion.skipped),
     esc(`${assertion.expression ?? ''} ${assertion.operator ?? ''}`),
     esc(formatRuntimeValue(assertion.expected)),
     esc(formatRuntimeValue(assertion.actual)),
+    esc(String(assertion.message ?? '')),
   ]));
 
   sections.push(renderRuntimeTable('Actions', ['Result', 'Phase', 'Target', 'Value'], runtime.actions ?? [], (action: any) => [

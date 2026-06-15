@@ -105,6 +105,27 @@ describe('unresolvedVars', () => {
     expect(result).toContain('clientSecret');
   });
 
+  it('detects unresolved vars in runtime assertion expression, value, and description fields', async () => {
+    const request = makeRequest() as any;
+    request.runtime = {
+      variables: [{ name: 'expectedStatus', value: '200' }],
+      assertions: [{
+        expression: 'res.body.{{missingField}}',
+        operator: 'equals',
+        value: '{{expectedStatus}}',
+        description: { content: 'Missing {{assertionDescription}}', type: 'text/markdown' },
+      }],
+    };
+
+    const result = await detectUnresolvedVars(
+      request,
+      makeCollection(),
+      service,
+    );
+
+    expect(result).toEqual(['missingField', 'assertionDescription']);
+  });
+
   it('detects unresolved vars in apikey auth', async () => {
     const result = await detectUnresolvedVars(
       makeRequest({

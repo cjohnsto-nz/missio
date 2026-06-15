@@ -1,12 +1,12 @@
 import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HttpClient } from '../src/services/httpClient';
 import { RequestExecutionService } from '../src/services/requestExecutionService';
 import { RuntimeExecutionError, RuntimeExecutionService } from '../src/services/runtimeExecutionService';
 import { detectUnresolvedVars } from '../src/services/unresolvedVars';
-import type { HttpRequest, HttpResponse, MissioCollection } from '../src/models/types';
+import type { GraphQLRequest, GrpcRequest, HttpRequest, HttpResponse, MissioCollection, WebSocketRequest } from '../src/models/types';
 
 function interpolate(template: string, variables: Map<string, string>): string {
   return template.replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, (match, name) => variables.get(name) ?? match);
@@ -118,6 +118,84 @@ describe('RuntimeExecutionService lifecycle', () => {
       { scope: 'runtime', name: 'responseToken', value: 'abc123', source: 'action' },
     ]);
     expect(response.runtime?.logs.map(log => log.message)).toEqual(['before base', 'after abc123']);
+  });
+
+  it('interpolates runtime assertion expression, expected value, and description across runtime protocols', async () => {
+    const service = new RuntimeExecutionService(async () => new Map([
+      ['fieldName', 'name'],
+      ['descriptionOwner', 'Ada'],
+    ]));
+    const runtime = () => ({
+      variables: [{ name: 'assertionField', value: '{{fieldName}}' }],
+      scripts: [{
+        type: 'after-response' as const,
+        code: 'missio.variables.set("expectedName", response.json().name);',
+      }],
+      assertions: [{
+        expression: 'res.body.{{assertionField}}',
+        operator: 'equals',
+        value: '{{expectedName}}',
+        description: 'Owner {{descriptionOwner}}',
+      }],
+    });
+    const cases = [
+      {
+        request: { http: { method: 'GET', url: 'http://127.0.0.1/runtime' }, runtime: runtime() } as HttpRequest,
+        prepare: (request: HttpRequest) => service.prepareHttpRequest(request, makeCollection()),
+        complete: (prepared: any, response: HttpResponse) => service.completeHttpRequest(prepared, response),
+      },
+      {
+        request: { websocket: { url: 'ws://127.0.0.1/socket', message: { type: 'text', data: 'ping' } }, runtime: runtime() } as WebSocketRequest,
+        prepare: (request: WebSocketRequest) => service.prepareWebSocketRequest(request, makeCollection()),
+        complete: (prepared: any, response: HttpResponse) => service.completeWebSocketRequest(prepared, response),
+      },
+      {
+        request: { grpc: { url: '127.0.0.1:50051', method: 'demo.Service/Get', message: '{}' }, runtime: runtime() } as GrpcRequest,
+        prepare: (request: GrpcRequest) => service.prepareGrpcRequest(request, makeCollection()),
+        complete: (prepared: any, response: HttpResponse) => service.completeGrpcRequest(prepared, response),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const prepared = await testCase.prepare(testCase.request as never);
+      const response = await testCase.complete(prepared, makeResponse({ name: 'Ada' }));
+
+      expect(response.runtime?.success).toBe(true);
+      expect(response.runtime?.assertions[0]).toMatchObject({
+        expression: 'res.body.name',
+        expected: 'Ada',
+        actual: 'Ada',
+        description: 'Owner Ada',
+        passed: true,
+      });
+    }
+  });
+
+  it('reports unresolved runtime assertion variables deterministically', async () => {
+    const service = new RuntimeExecutionService(async () => new Map());
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        assertions: [{
+          expression: 'res.body.{{missingField}}',
+          operator: 'equals',
+          value: '{{missingExpected}}',
+          description: 'Needs {{missingDescription}}',
+        }],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    const response = await service.completeHttpRequest(prepared, makeResponse({ name: 'Ada' }));
+
+    expect(response.runtime?.success).toBe(false);
+    expect(response.runtime?.assertions[0]).toMatchObject({
+      passed: false,
+      expression: 'res.body.{{missingField}}',
+      expected: '{{missingExpected}}',
+      description: 'Needs {{missingDescription}}',
+      message: 'Unresolved assertion variables: {{missingField}}, {{missingExpected}}, {{missingDescription}}',
+    });
   });
 
   it('evaluates runtime variable values and interpolates script source before execution', async () => {
@@ -395,6 +473,47 @@ describe('RequestExecutionService runtime integration', () => {
     } finally {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
+  });
+
+  it('interpolates runtime assertion fields for GraphQL execution through the HTTP adapter', async () => {
+    const httpClient = {
+      send: vi.fn().mockResolvedValue(makeResponse({ data: { user: { name: 'Ada' } } })),
+      buildResolvedRequest: vi.fn(),
+      cancelAll: vi.fn(),
+    };
+    const runtime = new RuntimeExecutionService(async () => new Map([
+      ['gqlField', 'name'],
+      ['expectedName', 'Ada'],
+    ]));
+    const executionService = new RequestExecutionService(httpClient as any, undefined, undefined, runtime);
+    const request: GraphQLRequest = {
+      info: { name: 'User query', type: 'graphql' },
+      graphql: {
+        method: 'POST',
+        url: 'http://127.0.0.1/graphql',
+        body: { query: 'query User { user { name } }', variables: '{}' },
+      },
+      runtime: {
+        assertions: [{
+          expression: 'res.body.data.user.{{gqlField}}',
+          operator: 'equals',
+          value: '{{expectedName}}',
+          description: 'GraphQL {{expectedName}}',
+        }],
+      },
+    };
+
+    const response = await executionService.send(request, makeCollection());
+
+    expect(httpClient.send).toHaveBeenCalledOnce();
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.assertions[0]).toMatchObject({
+      expression: 'res.body.data.user.name',
+      expected: 'Ada',
+      actual: 'Ada',
+      description: 'GraphQL Ada',
+      passed: true,
+    });
   });
 });
 

@@ -607,14 +607,18 @@ describe('WebSocket editor, variables, and tools', () => {
     expect(html).toContain('id="webSocketHistory"');
     expect(css).toContain('.websocket-session-panel');
     expect(css).toContain('.websocket-history-row');
-    expect(css).toContain('.response-section.websocket-response-ledger-only .websocket-session-panel');
-    expect(css).toContain('.response-section.websocket-response-ledger-only .response-body');
+    expect(css).toContain('.response-section.websocket-response-tabs #respBodyWrap');
+    expect(css).not.toContain('.response-section.websocket-response-ledger-only .response-body');
     expect(css).toContain('max-height: none;');
     expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
     expect(css).toContain('#sendBtn.ws-disconnect-state');
+    expect(css).toContain('background: #2aa32a;');
+    expect(css).toContain('background: #a33e2a;');
+    expect(css).toContain('color: #fff;');
     expect(css).toContain('width: 90px;');
     expect(script).toContain("connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';");
     expect(script).toContain("connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);");
+    expect(script).toContain("respBodyTab.textContent = isWebSocket ? 'Messages' : 'Body';");
     expect(script).toContain('fractionalSecondDigits: 3');
   });
 
