@@ -91,6 +91,11 @@ function mountResponseDom(): JSDOM {
   return dom;
 }
 
+function getCspDirective(html: string, directiveName: string): string | undefined {
+  const csp = html.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
+  return csp.split(';').map(part => part.trim()).find(part => part.startsWith(`${directiveName} `));
+}
+
 function imageResponse() {
   return {
     status: 200,
@@ -194,6 +199,33 @@ describe('preview media toolbar markup', () => {
     expect(ignore).not.toMatch(/^media\/pdf\.worker\.min\.mjs$/m);
     expect(fs.existsSync(path.join(process.cwd(), 'media', 'pdf.min.mjs'))).toBe(true);
     expect(fs.existsSync(path.join(process.cwd(), 'media', 'pdf.worker.min.mjs'))).toBe(true);
+  });
+
+  it('allows packaged PDF.js modules and workers in the request panel CSP', () => {
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const webview = {
+      cspSource: 'vscode-webview://missio-test',
+      asWebviewUri: (uri: { fsPath: string }) => `webview-resource://${uri.fsPath.replace(/\\/g, '/')}`,
+    };
+
+    const html = (provider as any)._getHtml(webview) as string;
+    const scriptDirective = getCspDirective(html, 'script-src');
+    const workerDirective = getCspDirective(html, 'worker-src');
+
+    expect(html).toContain('type="module"');
+    expect(html).toContain('window.missioPdfJsReady');
+    expect(html).toContain("import('webview-resource://");
+    expect(html).toContain('pdf.min.mjs');
+    expect(html).toContain('pdf.worker.min.mjs');
+    expect(scriptDirective).toMatch(/^script-src 'nonce-[^']+' vscode-webview:\/\/missio-test$/);
+    expect(workerDirective).toBe('worker-src vscode-webview://missio-test blob:');
   });
 });
 
