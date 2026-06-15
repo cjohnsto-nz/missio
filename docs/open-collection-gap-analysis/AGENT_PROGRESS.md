@@ -488,6 +488,12 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Verified: reproducing `npx.cmd vitest run test/runtimeExecutionService.test.ts test/webSocketSupport.test.ts test/grpcSupport.test.ts` failed before the implementation with 6 expected regression failures; after the fix it passed 3 files/55 tests and a final post-format rerun also passed 3 files/55 tests. `npx.cmd vitest run test/sendRequestTool.test.ts test/responseProvider.test.ts` passed 2 files/13 tests. `node scripts/validate-collection.js examples/demo-api` passed 47/47 files. `npm.cmd run compile` passed before the full run and again after the final formatting tweak. `npm.cmd test` passed 25 files/467 tests. `npm.cmd run build` first hit sandbox access denial writing generated media files, then passed with approved escalation.
   Next: commit only the owned runtime lifecycle regression slice to `feature/runtime-script-variable-evaluation` and leave `qp`/`ko` uncommitted.
 
+- 2026-06-15 14:59 NZT - Codex: Committed the OC-080 runtime variable/script-source interpolation regression fix.
+  GitButler: `feature/runtime-script-variable-evaluation` (bl) is stacked on `feature/oc-140-websocket-lifecycle-ux`; implementation/demo/test/ledger commit is `429a563` (`Fix runtime script variable evaluation`). Earlier no-change commits `c61131d` and `05fa416` remain in the branch history from the pre-stack routing attempts.
+  Changed: ledger status only after `429a563`.
+  Verified: `but status -fv` after the implementation commit shows only unrelated generated PDF asset churn `qp`/`ko` in `zz`; no OC-080 runtime lifecycle changes remain unassigned.
+  Next: OC-080 regression follow-up is ready for review from `429a563`; preserve `qp`/`ko` for the PDF asset owner.
+
 ### OC-110 Runtime Authoring UX
 
 - 2026-06-15 09:15 NZT - Codex: Claimed OC-110 and recorded the coverage plan before implementation.
