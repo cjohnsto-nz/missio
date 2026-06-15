@@ -136,6 +136,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 
 ### OC-140 First-Class WebSocket Lifecycle UX
 
+- 2026-06-15 13:01 NZT - Codex: Addressed supervisor feedback that immediate WebSocket Connect could race the debounced editor document update and use stale YAML.
+  GitButler: committed OC-140 implementation/test follow-up to `feature/oc-140-websocket-lifecycle-ux` as `87b35c8` (`Prefer posted WebSocket lifecycle request`). The commit included only `src/panels/requestPanel.ts` and `test/webSocketSupport.test.ts`, leaving concurrent OC-120 ledger/PDF churn unassigned.
+  Coverage: host lifecycle resolution now prefers a posted protocol-valid WebSocket request before falling back to parsed document YAML; added a panel regression proving stale document URL/message/header data does not override the fresh posted Connect payload.
+  Changed: `src/panels/requestPanel.ts`, `test/webSocketSupport.test.ts`, and this ledger.
+  Verified: `npx vitest run test/webSocketSupport.test.ts` passed 24 tests; `npm run compile` passed; `node scripts/validate-collection.js examples/demo-api` passed 47/47 files; `npm test` passed 25 files/461 tests; `npm run build` passed.
+  Next: OC-140 remains Done. Preserve the unrelated unassigned OC-120 ledger update and PDF.js media churn IDs `qp`/`ko`.
+
 - 2026-06-15 12:11 NZT - Codex: Claimed OC-140 and recorded the required coverage plan before implementation.
   GitButler: `feature/oc-140-websocket-lifecycle-ux` (r0), stacked on `supervisor/add-websocket-lifecycle-task`; `but status -fv` showed unassigned PDF.js media churn IDs `qp`/`ko`, which are parallel/unrelated and must be preserved.
   Coverage: planned automated session-manager, fixture client, editor UI/history, status bar command, command palette/tree, CodeLens, Copilot lifecycle, cleanup/deactivation, failure-path, round-trip, validation, and shared WebSocket/runtime/request-type regression tests.
