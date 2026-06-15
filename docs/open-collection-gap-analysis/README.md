@@ -5,13 +5,14 @@ This wiki breaks the OpenCollection feature gap assessment into implementation t
 ## Start Here
 
 1. Read [AGENT_PROGRESS.md](AGENT_PROGRESS.md).
-2. Run `but status -fv` and read the current GitButler workspace state.
-3. Claim one unowned task by editing the owner and status fields in the central table.
-4. Create or identify the GitButler branch/stack for the task.
-5. Read the matching task page under [tasks/](tasks/).
-6. Record a test coverage plan in the central ledger before editing implementation code.
-7. Keep the progress ledger current before and after code changes.
-8. Link PRs, branches, commits, test runs, and blockers in the ledger.
+2. For stack review and merge sequencing, read [REVIEW_GUIDE.md](REVIEW_GUIDE.md).
+3. Run `but status -fv` and read the current GitButler workspace state.
+4. Claim one unowned task by editing the owner and status fields in the central table.
+5. Create or identify the GitButler branch/stack for the task.
+6. Read the matching task page under [tasks/](tasks/).
+7. Record a test coverage plan in the central ledger before editing implementation code.
+8. Keep the progress ledger current before and after code changes.
+9. Link PRs, branches, commits, test runs, and blockers in the ledger.
 
 ## GitButler Required Workflow
 
