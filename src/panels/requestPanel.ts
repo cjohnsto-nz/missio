@@ -550,7 +550,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     try {
       const session = await this._requestExecutionService.sendWebSocketMessage(
         filePath,
-        selectedWebSocketMessage(msg.request ?? request),
+        selectedWebSocketMessage(request),
         message => webview.postMessage({ type: 'webSocketProgress', message }),
       );
       webview.postMessage({ type: 'webSocketSession', session });

@@ -749,6 +749,123 @@ websocket:
     }
   });
 
+  it('sends the freshly posted WebSocket message when document YAML is stale', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const requestExecutionService = {
+      sendWebSocketMessage: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 1,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const staleYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/stale"',
+      '  message: { type: text, data: "stale" }',
+      '',
+    ].join('\n');
+    const postedRequest: WebSocketRequest = {
+      info: { name: 'Editor Socket', type: 'websocket' },
+      websocket: {
+        url: 'ws://127.0.0.1:7777/ws/current',
+        message: { type: 'text', data: 'current' },
+      },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._sendWebSocketMessage(
+        webview,
+        { request: postedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => staleYaml,
+          },
+        },
+      );
+
+      expect(requestExecutionService.sendWebSocketMessage).toHaveBeenCalledWith(
+        requestFilePath,
+        { type: 'text', data: 'current' },
+        expect.any(Function),
+      );
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the document request consistently when posted send-message data is malformed', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const requestExecutionService = {
+      sendWebSocketMessage: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 1,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const documentYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/document"',
+      '  message: { type: text, data: "document" }',
+      '',
+    ].join('\n');
+    const malformedPostedRequest = {
+      info: { name: 'Not a socket', type: 'http' },
+      http: { method: 'GET', url: 'https://example.com' },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._sendWebSocketMessage(
+        webview,
+        { request: malformedPostedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => documentYaml,
+          },
+        },
+      );
+
+      expect(requestExecutionService.sendWebSocketMessage).toHaveBeenCalledWith(
+        requestFilePath,
+        { type: 'text', data: 'document' },
+        expect.any(Function),
+      );
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('detects unresolved variables across WebSocket URL, inherited headers, message, and auth', async () => {
     const collection = makeCollection();
     collection.data.request!.headers = [{ name: 'X-Collection', value: '{{collectionHeader}}' }];
