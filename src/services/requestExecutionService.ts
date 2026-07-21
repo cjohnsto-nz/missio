@@ -1,9 +1,13 @@
 import type {
+  GraphQLRequest,
+  GrpcRequest,
+  HttpRequest,
   HttpResponse,
   MissioCollection,
   OpenCollectionRequest,
   RequestDefaults,
   RequestProtocol,
+  WebSocketRequest,
 } from '../models/types';
 import {
   isGraphQLRequest,
@@ -30,6 +34,19 @@ export class UnsupportedProtocolError extends Error {
     this.name = 'UnsupportedProtocolError';
     this.diagnostic = diagnostic;
   }
+}
+
+export interface RequestExecutor<TRequest extends OpenCollectionRequest> {
+  readonly protocol: RequestProtocol;
+  send(
+    request: TRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    cliApprovalPrompt?: CliApprovalPrompt,
+  ): Promise<HttpResponse>;
 }
 
 export class RequestExecutionService {
@@ -125,3 +142,8 @@ export function getUnsupportedProtocolDiagnostic(request: OpenCollectionRequest)
     message: 'This OpenCollection request protocol is not supported for execution yet.',
   };
 }
+
+export type HttpRequestExecutor = RequestExecutor<HttpRequest>;
+export type GraphQLRequestExecutor = RequestExecutor<GraphQLRequest>;
+export type GrpcRequestExecutor = RequestExecutor<GrpcRequest>;
+export type WebSocketRequestExecutor = RequestExecutor<WebSocketRequest>;
