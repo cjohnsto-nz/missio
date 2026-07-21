@@ -31,14 +31,10 @@ GitButler skill availability has been verified with `but skill check`:
 
 | Install | Path | Version |
 | --- | --- | --- |
-| Agent Skills global | `%USERPROFILE%\.agents\skills\gitbutler` | `0.20.0` |
+| Agent Skills global | `C:\Users\chris\.agents\skills\gitbutler` | `0.20.0` |
 | OpenCode local | `.opencode/skills/gitbutler` | `0.20.0` |
 
 If an agent host injects the GitButler skill, use it. If not, read `.opencode/skills/gitbutler/SKILL.md` before performing version-control operations.
-
-## Dependency Budget
-
-Prefer zero or low-transitive-cost dependencies. Before adding a non-trivial dependency, record its necessity, transitive and packaging impact, and approval in `AGENT_PROGRESS.md`. Do not add speculative or unused packages.
 
 ## Test Coverage Contract
 

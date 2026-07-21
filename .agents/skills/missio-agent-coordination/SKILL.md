@@ -31,7 +31,6 @@ description: Coordinate parallel AI agent work on Missio's OpenCollection featur
 
 - Do not overwrite another agent's table row or log entry unless you are completing an explicit handoff.
 - Prefer splitting work in the task log over broad overlapping claims.
-- Keep dependency additions minimal; record non-trivial dependency necessity, transitive/packaging impact, and approval in `AGENT_PROGRESS.md`, and never add unused packages.
 - Mark `Blocked` only when a concrete dependency or missing decision prevents progress.
 - Include test evidence in the log: command, result, coverage matched to the plan, and any skipped tests.
 - Do not set `Review Ready` or `Done` until the coverage plan is satisfied by passing automated tests and the claimed changes are committed to the recorded GitButler branch/stack.

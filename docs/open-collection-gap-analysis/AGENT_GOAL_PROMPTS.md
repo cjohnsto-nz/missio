@@ -49,7 +49,7 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## User And Agent Surfaces
 
 ```text
-/goal Complete OC-070 imports, exports, Postman script/event mapping, tree, CodeLens, commands, and Copilot protocol tooling using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until all user-facing and agent-facing surfaces are protocol-aware, unsupported conversions are explicit, AGENT_PROGRESS updates are complete, and complete automated tests for tree, CodeLens, commands, import/export, and Copilot tools are implemented and passing.
+/goal Complete OC-070 imports, exports, tree, CodeLens, commands, and Copilot protocol tooling using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until all user-facing and agent-facing surfaces are protocol-aware, unsupported conversions are explicit, AGENT_PROGRESS updates are complete, and complete automated tests for tree, CodeLens, commands, import/export, and Copilot tools are implemented and passing.
 ```
 
 ## Final Integration
