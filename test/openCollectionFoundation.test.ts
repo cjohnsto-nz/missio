@@ -80,6 +80,11 @@ describe('OpenCollection foundation type guards and parser routing', () => {
   it('classifies every schema item variant', () => {
     const http = { info: { type: 'http' }, http: { method: 'GET', url: 'https://example.com' } };
     const graphql = { info: { type: 'graphql' }, graphql: { url: 'https://example.com/graphql' } };
+    const graphqlWithStrayHttp = {
+      info: { type: 'graphql' },
+      graphql: { url: 'https://example.com/graphql' },
+      http: { method: 'GET', url: 'https://example.com' },
+    };
     const grpc = { info: { type: 'grpc' }, grpc: { url: 'localhost:50051', method: 'pkg.Service/Get' } };
     const websocket = { info: { type: 'websocket' }, websocket: { url: 'wss://example.com/socket' } };
     const folder = { info: { type: 'folder' }, items: [http] };
@@ -93,6 +98,9 @@ describe('OpenCollection foundation type guards and parser routing', () => {
     expect(isScriptFile(script)).toBe(true);
     expect(isProtocolRequest(script)).toBe(false);
     expect(getItemKind(graphql)).toBe('graphql');
+    expect(isGraphQLRequest(graphqlWithStrayHttp)).toBe(true);
+    expect(isHttpRequest(graphqlWithStrayHttp)).toBe(false);
+    expect(getItemKind(graphqlWithStrayHttp)).toBe('graphql');
   });
 
   it('reads non-HTTP request files without casting them to HTTP', async () => {

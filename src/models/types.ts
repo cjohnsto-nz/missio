@@ -540,24 +540,38 @@ function hasObjectKey(value: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key) && isRecord(value[key]);
 }
 
+export function getRequestProtocol(item: unknown): RequestProtocol | undefined {
+  if (!isRecord(item)) return undefined;
+
+  const infoType = isRecord(item.info) && typeof item.info.type === 'string'
+    ? item.info.type
+    : undefined;
+  if (infoType === 'http' || infoType === 'graphql' || infoType === 'grpc' || infoType === 'websocket') {
+    return infoType;
+  }
+  if (infoType) return undefined;
+
+  if (hasObjectKey(item, 'http')) return 'http';
+  if (hasObjectKey(item, 'graphql')) return 'graphql';
+  if (hasObjectKey(item, 'grpc')) return 'grpc';
+  if (hasObjectKey(item, 'websocket')) return 'websocket';
+  return undefined;
+}
+
 export function isHttpRequest(item: unknown): item is HttpRequest {
-  if (!isRecord(item)) return false;
-  return (isRecord(item.info) && item.info.type === 'http') || hasObjectKey(item, 'http');
+  return getRequestProtocol(item) === 'http';
 }
 
 export function isGraphQLRequest(item: unknown): item is GraphQLRequest {
-  if (!isRecord(item)) return false;
-  return (isRecord(item.info) && item.info.type === 'graphql') || hasObjectKey(item, 'graphql');
+  return getRequestProtocol(item) === 'graphql';
 }
 
 export function isGrpcRequest(item: unknown): item is GrpcRequest {
-  if (!isRecord(item)) return false;
-  return (isRecord(item.info) && item.info.type === 'grpc') || hasObjectKey(item, 'grpc');
+  return getRequestProtocol(item) === 'grpc';
 }
 
 export function isWebSocketRequest(item: unknown): item is WebSocketRequest {
-  if (!isRecord(item)) return false;
-  return (isRecord(item.info) && item.info.type === 'websocket') || hasObjectKey(item, 'websocket');
+  return getRequestProtocol(item) === 'websocket';
 }
 
 export function isFolder(item: unknown): item is Folder {
@@ -576,10 +590,8 @@ export function isProtocolRequest(item: unknown): item is OpenCollectionRequest 
 }
 
 export function getItemKind(item: unknown): OpenCollectionItemKind {
-  if (isHttpRequest(item)) return 'http';
-  if (isGraphQLRequest(item)) return 'graphql';
-  if (isGrpcRequest(item)) return 'grpc';
-  if (isWebSocketRequest(item)) return 'websocket';
+  const protocol = getRequestProtocol(item);
+  if (protocol) return protocol;
   if (isFolder(item)) return 'folder';
   if (isScriptFile(item)) return 'script';
   return 'unknown';

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Ajv, { type ErrorObject } from 'ajv';
 import { parse as parseYaml } from 'yaml';
-import { isGraphQLRequest, isGrpcRequest, isScriptFile, isWebSocketRequest } from '../models/types';
+import { getRequestProtocol, isScriptFile } from '../models/types';
 
 // ── File classification (mirrors yamlParser.ts logic) ───────────────
 
@@ -280,14 +280,14 @@ async function scanDirectory(
 }
 
 function getRequestValidationRoute(data: any, validators: Validators): ValidationRoute {
-  const infoType = data?.info?.type;
-  if (isGraphQLRequest(data) || infoType === 'graphql') {
+  const protocol = getRequestProtocol(data);
+  if (protocol === 'graphql') {
     return { validator: validators.graphQLRequest, schemaLabel: 'GraphQLRequest' };
   }
-  if (isGrpcRequest(data) || infoType === 'grpc') {
+  if (protocol === 'grpc') {
     return { validator: validators.grpcRequest, schemaLabel: 'GrpcRequest' };
   }
-  if (isWebSocketRequest(data) || infoType === 'websocket') {
+  if (protocol === 'websocket') {
     return { validator: validators.webSocketRequest, schemaLabel: 'WebSocketRequest' };
   }
   if (isScriptFile(data) || data?.type === 'script') {
