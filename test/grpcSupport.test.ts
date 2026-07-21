@@ -6,6 +6,7 @@ import Ajv from 'ajv';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import * as vscode from 'vscode';
 import type { MissioCollection, RequestDefaults } from '../src/models/types';
 import { EnvironmentService } from '../src/services/environmentService';
 import { GrpcClient } from '../src/services/grpcClient';
@@ -234,13 +235,23 @@ async function startServer(): Promise<void> {
     uploadUsers(call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) {
       const requests: any[] = [];
       call.on('data', request => requests.push(request));
-      call.on('end', () => callback(null, {
-        count: requests.length,
-        names: requests.map(request => request.name).join(','),
-        requestIds: requests.map(request => request.trace?.requestId ?? '').join(','),
-        authorization: String(call.metadata.get('authorization')[0] ?? ''),
-        defaultMetadata: String(call.metadata.get('x-demo-default')[0] ?? ''),
-      }));
+      call.on('end', () => {
+        if (requests.some(request => request.userId === 999)) {
+          callback(Object.assign(new Error('Demo client stream failure'), {
+            code: grpc.status.INTERNAL,
+            details: 'Demo client stream failure',
+            metadata: new grpc.Metadata(),
+          }) as grpc.ServiceError);
+          return;
+        }
+        callback(null, {
+          count: requests.length,
+          names: requests.map(request => request.name).join(','),
+          requestIds: requests.map(request => request.trace?.requestId ?? '').join(','),
+          authorization: String(call.metadata.get('authorization')[0] ?? ''),
+          defaultMetadata: String(call.metadata.get('x-demo-default')[0] ?? ''),
+        });
+      });
     },
     chatUsers(call: grpc.ServerDuplexStream<any, any>) {
       call.on('data', request => {
@@ -349,7 +360,7 @@ describe('gRPC execution', () => {
     await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
     const client = new GrpcClient(environmentService);
 
-    const response = await client.send(makeClientStreamingRequest(address) as any, collection);
+    const response = await client.send(makeClientStreamingRequest(address), collection);
     const body = JSON.parse(response.body);
     const summary = body.receivedMessages[0].message;
 
@@ -372,7 +383,7 @@ describe('gRPC execution', () => {
     await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
     const client = new GrpcClient(environmentService);
 
-    const response = await client.send(makeBidiStreamingRequest(address) as any, collection);
+    const response = await client.send(makeBidiStreamingRequest(address), collection);
     const body = JSON.parse(response.body);
 
     expect(response.status).toBe(200);
@@ -381,6 +392,43 @@ describe('gRPC execution', () => {
     expect(body.receivedMessages.map((entry: any) => entry.message.name)).toEqual(['ack:Ada', 'ack:Grace']);
     expect(body.events.filter((event: any) => event.type === 'sent')).toHaveLength(2);
     expect(body.events.filter((event: any) => event.type === 'received')).toHaveLength(2);
+  });
+
+  it('records a client-streaming failure once when grpc-js reports it through both error paths', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    const client = new GrpcClient(environmentService);
+    const request = makeClientStreamingRequest(address);
+    request.grpc.message = [{
+      description: 'trigger server failure',
+      message: '{"name":"Ada","userId":999,"trace":{"requestId":"client-error"}}',
+    }];
+
+    const response = await client.send(request, collection);
+    const body = JSON.parse(response.body);
+
+    expect(response.status).toBe(0);
+    expect(response.headers['x-missio-grpc-status']).toBe(String(grpc.status.INTERNAL));
+    expect(body.events.filter((event: any) => event.type === 'error')).toHaveLength(1);
+  });
+
+  it('applies the configured timeout to streaming calls and preserves deadline diagnostics', async () => {
+    vi.spyOn(vscode.workspace, 'getConfiguration').mockReturnValue({
+      get: (key: string, defaultValue: unknown) => key === 'timeout' ? 20 : defaultValue,
+    } as any);
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    const client = new GrpcClient(environmentService);
+
+    const response = await client.send(makeServerStreamingRequest(address, 999), collection);
+    const body = JSON.parse(response.body);
+
+    expect(response.status).toBe(0);
+    expect(response.headers['x-missio-grpc-status']).toBe(String(grpc.status.DEADLINE_EXCEEDED));
+    expect(body.error).toMatchObject({
+      code: grpc.status.DEADLINE_EXCEEDED,
+      name: 'DEADLINE_EXCEEDED',
+    });
   });
 
   it('retains partial stream responses and final gRPC error details', async () => {
@@ -425,7 +473,7 @@ describe('gRPC execution', () => {
         protoFilePath: 'proto/services/missio_demo.proto',
         message: '{"userId": 42}',
       },
-    } as any, collection)).rejects.toThrow(/ordered array of request message objects/);
+    }, collection)).rejects.toThrow(/ordered array of request message objects/);
 
     await expect(client.send({
       ...makeServerStreamingRequest(address),
@@ -439,7 +487,7 @@ describe('gRPC execution', () => {
     await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
     const client = new GrpcClient(environmentService);
 
-    const pending = client.send(makeServerStreamingRequest(address, 999) as any, collection);
+    const pending = client.send(makeServerStreamingRequest(address, 999), collection);
     setTimeout(() => client.cancelAll(), 10);
 
     await expect(pending).rejects.toThrow(/cancelled/i);
@@ -449,7 +497,7 @@ describe('gRPC execution', () => {
 
 describe('gRPC schema and tooling surfaces', () => {
   it('validates and round-trips streaming message sequences through schema-safe editors', () => {
-    const request = makeClientStreamingRequest('localhost:50051') as any;
+    const request = makeClientStreamingRequest('localhost:50051');
     const updatedRequest = applyRequestEditorModel(request, createRequestEditorModelFromRequest(request));
     const roundTripped = parseYaml(stringifyYaml(updatedRequest, { lineWidth: 120 }));
 

@@ -78,15 +78,6 @@ interface GrpcErrorSummary extends GrpcStatusSummary {
   message: string;
 }
 
-export class GrpcStreamingUnsupportedError extends Error {
-  public readonly code = 'MISSIO_GRPC_STREAMING_UNSUPPORTED';
-
-  constructor(public readonly methodType: Exclude<GrpcMethodType, 'unary'>) {
-    super(`gRPC ${methodType} requests are not supported yet. Missio currently supports unary gRPC requests for OC-030; streaming modes are explicit follow-up work.`);
-    this.name = 'GrpcStreamingUnsupportedError';
-  }
-}
-
 export class GrpcClient implements vscode.Disposable {
   private readonly _activeCalls = new Map<string, ActiveGrpcCall>();
 
@@ -449,6 +440,7 @@ export class GrpcClient implements vscode.Disposable {
         { deadline: new Date(Date.now() + timeout) },
         (err: grpc.ServiceError | null, response: unknown) => {
           if (err) {
+            if (settled) return;
             events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
             settle(err);
             return;
@@ -468,6 +460,7 @@ export class GrpcClient implements vscode.Disposable {
         events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
       });
       call.on('error', err => {
+        if (settled) return;
         events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
         settle(err);
       });
