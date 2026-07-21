@@ -184,7 +184,8 @@ function mergeParams(previous: unknown[] | undefined, rows: KeyValueEditorRow[] 
 }
 
 function mergeVariables(previous: unknown[] | undefined, variables: unknown[] | undefined): unknown[] | undefined {
-  if (!variables || variables.length === 0) return undefined;
+  if (!variables) return undefined;
+  if (variables.length === 0) return Array.isArray(previous) ? [] : undefined;
 
   return variables
     .filter(variable => isObject(variable) && typeof variable.name === 'string' && variable.name.length > 0)
