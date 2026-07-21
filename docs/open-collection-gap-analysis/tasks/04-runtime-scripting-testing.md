@@ -16,7 +16,7 @@ Implement OpenCollection runtime lifecycle support: scripts, tests, assertions, 
 
 ## Current Gap
 
-Only TypeScript interfaces exist. There is no sandbox, runtime context, assertion evaluator, action evaluator, test result UI, or Postman script conversion.
+Only TypeScript interfaces exist. There is no sandbox, runtime context, assertion evaluator, action evaluator, or test result UI. Postman script/event conversion is owned by OC-070 and depends on this runtime contract.
 
 ## Implementation Plan
 
@@ -33,8 +33,8 @@ Only TypeScript interfaces exist. There is no sandbox, runtime context, assertio
 
 | Option | Notes |
 | --- | --- |
-| Node `vm` sandbox | Lightweight, local, must restrict globals carefully. |
-| Isolated VM package | Better isolation, extra dependency and packaging work. |
+| Bare Node `vm` | Not a security boundary; never use it for untrusted collection scripts. |
+| Isolated worker or sandbox | Preferred for untrusted scripts; record the isolation and packaging trade-offs before choosing an implementation. |
 
 3. Implement lifecycle order:
 

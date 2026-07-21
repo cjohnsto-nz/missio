@@ -59,3 +59,5 @@ Add schema-aligned TypeScript types for:
 
 This task should be claimed before major protocol implementation begins. If multiple agents need it, split by `models/types.ts`, parser/type guards, and executor facade, then coordinate through `AGENT_PROGRESS.md`.
 
+OC-000 owns the shared model, type guards, parser routing, and execution facade. Protocol-specific tree, CodeLens, command, import, and export behavior remains with the protocol tracks or OC-070.
+

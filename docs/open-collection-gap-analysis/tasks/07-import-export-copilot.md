@@ -51,7 +51,7 @@ Make Missio's user-facing and agent-facing surfaces protocol-aware after the mod
 
 | Area | Work |
 | --- | --- |
-| Postman importer | Preserve scripts/events where mappable after OC-040. |
+| Postman importer | OC-070 owns preserving mappable scripts/events after the OC-040 runtime contract lands; record unsupported mappings and cover collection, folder, and request event scopes with importer tests. |
 | OpenAPI importer | Detect GraphQL only if source metadata supports it; otherwise keep HTTP. |
 | Snippet exporter | Keep HTTP exporters, add clear unsupported messages for non-HTTP until implemented. |
 
