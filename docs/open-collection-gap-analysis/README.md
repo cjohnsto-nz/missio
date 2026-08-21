@@ -73,6 +73,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-140 | WebSocket Lifecycle UX | [14-websocket-lifecycle-ux.md](tasks/14-websocket-lifecycle-ux.md) | First-class connect, disconnect, send, status bar, CodeLens, and Copilot lifecycle management for WebSocket sessions. |
 | OC-150 | Runtime Assertion Variables And WebSocket Results UX | [15-runtime-assertion-variables.md](tasks/15-runtime-assertion-variables.md) | Variable-aware assertion fields, assertion interpolation, WebSocket runtime result visibility, and lifecycle button contrast. |
 | OC-160 | gRPC Demo Server Reliability | [16-grpc-demo-server-reliability.md](tasks/16-grpc-demo-server-reliability.md) | User-verifiable gRPC demo startup, localhost fixture reliability, and live smoke coverage. |
+| OC-170 | Request Action First-Click Reliability | [17-request-action-first-click.md](tasks/17-request-action-first-click.md) | Send, Connect, Disconnect, and related request actions fire on first click after opening a request. |
 
 ## Project Skills
 
@@ -89,13 +90,14 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 
 ## Final Compatibility Evidence
 
-OC-000 through OC-150 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). OC-160 is a focused follow-up for gRPC demo server startup and live user-verification reliability. The table below records the main evidence surfaces that remain useful for maintenance and future audits.
+OC-000 through OC-150 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). OC-160 and OC-170 are focused follow-ups for gRPC demo reliability and first-click request action reliability. The table below records the main evidence surfaces that remain useful for maintenance and future audits.
 
 | Evidence Surface | Location |
 | --- | --- |
 | Request creation, starter templates, and visible request type identity. | [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts), [src/services/requestTemplates.ts](../../src/services/requestTemplates.ts), [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
 | Import/export protocol diagnostics and snippet limitations. | [src/importers](../../src/importers), [src/services/snippetExporter.ts](../../src/services/snippetExporter.ts) |
 | Runtime scripting, tests, assertions, actions, and visual authoring. | [src/services/runtimeExecutionService.ts](../../src/services/runtimeExecutionService.ts), [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
+| Request editor action readiness, first-click behavior, and protocol action routing. | [src/panels/requestPanel.ts](../../src/panels/requestPanel.ts), [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts), [src/commands/requestCommands.ts](../../src/commands/requestCommands.ts) |
 | Protocol execution for GraphQL, WebSocket, and gRPC unary/streaming requests. | [src/services/graphqlSupport.ts](../../src/services/graphqlSupport.ts), [src/services/webSocketClient.ts](../../src/services/webSocketClient.ts), [src/services/grpcClient.ts](../../src/services/grpcClient.ts) |
 | Local fixture API, demo requests, and collection validation. | [examples/demo-api](../../examples/demo-api), [scripts/validate-collection.js](../../scripts/validate-collection.js) |
 | gRPC demo startup and fixture smoke coverage. | [examples/demo-api/grpc-server.js](../../examples/demo-api/grpc-server.js), [examples/demo-api/gRPC](../../examples/demo-api/gRPC) |
