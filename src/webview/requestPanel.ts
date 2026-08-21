@@ -195,6 +195,45 @@ function updateWebSocketControls(): void {
   sendMessageBtn.disabled = !connected;
 }
 
+function syncRuntimeTabForProtocol(): void {
+  const runtimeTab = document.getElementById('respRuntimeTab');
+  if (!runtimeTab) return;
+  const showRuntimeTab = _currentProtocol === 'websocket' || !!getLastResponse()?.runtime;
+  runtimeTab.style.display = showRuntimeTab ? '' : 'none';
+  if (!showRuntimeTab && runtimeTab.classList.contains('active')) {
+    (document.querySelector('#respTabs [data-tab="resp-body"]') as HTMLElement | null)?.click();
+  }
+}
+
+function syncResponseLayoutForProtocol(): void {
+  const isWebSocket = _currentProtocol === 'websocket';
+  const responseSection = $('responseSection');
+  const respBodyTab = document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]');
+  if (respBodyTab) respBodyTab.textContent = isWebSocket ? 'Messages' : 'Body';
+  responseSection.classList.toggle('websocket-response-tabs', isWebSocket);
+  responseSection.classList.remove('websocket-response-ledger-only');
+  syncRuntimeTabForProtocol();
+
+  if (!isWebSocket) {
+    const response = getLastResponse();
+    const hasResponse = !!response;
+    const binaryOverlay = document.getElementById('respBinaryOverlay');
+    const isBinary = !!response?.bodyBase64;
+    $('respTabs').style.display = hasResponse ? 'flex' : 'none';
+    $('respEmpty').style.display = hasResponse ? 'none' : 'block';
+    $('respBodyWrap').style.display = hasResponse && !isBinary ? 'block' : 'none';
+    if (binaryOverlay) binaryOverlay.style.display = hasResponse && isBinary ? 'block' : 'none';
+    return;
+  }
+
+  $('respTabs').style.display = 'flex';
+  $('respEmpty').style.display = 'none';
+  $('respBodyWrap').style.display = 'none';
+  const binaryOverlay = document.getElementById('respBinaryOverlay');
+  if (binaryOverlay) binaryOverlay.style.display = 'none';
+  closeSearch();
+}
+
 function formatWebSocketEventTime(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp;
@@ -266,6 +305,35 @@ function renderWebSocketSession(): void {
     history.scrollTop = history.scrollHeight;
   }
   updateWebSocketControls();
+  syncResponseLayoutForProtocol();
+}
+
+function parseWebSocketResponseSession(response: any): WebSocketSessionSnapshot | undefined {
+  if (!response || typeof response.body !== 'string') return undefined;
+  try {
+    const body = JSON.parse(response.body);
+    if (body?.protocol !== 'websocket' || !Array.isArray(body.events)) return undefined;
+    const events = body.events as WebSocketSessionEvent[];
+    return {
+      requestId: _webSocketSession.requestId,
+      state: body.state || 'closed',
+      url: body.url,
+      events,
+      inboundCount: body.messageCount ?? events.filter(event => event.direction === 'inbound').length,
+      outboundCount: events.filter(event => event.direction === 'outbound').length,
+      lastError: events.find(event => event.direction === 'error')?.reason,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function renderWebSocketResponse(response: any): void {
+  const session = parseWebSocketResponseSession(response);
+  if (session) setWebSocketSession(session);
+  else renderWebSocketSession();
+  switchTab($('respTabs'), 'resp-body', respPanelIds);
+  syncResponseLayoutForProtocol();
 }
 
 function connectWebSocket(): void {
@@ -805,6 +873,12 @@ function wireRuntimeRow(row: HTMLElement): void {
   });
 }
 
+function enableRuntimeAssertionVariableFields(row: HTMLElement): void {
+  row.querySelectorAll<HTMLInputElement>('.rt-assertion-expression, .rt-assertion-value, .rt-assertion-description').forEach((input) => {
+    enableVarOverlay(input);
+  });
+}
+
 function addRuntimeScript(type = 'before-request', code = '', disabled = false, originalIndex?: number): void {
   const list = $('runtimeScriptsList');
   const row = document.createElement('div');
@@ -844,17 +918,18 @@ function addRuntimeAssertion(
   row.innerHTML =
     '<div class="runtime-row-toolbar">' +
       '<input type="checkbox" class="runtime-enabled rt-assertion-enabled" title="Enabled" ' + (disabled ? '' : 'checked') + ' />' +
-      '<input type="text" class="runtime-input rt-assertion-expression" value="' + esc(expression) + '" placeholder="res.status" />' +
+      '<span class="runtime-var-field rt-assertion-expression-field"><input type="text" class="runtime-input rt-assertion-expression" value="' + esc(expression) + '" placeholder="res.status" /></span>' +
       '<select class="runtime-select rt-assertion-operator">' + optionsHtml(runtimeAssertionOperators, operator) + '</select>' +
-      '<input type="text" class="runtime-input rt-assertion-value" value="' + esc(value) + '" placeholder="expected" />' +
+      '<span class="runtime-var-field rt-assertion-value-field"><input type="text" class="runtime-input rt-assertion-value" value="' + esc(value) + '" placeholder="expected" /></span>' +
       '<div class="runtime-row-actions">' +
         '<button class="runtime-icon-btn runtime-move-up" type="button" title="Move up">&#8593;</button>' +
         '<button class="runtime-icon-btn runtime-move-down" type="button" title="Move down">&#8595;</button>' +
         '<button class="runtime-icon-btn runtime-delete" type="button" title="Remove">&times;</button>' +
       '</div>' +
     '</div>' +
-    '<input type="text" class="runtime-input runtime-description rt-assertion-description" value="' + esc(description) + '" placeholder="description" />';
+    '<span class="runtime-var-field rt-assertion-description-field"><input type="text" class="runtime-input runtime-description rt-assertion-description" value="' + esc(description) + '" placeholder="description" /></span>';
   wireRuntimeRow(row);
+  enableRuntimeAssertionVariableFields(row);
   list.appendChild(row);
   updateRuntimeBadge();
 }
@@ -1050,7 +1125,10 @@ function setProtocolUi(protocol: PanelProtocol): void {
   }
   ($('wsSendBtn') as HTMLElement).style.display = isWebSocket ? '' : 'none';
   $('webSocketSessionPanel').style.display = isWebSocket ? 'flex' : 'none';
-  $('responseSection').classList.toggle('websocket-response-ledger-only', isWebSocket);
+  syncResponseLayoutForProtocol();
+  if (isWebSocket && getLastResponse()?.headers?.['x-missio-protocol'] !== 'websocket') {
+    $('responseBar').style.display = 'none';
+  }
   $('saveExampleBtn').style.display = (isWebSocket || isGrpc) ? 'none' : '';
   $('refreshOAuthRetryBtn').style.display = 'none';
 
@@ -1964,6 +2042,9 @@ window.addEventListener('message', (event: MessageEvent) => {
       $('exampleIndicator').style.display = 'none';
       closeSearch();
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
+      if (_currentProtocol === 'websocket') {
+        renderWebSocketResponse(msg.response);
+      }
       setSendingState(false);
       tokenStatusCtrl.requestStatus();
       break;

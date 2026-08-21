@@ -63,8 +63,8 @@ This task also owns the dark-mode contrast polish for WebSocket lifecycle button
 
 | Area | Expected Work |
 | --- | --- |
-| Dark mode connect | In dark mode, use background `#2aa32a` and white text for the connected/connect action state. |
-| Dark mode disconnect | In dark mode, use background `#a33e2a` and white text for the disconnect/destructive action state. |
+| Dark mode connect | Use the same no-fill treatment as the collection Add Environment control: theme success text, normal input border, and theme success border on hover while preserving the current lifecycle button size and shape. |
+| Dark mode disconnect | Use the same no-fill treatment as the collection Remove Environment control: theme error text, normal input border, and theme error border on hover while preserving the current lifecycle button size and shape. |
 | States | Preserve disabled, hover, active, and focus-visible states with accessible contrast. |
 | Theme safety | Keep light/high-contrast themes readable. Use scoped CSS and VS Code theme selectors where appropriate. |
 
@@ -87,7 +87,7 @@ This task also owns the dark-mode contrast polish for WebSocket lifecycle button
 | Clear unresolved behavior | Missing variables in assertion fields are detected before execution or reported through deterministic assertion diagnostics. |
 | WebSocket result visibility | WebSocket users can see runtime script/test/assertion/action output in the editor after the relevant lifecycle response or disconnect event. |
 | Stable WebSocket layout | Result visibility does not bring back an empty HTTP response pane or stale HTTP controls for WebSocket requests. |
-| Button contrast | Dark-mode WebSocket lifecycle buttons use white text, connect green `#2aa32a`, and disconnect red `#a33e2a` without black text. |
+| Button contrast | WebSocket lifecycle buttons use theme success/error text and hover borders with no filled background, matching the collection environment toolbar style without black text or hardcoded OC-150 color fills. |
 | Tests | Complete automated tests cover editor field behavior, runtime interpolation, unresolved-variable detection, WebSocket result visibility, button contrast, and shared runtime/protocol regressions. |
 
 ## Suggested Tests

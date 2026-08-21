@@ -355,22 +355,47 @@ body {
 .btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
 #sendBtn { min-width: 70px; text-align: center; }
 #exportCopyBtn, #exportSaveBtn { width: 70px; text-align: center; }
+#sendBtn:not(.btn-cancel), #wsSendBtn {
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--btn-bg, #0078d4);
+}
+#sendBtn:not(.btn-cancel):hover:not(:disabled), #wsSendBtn:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--btn-bg, #0078d4);
+}
 .btn-primary:hover { background: var(--btn-hover); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary.sending { animation: pulse 1s infinite; }
-.btn-primary.btn-cancel { background: var(--vscode-errorForeground, #f14c4c); animation: none; }
+.btn-primary.btn-cancel {
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--badge-error, #ef4444);
+  animation: none;
+}
+.btn-primary.btn-cancel:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--badge-error, #ef4444);
+}
 .request-editor-shell[data-protocol="websocket"] #sendBtn {
   flex: 0 0 90px;
   width: 90px;
   min-width: 90px;
-  background: var(--badge-success);
-  color: var(--m-status-badge-text);
+  background: transparent;
+  border: 1px solid var(--input-border);
+  color: var(--badge-success, #22c55e);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: transparent;
+  border-color: var(--badge-success, #22c55e);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state {
-  background: var(--badge-error);
+  background: transparent;
+  color: var(--badge-error, #ef4444);
+}
+.request-editor-shell[data-protocol="websocket"] #sendBtn.ws-disconnect-state:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--badge-error, #ef4444);
 }
 .request-editor-shell[data-protocol="websocket"] #sendBtn:disabled {
   opacity: 0.5;
@@ -642,9 +667,31 @@ body {
 .runtime-description {
   flex-basis: 100%;
 }
+.runtime-var-field {
+  display: inline-flex;
+  min-width: 120px;
+  flex: 1 1 160px;
+}
+.runtime-var-field .runtime-input {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.runtime-var-field .var-overlay {
+  padding: 5px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 4px;
+}
 .rt-assertion-expression,
 .rt-action-selector {
   flex-basis: 220px;
+}
+.rt-assertion-expression-field {
+  flex-basis: 220px;
+}
+.rt-assertion-description-field {
+  flex-basis: 100%;
 }
 .rt-action-name {
   flex-basis: 140px;
@@ -730,21 +777,14 @@ body {
 .websocket-session-panel {
   display: flex;
   flex-direction: column;
-  min-height: 112px;
-  max-height: 190px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.response-section.websocket-response-ledger-only .websocket-session-panel {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
-  border-bottom: none;
+  background: var(--bg);
 }
-.response-section.websocket-response-ledger-only .response-bar,
-.response-section.websocket-response-ledger-only #respTabs,
-.response-section.websocket-response-ledger-only .resp-search-bar,
-.response-section.websocket-response-ledger-only .response-body {
+.response-section.websocket-response-tabs #respEmpty,
+.response-section.websocket-response-tabs #respBodyWrap,
+.response-section.websocket-response-tabs #respBinaryOverlay {
   display: none !important;
 }
 .websocket-session-header {

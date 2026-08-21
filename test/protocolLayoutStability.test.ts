@@ -214,6 +214,9 @@ describe('OC-130 request editor first paint', () => {
     const methodPicker = document.getElementById('methodPicker') as HTMLElement;
     const protocolIcon = document.getElementById('protocolIcon') as HTMLElement;
     const responseSection = document.getElementById('responseSection') as HTMLElement;
+    const responseTabs = document.getElementById('respTabs') as HTMLElement;
+    const responseBodyTab = document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]');
+    const runtimeTab = document.getElementById('respRuntimeTab') as HTMLElement;
     const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
 
     expect(shell.dataset.hydrationState).toBe('ready');
@@ -253,7 +256,14 @@ describe('OC-130 request editor first paint', () => {
       expect(sendMessageBtn.textContent).toBe('Send');
       expect(sendMessageBtn.className).toContain('btn-primary');
       expect(document.getElementById('wsDisconnectBtn')).toBeNull();
-      expect(responseSection.className).toContain('websocket-response-ledger-only');
+      expect(responseSection.className).toContain('websocket-response-tabs');
+      expect(responseSection.className).not.toContain('websocket-response-ledger-only');
+      expect(responseTabs.style.display).toBe('flex');
+      expect(responseBodyTab?.textContent).toBe('Messages');
+      expect(runtimeTab.style.display).toBe('');
+      expect(document.getElementById('webSocketSessionPanel')?.parentElement?.id).toBe('panel-resp-body');
+      expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+      expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
 
       dispatchPanelMessage(dom, { type: 'webSocketConnecting' });
       expect(connectBtn.textContent).toBe('Disconnect');
@@ -277,8 +287,145 @@ describe('OC-130 request editor first paint', () => {
       connectBtn.click();
       expect(messages.slice(messageCount)).toContainEqual({ type: 'webSocketDisconnect' });
     } else {
+      expect(responseSection.className).not.toContain('websocket-response-tabs');
       expect(responseSection.className).not.toContain('websocket-response-ledger-only');
+      expect(responseBodyTab?.textContent).toBe('Body');
+      expect(runtimeTab.style.display).toBe('none');
     }
+  });
+
+  it('keeps the WebSocket Runtime tab visible before runtime results exist', async () => {
+    const { dom } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+
+    const runtimeTab = document.getElementById('respRuntimeTab') as HTMLElement;
+    const runtimeResults = document.getElementById('runtimeResults') as HTMLElement;
+    expect(runtimeTab.style.display).toBe('');
+    expect(runtimeResults.textContent).toBe('');
+
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          url: 'ws://example.test/socket',
+          state: 'connected',
+          messageCount: 1,
+          events: [{ timestamp: '2026-06-15T01:02:03.789Z', direction: 'inbound', type: 'text', data: 'hello' }],
+        }),
+        duration: 12,
+        size: 0,
+      },
+    });
+
+    expect(document.getElementById('responseSection')?.className).toContain('websocket-response-tabs');
+    expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Messages');
+    expect(runtimeTab.style.display).toBe('');
+    expect(runtimeResults.textContent).toBe('');
+    expect((document.getElementById('webSocketHistory') as HTMLElement).textContent).toContain('hello');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
+  });
+
+  it('renders WebSocket messages and runtime results in the existing response tabs', async () => {
+    const { dom } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          url: 'ws://example.test/socket',
+          state: 'closed',
+          messageCount: 1,
+          events: [
+            { timestamp: '2026-06-15T01:02:03.456Z', direction: 'outbound', type: 'text', data: 'ping' },
+            { timestamp: '2026-06-15T01:02:03.789Z', direction: 'inbound', type: 'text', data: 'hello' },
+          ],
+        }),
+        runtime: {
+          success: false,
+          summary: { passed: 1, failed: 1, skipped: 0 },
+          tests: [{ name: 'socket echoed', passed: true }],
+          assertions: [{
+            expression: 'res.body.message',
+            operator: 'equals',
+            expected: 'ok',
+            actual: 'hello',
+            passed: false,
+            message: 'Expected hello equals ok',
+          }],
+          actions: [{ type: 'set-variable', phase: 'after-response', target: 'runtime.wsMessageCount', value: 1, passed: true }],
+          variableMutations: [],
+          logs: [{ phase: 'after-response', level: 'log', message: 'websocket after hello' }],
+          errors: [],
+        },
+        duration: 12,
+        size: 0,
+      },
+    });
+
+    const responseSection = document.getElementById('responseSection') as HTMLElement;
+    const responseTabs = document.getElementById('respTabs') as HTMLElement;
+    const runtimeTab = document.getElementById('respRuntimeTab') as HTMLElement;
+    const history = document.getElementById('webSocketHistory') as HTMLElement;
+    const runtimeResults = document.getElementById('runtimeResults') as HTMLElement;
+
+    expect(responseSection.className).toContain('websocket-response-tabs');
+    expect(responseSection.className).not.toContain('websocket-response-ledger-only');
+    expect(responseTabs.style.display).toBe('flex');
+    expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Messages');
+    expect((document.getElementById('panel-resp-body') as HTMLElement).className).toContain('active');
+    expect(history.textContent).toContain('ping');
+    expect(history.textContent).toContain('hello');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
+    expect(runtimeTab.style.display).toBe('');
+    expect(runtimeResults.textContent).toContain('Assertions');
+    expect(runtimeResults.textContent).toContain('Expected hello equals ok');
+  });
+
+  it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('restores normal response layout when switching from WebSocket to %s', async (protocol) => {
+    const { dom } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          state: 'closed',
+          events: [{ timestamp: '2026-06-15T01:02:03.789Z', direction: 'inbound', type: 'text', data: 'hello' }],
+        }),
+        duration: 12,
+        size: 0,
+      },
+    });
+
+    expect(document.getElementById('responseSection')?.className).toContain('websocket-response-tabs');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respRuntimeTab') as HTMLElement).style.display).toBe('');
+
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
+
+    expect(document.getElementById('responseSection')?.className).not.toContain('websocket-response-tabs');
+    expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Body');
+    expect((document.getElementById('respTabs') as HTMLElement).style.display).toBe('flex');
+    expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('block');
+    expect((document.getElementById('respBinaryOverlay') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('respRuntimeTab') as HTMLElement).style.display).toBe('none');
+    expect((document.getElementById('webSocketSessionPanel') as HTMLElement).style.display).toBe('none');
   });
 
   it('keeps invalid YAML in a neutral fallback instead of revealing HTTP controls', async () => {

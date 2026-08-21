@@ -105,6 +105,30 @@ describe('unresolvedVars', () => {
     expect(result).toContain('clientSecret');
   });
 
+  it('does not preflight-block runtime assertion placeholders that may be produced during runtime', async () => {
+    const request = makeRequest() as any;
+    request.runtime = {
+      scripts: [{
+        type: 'after-response',
+        code: 'missio.variables.set("expectedName", response.json().name);',
+      }],
+      assertions: [{
+        expression: 'res.body.{{fieldName}}',
+        operator: 'equals',
+        value: '{{expectedName}}',
+        description: { content: 'Runtime {{expectedName}}', type: 'text/markdown' },
+      }],
+    };
+
+    const result = await detectUnresolvedVars(
+      request,
+      makeCollection(),
+      service,
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it('detects unresolved vars in apikey auth', async () => {
     const result = await detectUnresolvedVars(
       makeRequest({

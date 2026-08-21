@@ -1162,17 +1162,6 @@ window.missioPdfJsReady = import('${pdfJsUri}')
 
     <!-- Response Section -->
     <div class="response-section" id="responseSection">
-      <div class="websocket-session-panel" id="webSocketSessionPanel" style="display:none;">
-        <div class="websocket-session-header">
-          <span class="websocket-state-badge" id="webSocketStateBadge">Disconnected</span>
-          <span class="websocket-session-meta" id="webSocketSessionMeta"></span>
-          <div class="websocket-session-actions">
-            <button class="btn btn-secondary websocket-history-btn" id="wsCopyHistoryBtn" type="button" title="Copy WebSocket history">Copy</button>
-            <button class="btn btn-secondary websocket-history-btn" id="wsClearHistoryBtn" type="button" title="Clear visible WebSocket history">Clear</button>
-          </div>
-        </div>
-        <div class="websocket-history" id="webSocketHistory"></div>
-      </div>
       <div class="loading-overlay" id="respLoading" style="display:none;">
         <div class="spinner"></div>
         <span>Sending request…</span>
@@ -1201,6 +1190,17 @@ window.missioPdfJsReady = import('${pdfJsUri}')
       </div>
       <div class="response-body">
         <div class="tab-panel active" id="panel-resp-body">
+          <div class="websocket-session-panel" id="webSocketSessionPanel" style="display:none;">
+            <div class="websocket-session-header">
+              <span class="websocket-state-badge" id="webSocketStateBadge">Disconnected</span>
+              <span class="websocket-session-meta" id="webSocketSessionMeta"></span>
+              <div class="websocket-session-actions">
+                <button class="btn btn-secondary websocket-history-btn" id="wsCopyHistoryBtn" type="button" title="Copy WebSocket history">Copy</button>
+                <button class="btn btn-secondary websocket-history-btn" id="wsClearHistoryBtn" type="button" title="Clear visible WebSocket history">Clear</button>
+              </div>
+            </div>
+            <div class="websocket-history" id="webSocketHistory"></div>
+          </div>
           <div class="empty-state" id="respEmpty">Send a request to see the response</div>
           <div id="respBinaryOverlay" style="display:none;padding:32px;text-align:center;color:var(--vscode-foreground);font-family:var(--vscode-font-family,system-ui);">
             <div style="font-size:14px;margin-bottom:8px;">Response body contains binary data</div>
