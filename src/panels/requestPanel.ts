@@ -105,7 +105,13 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const request = parseYaml(document.getText()) as OpenCollectionRequest;
       migrateRequest(request);
       webview.postMessage({ type: 'requestLoaded', request, filePath: document.uri.fsPath });
-    } catch { /* Invalid YAML, don't update webview */ }
+    } catch (error) {
+      webview.postMessage({
+        type: 'requestLoadError',
+        filePath: document.uri.fsPath,
+        message: error instanceof Error ? error.message : 'Unable to parse request YAML.',
+      });
+    }
   }
 
   private _readDocumentRequest(document: vscode.TextDocument): OpenCollectionRequest | undefined {
@@ -166,7 +172,11 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     return undefined;
   });
 </script>`;
-    return configurePdfPreviewHtml(html, pdfScripts, webview.cspSource);
+    return html
+      .replace('</body>', pdfScripts + '\n</body>')
+      .replace(/script-src ('nonce-[^']+')/, `script-src $1 ${webview.cspSource}`)
+      .replace(/img-src data:/, 'img-src blob: data:')
+      .replace(/frame-src data: blob:;/, `frame-src data: blob:; worker-src ${webview.cspSource} blob:;`);
   }
 
   protected _onPanelCreated(
@@ -819,6 +829,16 @@ window.missioPdfJsReady = import('${pdfJsUri}')
 
   protected _getBodyHtml(_webview: vscode.Webview): string {
     return `
+  <div class="request-editor-shell is-hydrating" id="requestEditorShell" data-hydration-state="pending" data-protocol="pending" aria-busy="true">
+  <div class="request-startup-shell" id="requestStartupShell" role="status" aria-live="polite">
+    <div class="request-startup-card">
+      <span class="codicon codicon-symbol-interface request-startup-icon" aria-hidden="true"></span>
+      <div>
+        <div class="request-startup-title" id="requestStartupTitle">Loading request</div>
+        <div class="request-startup-detail" id="requestStartupDetail">Preparing editor...</div>
+      </div>
+    </div>
+  </div>
   <!-- URL Bar -->
   <div class="url-bar">
     <div class="method-picker" id="methodPicker">
@@ -833,8 +853,8 @@ window.missioPdfJsReady = import('${pdfJsUri}')
       </select>
     </div>
     <div class="url-wrap" id="urlWrap">
-      <span class="codicon codicon-globe protocol-icon protocol-icon-http" id="protocolIcon" role="img" aria-label="HTTP request type" title="HTTP request type"></span>
-      <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div>
+      <span class="codicon codicon-symbol-interface protocol-icon protocol-icon-pending" id="protocolIcon" role="img" aria-label="Request type loading" title="Request type loading"></span>
+      <div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="Loading request..."></div>
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
@@ -1073,43 +1093,15 @@ window.missioPdfJsReady = import('${pdfJsUri}')
             <button class="preview-media-btn" id="previewRotateRightBtn" type="button" title="Rotate right" aria-label="Rotate right"><span class="codicon codicon-debug-step-over"></span></button>
           </div>
           <iframe id="respPreviewFrame" sandbox="allow-same-origin" class="preview-frame" style="display:none;"></iframe>
+          <div id="previewOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></div>
           <div id="respImageContainer" class="preview-media-content preview-image-container" style="display:none;"></div>
           <div id="respPdfContainer" class="preview-media-content preview-pdf-container" style="display:none;"></div>
         </div>
       </div>
     </div>
+  </div>
   </div>`;
   }
-}
-
-export function configurePdfPreviewHtml(html: string, pdfScripts: string, cspSource: string): string {
-  let configured = replaceRequiredHtml(html, '</body>', pdfScripts + '\n</body>', 'closing body tag');
-  configured = replaceRequiredHtml(
-    configured,
-    /script-src ('nonce-[^']+')/,
-    `script-src $1 ${cspSource}`,
-    'script-src nonce directive',
-  );
-  configured = replaceRequiredHtml(configured, /img-src data:/, 'img-src blob: data:', 'img-src directive');
-  return replaceRequiredHtml(
-    configured,
-    /frame-src data: blob:;/,
-    `frame-src data: blob:; worker-src ${cspSource} blob:;`,
-    'frame-src directive',
-  );
-}
-
-function replaceRequiredHtml(
-  html: string,
-  pattern: string | RegExp,
-  replacement: string,
-  description: string,
-): string {
-  const configured = html.replace(pattern, replacement);
-  if (configured === html) {
-    throw new Error(`Unable to configure PDF preview HTML: missing ${description}.`);
-  }
-  return configured;
 }
 
 function describeProtocol(request: OpenCollectionRequest): string {

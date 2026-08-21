@@ -177,7 +177,8 @@ describe('request editor protocol identity guard', () => {
     expect(html).toMatch(/<div class="url-wrap" id="urlWrap">[\s\S]*id="protocolIcon"[\s\S]*id="url"/);
     expect(html).toContain('id="protocolIcon"');
     expect(html).toContain('role="img"');
-    expect(html).toContain('aria-label="HTTP request type"');
+    expect(html).toContain('aria-label="Request type loading"');
+    expect(html).toContain('protocol-icon-pending');
     expect(html).not.toContain('protocol-chip');
     expect(html).not.toContain('id="protocolChip"');
     expect(html).not.toContain('id="requestTypeSwitcher"');

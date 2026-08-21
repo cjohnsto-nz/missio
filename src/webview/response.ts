@@ -236,16 +236,10 @@ export function getPreviewMediaKind(contentType: string, response: any): Preview
   if (lower.includes('application/pdf') && response?.bodyBase64) {
     return 'pdf';
   }
-  const imageMimeType = getSafeImageMimeType(contentType);
-  if (imageMimeType && (response?.bodyBase64 || (imageMimeType === 'image/svg+xml' && response?.body))) {
+  if (lower.startsWith('image/') && (response?.bodyBase64 || (lower.startsWith('image/svg') && response?.body))) {
     return 'image';
   }
   return 'none';
-}
-
-export function getSafeImageMimeType(contentType: string): string | undefined {
-  const mimeType = contentType.split(';', 1)[0].trim().toLowerCase();
-  return /^image\/[a-z0-9][a-z0-9.+-]*$/.test(mimeType) ? mimeType : undefined;
 }
 
 export function getPreviewMediaTransform(): PreviewMediaTransform {
@@ -374,7 +368,6 @@ function applyImageTransform(): void {
   const frame = document.getElementById('respImageFrame') as HTMLElement | null;
   const img = document.getElementById('respPreviewImage') as HTMLImageElement | null;
   if (!frame || !img) return;
-  if (!img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
 
   const natural = getImageNaturalSize(img);
   const resolvedZoom = resolveImageZoom(img, frame);
@@ -385,7 +378,6 @@ function applyImageTransform(): void {
   img.style.width = natural.width + 'px';
   img.style.height = natural.height + 'px';
   img.style.transform = `translate(-50%, -50%) rotate(${mediaTransform.rotation}deg) scale(${resolvedZoom})`;
-  frame.style.visibility = 'visible';
   updateMediaToolbar(resolvedZoom);
 }
 
@@ -1161,6 +1153,9 @@ export function renderPreview(): void {
   imageContainer.style.display = isImage ? 'flex' : 'none';
   pdfContainer.style.display = isPdf ? 'block' : 'none';
 
+  const overlay = document.getElementById('previewOverlay');
+  if (overlay) overlay.style.display = 'none';
+
   if (isPdf) {
     setMediaKind('pdf');
     void renderPdfPreview(pdfContainer, resp.bodyBase64!);
@@ -1181,31 +1176,20 @@ export function renderPreview(): void {
 }
 
 function renderImagePreview(container: HTMLElement, resp: any, contentType: string): void {
-  const mimeType = getSafeImageMimeType(contentType);
-  if (!mimeType) {
-    container.replaceChildren();
-    return;
-  }
+  const mimeType = contentType.split(';')[0].trim() || 'image/png';
   const src = resp.bodyBase64
     ? `data:${mimeType};base64,${resp.bodyBase64}`
     : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(resp.body ?? '')}`;
 
-  const frame = document.createElement('div');
-  frame.className = 'preview-image-frame';
-  frame.id = 'respImageFrame';
-  frame.style.visibility = 'hidden';
-  const img = document.createElement('img');
-  img.className = 'preview-image';
-  img.id = 'respPreviewImage';
-  img.alt = 'Response preview';
-  img.src = src;
-  frame.appendChild(img);
-  container.replaceChildren(frame);
+  container.innerHTML =
+    '<div class="preview-image-frame" id="respImageFrame">' +
+    `<img class="preview-image" id="respPreviewImage" alt="Response preview" src="${src}" />` +
+    '</div>';
 
+  const img = document.getElementById('respPreviewImage') as HTMLImageElement | null;
+  if (!img) return;
   img.addEventListener('load', applyImageTransform, { once: true });
-  if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
-    applyImageTransform();
-  }
+  applyImageTransform();
 }
 
 /** Render PDF pages to canvas elements using PDF.js (loaded in the webview) */
@@ -1217,7 +1201,7 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
   const pdfjsLib = (window as any).pdfjsLib ?? await (window as any).missioPdfJsReady;
   if (!isCurrentPdfRenderGeneration(generation)) return;
   if (!pdfjsLib) {
-    renderPdfMessage(container, 'PDF.js not available', 'var(--vscode-foreground)');
+    container.innerHTML = '<div style="padding:24px;color:var(--vscode-foreground);font-family:system-ui;">PDF.js not available</div>';
     return;
   }
 
@@ -1272,8 +1256,7 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
     }
   } catch (e: any) {
     if (!isCurrentPdfRenderGeneration(generation)) return;
-    const message = e instanceof Error ? e.message : String(e);
-    renderPdfMessage(container, `Failed to render PDF: ${message}`, 'var(--vscode-errorForeground)');
+    container.innerHTML = `<div style="padding:24px;color:var(--vscode-errorForeground);font-family:system-ui;">Failed to render PDF: ${e.message}</div>`;
   } finally {
     if (loadingTask && activePdfLoadingTasks.delete(loadingTask)) {
       try {
@@ -1283,13 +1266,4 @@ export async function renderPdfPreview(container: HTMLElement, base64: string): 
       }
     }
   }
-}
-
-function renderPdfMessage(container: HTMLElement, message: string, color: string): void {
-  const messageElement = document.createElement('div');
-  messageElement.style.padding = '24px';
-  messageElement.style.color = color;
-  messageElement.style.fontFamily = 'system-ui';
-  messageElement.textContent = message;
-  container.replaceChildren(messageElement);
 }
