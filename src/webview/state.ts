@@ -37,7 +37,5 @@ export function $input(id: string): HTMLInputElement {
 export function esc(s: string): string {
   const d = document.createElement('div');
   d.textContent = s;
-  return d.innerHTML
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return d.innerHTML;
 }
