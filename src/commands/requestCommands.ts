@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import type { MissioCollection, OpenCollectionRequest, RequestDefaults } from '../models/types';
+import type { MissioCollection, OpenCollectionRequest, RequestDefaults, WebSocketMessage, WebSocketRequest } from '../models/types';
 import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
 import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
@@ -33,49 +33,199 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
     return undefined;
   }
 
+  async function resolveRequestContext(filePathOrNode?: any): Promise<{
+    filePath: string;
+    request: OpenCollectionRequest;
+    collection: MissioCollection;
+    folderDefaults: RequestDefaults | undefined;
+  } | undefined> {
+    let filePath: string | undefined;
+
+    if (typeof filePathOrNode === 'string') {
+      filePath = filePathOrNode;
+    } else if (filePathOrNode?.fsPath) {
+      filePath = filePathOrNode.fsPath;
+    } else if (filePathOrNode?.resourceUri?.fsPath) {
+      filePath = filePathOrNode.resourceUri.fsPath;
+    } else if (filePathOrNode?.request?._filePath) {
+      filePath = filePathOrNode.request._filePath;
+    } else {
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        filePath = editor.document.uri.fsPath;
+      } else {
+        const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+        const input = tab?.input;
+        if (input && typeof input === 'object' && 'uri' in input) {
+          filePath = (input as { uri: vscode.Uri }).uri.fsPath;
+        }
+      }
+    }
+
+    if (!filePath) {
+      vscode.window.showWarningMessage('No request file selected.');
+      return undefined;
+    }
+
+    const request = await readRequestFile(filePath);
+    if (!isProtocolRequest(request)) {
+      vscode.window.showWarningMessage('File does not contain an executable OpenCollection request.');
+      return undefined;
+    }
+
+    const collection = findCollectionForFile(filePath);
+    if (!collection) {
+      vscode.window.showWarningMessage('Could not find a collection for this request file. Ensure a collection.yml exists in a parent directory.');
+      return undefined;
+    }
+
+    return {
+      filePath,
+      request,
+      collection,
+      folderDefaults: await getFolderDefaults(filePath, collection),
+    };
+  }
+
+  async function promptWebSocketVariables(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults: RequestDefaults | undefined,
+  ): Promise<Map<string, string> | undefined> {
+    return promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
+  }
+
+  function selectedWebSocketMessage(request: WebSocketRequest): WebSocketMessage | undefined {
+    const message = request.websocket?.message;
+    if (!message) return undefined;
+    if (!Array.isArray(message)) return message;
+    const selected = message.find(variant => variant.selected) ?? message[0];
+    return selected?.message;
+  }
+
+  async function connectWebSocketFromContext(filePathOrNode?: any): Promise<void> {
+    const resolved = await resolveRequestContext(filePathOrNode);
+    if (!resolved) return;
+    const { filePath, request, collection, folderDefaults } = resolved;
+    if (!isWebSocketRequest(request)) {
+      vscode.window.showWarningMessage('The selected request is not a WebSocket request.');
+      return;
+    }
+
+    const extraVariables = await promptWebSocketVariables(request, collection, folderDefaults);
+    if (extraVariables === undefined) return;
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Connecting WebSocket ${request.info?.name ?? path.basename(filePath)}`,
+        cancellable: true,
+      },
+      async (progress, token) => {
+        token.onCancellationRequested(() => requestExecutionService.disconnectWebSocket(filePath));
+        const session = await requestExecutionService.connectWebSocket(
+          request,
+          collection,
+          folderDefaults,
+          message => progress.report({ message }),
+          extraVariables.size > 0 ? extraVariables : undefined,
+          undefined,
+          { requestId: filePath, requestFilePath: filePath, requestName: request.info?.name },
+        );
+        RequestEditorProvider.postMessageToPanel(filePath, { type: 'webSocketSession', session });
+        vscode.window.showInformationMessage(`Connected WebSocket: ${request.info?.name ?? path.basename(filePath)}`);
+      },
+    );
+  }
+
+  async function sendWebSocketMessageFromContext(filePathOrNode?: any): Promise<void> {
+    const resolved = await resolveRequestContext(filePathOrNode);
+    if (!resolved) return;
+    const { filePath, request } = resolved;
+    if (!isWebSocketRequest(request)) {
+      vscode.window.showWarningMessage('The selected request is not a WebSocket request.');
+      return;
+    }
+    try {
+      const session = await requestExecutionService.sendWebSocketMessage(filePath, selectedWebSocketMessage(request));
+      RequestEditorProvider.postMessageToPanel(filePath, { type: 'webSocketSession', session });
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`WebSocket send failed: ${error.message ?? error}`);
+    }
+  }
+
+  async function disconnectWebSocketFromContext(filePathOrNode?: any): Promise<void> {
+    const resolved = await resolveRequestContext(filePathOrNode);
+    const filePath = resolved?.filePath
+      ?? (typeof filePathOrNode === 'string' ? filePathOrNode : filePathOrNode?.resourceUri?.fsPath ?? filePathOrNode?.request?._filePath);
+    if (!filePath) {
+      vscode.window.showWarningMessage('No WebSocket request selected.');
+      return;
+    }
+    const response = await requestExecutionService.disconnectWebSocketSession(filePath);
+    const session = requestExecutionService.getWebSocketSession(filePath);
+    if (session) RequestEditorProvider.postMessageToPanel(filePath, { type: 'webSocketSession', session });
+    if (response) {
+      await responseProvider.showResponse(response, session?.requestName);
+    }
+  }
+
+  async function showWebSocketSessions(): Promise<void> {
+    const sessions = requestExecutionService.listWebSocketSessions({ includeClosed: false });
+    if (sessions.length === 0) {
+      vscode.window.showInformationMessage('No active WebSocket sessions.');
+      return;
+    }
+
+    const items = [
+      { label: '$(close-all) Disconnect All WebSockets', action: 'disconnectAll' as const },
+      ...sessions.flatMap(session => [
+        {
+          label: `$(go-to-file) Focus ${session.requestName ?? path.basename(session.requestFilePath ?? session.requestId)}`,
+          description: session.state,
+          detail: session.url,
+          action: 'focus' as const,
+          session,
+        },
+        {
+          label: `$(debug-disconnect) Disconnect ${session.requestName ?? path.basename(session.requestFilePath ?? session.requestId)}`,
+          description: session.state,
+          detail: session.url,
+          action: 'disconnect' as const,
+          session,
+        },
+      ]),
+    ];
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Manage active WebSocket sessions' });
+    if (!pick) return;
+    if (pick.action === 'disconnectAll') {
+      requestExecutionService.disconnectAllWebSocketSessions();
+      return;
+    }
+    if (pick.action === 'focus' && pick.session?.requestFilePath) {
+      await RequestEditorProvider.open(pick.session.requestFilePath);
+      return;
+    }
+    if (pick.action === 'disconnect' && pick.session) {
+      await requestExecutionService.disconnectWebSocketSession(pick.session.requestId);
+    }
+  }
+
   return [
-    vscode.commands.registerCommand('missio.sendRequest', async (filePathOrUri?: string) => {
+    vscode.commands.registerCommand('missio.sendRequest', async (filePathOrUri?: any) => {
       try {
-        let filePath: string | undefined;
+        const resolved = await resolveRequestContext(filePathOrUri);
+        if (!resolved) return;
+        const { filePath, request, collection, folderDefaults } = resolved;
 
-        if (typeof filePathOrUri === 'string') {
-          filePath = filePathOrUri;
-        } else {
-          const editor = vscode.window.activeTextEditor;
-          if (editor) {
-            filePath = editor.document.uri.fsPath;
-          } else {
-            const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-            const input = tab?.input;
-            if (input && typeof input === 'object' && 'uri' in input) {
-              filePath = (input as { uri: vscode.Uri }).uri.fsPath;
-            }
-          }
-        }
-
-        if (!filePath) {
-          vscode.window.showWarningMessage('No request file selected.');
+        if (isWebSocketRequest(request)) {
+          await connectWebSocketFromContext(filePath);
           return;
         }
-
-        const request = await readRequestFile(filePath);
-        if (!isProtocolRequest(request)) {
-          vscode.window.showWarningMessage('File does not contain an executable OpenCollection request.');
-          return;
-        }
-
-        const collection = findCollectionForFile(filePath);
-        if (!collection) {
-          vscode.window.showWarningMessage('Could not find a collection for this request file. Ensure a collection.yml exists in a parent directory.');
-          return;
-        }
-
-        // Resolve folder defaults (auth, headers, variables) from folder.yml
-        const folderDefaults = await getFolderDefaults(filePath, collection);
 
         // Prompt for unresolved variables before sending
         let extraVariables: Map<string, string> | undefined;
-        if (isHttpRequest(request) || isGraphQLRequest(request) || isWebSocketRequest(request) || isGrpcRequest(request)) {
+        if (isHttpRequest(request) || isGraphQLRequest(request) || isGrpcRequest(request)) {
           extraVariables = await promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
           if (extraVariables === undefined) return; // User cancelled
         }
@@ -106,6 +256,15 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       } catch (e: any) {
         vscode.window.showErrorMessage(`Request failed: ${e.message}`);
       }
+    }),
+
+    vscode.commands.registerCommand('missio.connectWebSocket', connectWebSocketFromContext),
+    vscode.commands.registerCommand('missio.sendWebSocketMessage', sendWebSocketMessageFromContext),
+    vscode.commands.registerCommand('missio.disconnectWebSocket', disconnectWebSocketFromContext),
+    vscode.commands.registerCommand('missio.showWebSocketSessions', showWebSocketSessions),
+    vscode.commands.registerCommand('missio.disconnectAllWebSockets', () => {
+      requestExecutionService.disconnectAllWebSocketSessions();
+      vscode.window.showInformationMessage('Disconnected all WebSocket sessions.');
     }),
 
     vscode.commands.registerCommand('missio.openRequest', async (filePath: string, _collectionId?: string) => {

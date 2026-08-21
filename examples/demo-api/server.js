@@ -390,7 +390,7 @@ function parseSocketMessage(data, isBinary) {
 
 function attachWebSocketFixtures(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
-  const supportedRoutes = new Set(['/ws/echo', '/ws/auth', '/ws/close']);
+  const supportedRoutes = new Set(['/ws/echo', '/ws/auth', '/ws/close', '/ws/session', '/ws/push']);
 
   httpServer.on('upgrade', (req, socket, head) => {
     const route = socketPath(req.url);
@@ -428,7 +428,19 @@ function attachWebSocketFixtures(httpServer) {
       return;
     }
 
+    if (route === '/ws/push') {
+      ws.send(JSON.stringify({ route, event: 'connected', message: 'Missio demo push connected' }));
+      setTimeout(() => {
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ route, event: 'server-push', message: 'delayed hello from demo server' }));
+        }
+      }, 75);
+    }
+
+    let messageCount = 0;
+
     ws.on('message', (data, isBinary) => {
+      messageCount += 1;
       if (route === '/ws/auth') {
         ws.send(JSON.stringify({
           ok: true,
@@ -436,6 +448,16 @@ function attachWebSocketFixtures(httpServer) {
           authorized: true,
           client: req.headers['x-demo-client'] || null,
           runtimeHeader: req.headers['x-runtime-header'] || null,
+          message: parseSocketMessage(data, isBinary),
+        }, null, 2));
+        return;
+      }
+
+      if (route === '/ws/session' || route === '/ws/push') {
+        ws.send(JSON.stringify({
+          ok: true,
+          route,
+          messageCount,
           message: parseSocketMessage(data, isBinary),
         }, null, 2));
         return;
@@ -470,6 +492,8 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`  GET  http://localhost:${PORT}/runtime/assert-fail (intentional runtime failure)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/echo        (text/json/binary echo)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/auth        (requires bearer + X-Demo-Client headers)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/session     (persistent repeated-send session)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/push        (server push after connect)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/close       (deterministic server close)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/reject      (deterministic upgrade rejection)`);
   console.log('\nFixture files for demo requests:');

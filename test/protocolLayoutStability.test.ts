@@ -213,6 +213,7 @@ describe('OC-130 request editor first paint', () => {
     const shell = document.getElementById('requestEditorShell') as HTMLElement;
     const methodPicker = document.getElementById('methodPicker') as HTMLElement;
     const protocolIcon = document.getElementById('protocolIcon') as HTMLElement;
+    const responseSection = document.getElementById('responseSection') as HTMLElement;
     const bodyTab = document.querySelector<HTMLElement>('#reqTabs [data-tab="body"]');
 
     expect(shell.dataset.hydrationState).toBe('ready');
@@ -229,7 +230,7 @@ describe('OC-130 request editor first paint', () => {
       expect((document.querySelector('#reqTabs [data-tab="params"]') as HTMLElement).style.display).toBe('none');
       expect((document.querySelector('#reqTabs [data-tab="settings"]') as HTMLElement).style.display).toBe('none');
       expect((document.querySelector('#reqTabs [data-tab="export"]') as HTMLElement).style.display).toBe('none');
-      expect(document.getElementById('sendBtn')?.textContent).toBe(protocol === 'grpc' ? 'Invoke' : 'Connect + Send');
+      expect(document.getElementById('sendBtn')?.textContent).toBe(protocol === 'grpc' ? 'Invoke' : 'Connect');
     } else {
       expect(methodPicker.style.display).toBe('');
       expect(bodyTab?.textContent).toBe('Body');
@@ -240,6 +241,43 @@ describe('OC-130 request editor first paint', () => {
       expect((document.getElementById('bodyTypePills') as HTMLElement).style.display).toBe('none');
       expect((document.getElementById('graphqlVariablesEditor') as HTMLElement).style.display).toBe('flex');
       expect((document.getElementById('method') as HTMLSelectElement).value).toBe('POST');
+    }
+
+    if (protocol === 'websocket') {
+      const connectBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+      const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
+
+      expect(connectBtn.textContent).toBe('Connect');
+      expect(connectBtn.className).toContain('ws-lifecycle-action');
+      expect(connectBtn.className).not.toContain('ws-disconnect-state');
+      expect(sendMessageBtn.textContent).toBe('Send');
+      expect(sendMessageBtn.className).toContain('btn-primary');
+      expect(document.getElementById('wsDisconnectBtn')).toBeNull();
+      expect(responseSection.className).toContain('websocket-response-ledger-only');
+
+      dispatchPanelMessage(dom, { type: 'webSocketConnecting' });
+      expect(connectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.className).toContain('ws-disconnect-state');
+
+      dispatchPanelMessage(dom, {
+        type: 'webSocketSession',
+        session: {
+          requestId: 'websocket.yml',
+          state: 'connected',
+          events: [{ timestamp: '2026-06-15T01:02:03.456Z', direction: 'inbound', type: 'text', data: 'hello' }],
+          inboundCount: 1,
+          outboundCount: 0,
+        },
+      });
+      expect(connectBtn.textContent).toBe('Disconnect');
+      expect(connectBtn.disabled).toBe(false);
+      expect(document.querySelector('.websocket-history-time')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+
+      const messageCount = messages.length;
+      connectBtn.click();
+      expect(messages.slice(messageCount)).toContainEqual({ type: 'webSocketDisconnect' });
+    } else {
+      expect(responseSection.className).not.toContain('websocket-response-ledger-only');
     }
   });
 

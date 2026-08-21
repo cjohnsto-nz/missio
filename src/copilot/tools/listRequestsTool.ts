@@ -5,6 +5,7 @@ import type { Item, Folder, OpenCollectionRequest } from '../../models/types';
 import { isFolder, isGraphQLRequest, isGrpcRequest, isHttpRequest, isWebSocketRequest } from '../../models/types';
 import { varPatternGlobal } from '../../models/varPattern';
 import { describeGraphQLOperation } from '../../services/graphqlSupport';
+import type { WebSocketSessionSnapshot } from '../../services/webSocketClient';
 
 export interface ListRequestsParams {
   collectionId?: string;
@@ -19,12 +20,23 @@ interface RequestEntry {
   filePath: string | undefined;
   folder: string;
   templateVariables?: Record<string, string[]>;
+  lifecycle?: {
+    canConnect: boolean;
+    canSendMessage: boolean;
+    canDisconnect: boolean;
+    state: string;
+    inboundCount?: number;
+    outboundCount?: number;
+  };
 }
 
 export class ListRequestsTool extends ToolBase<ListRequestsParams> {
   public readonly toolName = 'missio_list_requests';
 
-  constructor(private _collectionService: CollectionService) {
+  constructor(
+    private _collectionService: CollectionService,
+    private _webSocketSessions?: { getWebSocketSession(requestId: string): WebSocketSessionSnapshot | undefined },
+  ) {
     super();
   }
 
@@ -86,6 +98,17 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
           filePath: (req as any)._filePath,
           folder,
         };
+        if (isWebSocketRequest(req)) {
+          const session = entry.filePath ? this._webSocketSessions?.getWebSocketSession(entry.filePath) : undefined;
+          entry.lifecycle = {
+            canConnect: !session || session.state === 'closed' || session.state === 'error' || session.state === 'disconnected',
+            canSendMessage: session?.state === 'connected',
+            canDisconnect: session?.state === 'connected' || session?.state === 'connecting' || session?.state === 'disconnecting',
+            state: session?.state ?? 'disconnected',
+            inboundCount: session?.inboundCount,
+            outboundCount: session?.outboundCount,
+          };
+        }
         if (Object.keys(templateVariables).length > 0) entry.templateVariables = templateVariables;
         out.push(entry);
       }

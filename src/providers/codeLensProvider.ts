@@ -109,9 +109,21 @@ export class MissioCodeLensProvider implements vscode.CodeLensProvider, vscode.D
     return [
       new vscode.CodeLens(range, {
         title: 'Connect WebSocket',
-        command: 'missio.sendRequest',
+        command: 'missio.connectWebSocket',
         arguments: [document.uri.fsPath],
         tooltip: `WS ${url}`,
+      }),
+      new vscode.CodeLens(range, {
+        title: 'Send Message',
+        command: 'missio.sendWebSocketMessage',
+        arguments: [document.uri.fsPath],
+        tooltip: `Send message over ${url}`,
+      }),
+      new vscode.CodeLens(range, {
+        title: 'Disconnect WebSocket',
+        command: 'missio.disconnectWebSocket',
+        arguments: [document.uri.fsPath],
+        tooltip: `Disconnect ${url}`,
       }),
       new vscode.CodeLens(range, {
         title: `WS ${url}`,

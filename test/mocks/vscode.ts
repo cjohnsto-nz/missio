@@ -44,6 +44,7 @@ export const window = {
   showErrorMessage: async () => {},
   showQuickPick: async () => undefined,
   showInputBox: async () => undefined,
+  withProgress: async (_options: any, task: any) => task({ report: () => {} }, { onCancellationRequested: () => ({ dispose: () => {} }) }),
   createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
   createStatusBarItem: () => ({ show: () => {}, hide: () => {}, dispose: () => {} }),
   registerTreeDataProvider: () => ({ dispose: () => {} }),
@@ -54,6 +55,7 @@ export const window = {
     dispose: () => {},
   }),
   tabGroups: { activeTabGroup: { activeTab: null } },
+  activeTextEditor: undefined,
 };
 
 export const commands = {
@@ -99,6 +101,10 @@ export class ThemeColor {
 export enum StatusBarAlignment {
   Left = 1,
   Right = 2,
+}
+
+export enum ProgressLocation {
+  Notification = 15,
 }
 
 export enum TreeItemCollapsibleState {
