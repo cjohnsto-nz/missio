@@ -16,6 +16,10 @@
     {
       "extension": "AuthCli",
       "reason": "The spec has no concept of CLI-based token acquisition. Many enterprise environments use CLI tools (az, gcloud, aws, oci, kubectl) to obtain bearer tokens. AuthCli allows declarative CLI command execution with caching, avoiding the need for pre-request scripts."
+    },
+    {
+      "extension": "gRPC streaming message sequences",
+      "reason": "The upstream schema defines GrpcRequestMessage but does not wire ordered request-message arrays into GrpcRequestDetails.message. Missio supports client-streaming and bidirectional-streaming by accepting ordered GrpcRequestMessage arrays while preserving the upstream unary string and message-variant shapes."
     }
   ],
   "definitions": {
@@ -89,6 +93,14 @@
       },
       "required": ["name", "type", "namespace"],
       "additionalProperties": false
+    },
+    "GrpcMessageSequence": {
+      "type": "array",
+      "description": "Ordered gRPC request messages used by client-streaming and bidirectional-streaming calls",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/GrpcRequestMessage"
+      }
     }
   },
   "patches": [
@@ -151,6 +163,28 @@
       "items": [
         { "$ref": "#/$defs/AuthCli" }
       ]
+    },
+    {
+      "description": "Allow ordered GrpcRequestMessage arrays for streaming gRPC requests",
+      "target": "$defs/GrpcRequestDetails/properties",
+      "properties": {
+        "message": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/GrpcMessage"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/GrpcMessageVariant"
+              }
+            },
+            {
+              "$ref": "#/$defs/GrpcMessageSequence"
+            }
+          ]
+        }
+      }
     }
   ]
 }

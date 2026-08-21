@@ -1,0 +1,17 @@
+info:
+  name: Stream users
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/StreamUsers
+  methodType: server-streaming
+  protoFilePath: proto/services/missio_demo.proto
+  message: |-
+    {
+      "userId": {{grpcUserId}},
+      "name": "{{grpcName}}",
+      "trace": {
+        "requestId": "{{grpcRequestId}}"
+      }
+    }
+docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this server-streaming gRPC request.

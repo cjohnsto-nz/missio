@@ -67,10 +67,7 @@ export async function detectUnresolvedVars(
     for (const h of collection.data.request?.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
     for (const h of folderDefaults?.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
     for (const h of details.metadata ?? []) { if (!h.disabled) { scan(h.name); scan(h.value); } }
-    const message = Array.isArray(details.message)
-      ? (details.message.find(v => v.selected) ?? details.message[0])?.message
-      : details.message;
-    scan(message);
+    scanGrpcMessageTemplates(details.message as unknown, scan);
   }
 
   const details = isHttpRequest(requestData)
@@ -216,6 +213,28 @@ function scanBody(body: any, scan: (s: string | undefined) => void): void {
       }
       break;
   }
+}
+
+function scanGrpcMessageTemplates(message: unknown, scan: (s: string | undefined) => void): void {
+  if (!Array.isArray(message)) {
+    scan(typeof message === 'string' ? message : undefined);
+    return;
+  }
+
+  const isSequence = message.every(entry => isRecord(entry) && !Object.prototype.hasOwnProperty.call(entry, 'title'));
+  if (isSequence) {
+    for (const entry of message) {
+      scan(typeof entry.message === 'string' ? entry.message : undefined);
+    }
+    return;
+  }
+
+  const selected = message.find(entry => isRecord(entry) && entry.selected === true) ?? message[0];
+  scan(isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined);
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 function mergeRuntimeVariables(resolved: Map<string, string>, variables: Variable[] | undefined): void {

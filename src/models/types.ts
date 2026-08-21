@@ -453,7 +453,7 @@ export interface GrpcRequestDetails {
   methodType?: GrpcMethodType;
   protoFilePath?: string;
   metadata?: GrpcMetadata[];
-  message?: GrpcMessage | GrpcMessageVariant[];
+  message?: GrpcMessage | GrpcMessageVariant[] | GrpcRequestMessage[];
 }
 
 export interface GrpcRequestRuntime {

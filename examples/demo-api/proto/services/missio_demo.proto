@@ -7,6 +7,9 @@ import "types/common.proto";
 service DemoService {
   rpc EchoUnary (EchoRequest) returns (EchoReply);
   rpc StreamUsers (UserRequest) returns (stream UserReply);
+  rpc UploadUsers (stream UserRequest) returns (UserSummary);
+  rpc ChatUsers (stream UserRequest) returns (stream UserReply);
+  rpc StreamUsersWithError (UserRequest) returns (stream UserReply);
 }
 
 message EchoRequest {
@@ -28,9 +31,20 @@ message EchoReply {
 
 message UserRequest {
   int32 user_id = 1;
+  string name = 2;
+  Trace trace = 3;
 }
 
 message UserReply {
   int32 id = 1;
   string name = 2;
+  string request_id = 3;
+}
+
+message UserSummary {
+  int32 count = 1;
+  string names = 2;
+  string request_ids = 3;
+  string authorization = 4;
+  string default_metadata = 5;
 }

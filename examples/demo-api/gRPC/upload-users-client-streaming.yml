@@ -1,0 +1,35 @@
+info:
+  name: Upload users client stream
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/UploadUsers
+  methodType: client-streaming
+  protoFilePath: proto/services/missio_demo.proto
+  metadata:
+    - name: x-demo-request
+      value: upload-{{grpcRequestId}}
+  message:
+    - description: First streamed user
+      message: |-
+        {
+          "userId": {{grpcUserId}},
+          "name": "{{grpcName}}",
+          "trace": {
+            "requestId": "{{grpcRequestId}}-1"
+          }
+        }
+    - description: Second streamed user
+      message: |-
+        {
+          "userId": {{grpcUserId}}1,
+          "name": "Grace",
+          "trace": {
+            "requestId": "{{grpcRequestId}}-2"
+          }
+        }
+runtime:
+  auth:
+    type: bearer
+    token: "{{grpcToken}}"
+docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this client-streaming gRPC request.
