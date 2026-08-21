@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as https from 'https';
 import * as crypto from 'crypto';
 import { URL } from 'url';
-import type { AuthOAuth2 } from '../models/types';
+import type { AuthOAuth2, OAuth2AdditionalParameter } from '../models/types';
 
 /**
  * Stored token data from an OAuth2 token endpoint response.
@@ -42,6 +42,10 @@ export class OAuth2Service implements vscode.Disposable {
     envName: string | undefined,
   ): Promise<string | null> {
     const flow = auth.flow ?? 'client_credentials';
+    if (flow === 'implicit') {
+      throw new Error('OAuth2: implicit flow is not supported by the Missio runtime because it requires browser fragment token capture. Use authorization_code with PKCE instead.');
+    }
+
     const accessTokenUrl = auth.accessTokenUrl;
     if (!accessTokenUrl) {
       throw new Error('OAuth2: Access Token URL is required');
@@ -200,7 +204,9 @@ export class OAuth2Service implements vscode.Disposable {
 
     this._applyCredentials(creds, headers, params);
 
-    return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
+    const tokenUrl = this._applyAdditionalParameters(auth.additionalParameters?.accessTokenRequest, headers, params, auth.accessTokenUrl!);
+
+    return this._postTokenRequest(tokenUrl, headers, params.toString());
   }
 
   private async _fetchPassword(auth: import('../models/types').AuthOAuth2ResourceOwnerPassword): Promise<OAuth2TokenData> {
@@ -226,7 +232,9 @@ export class OAuth2Service implements vscode.Disposable {
 
     this._applyCredentials(creds, headers, params);
 
-    return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
+    const tokenUrl = this._applyAdditionalParameters(auth.additionalParameters?.accessTokenRequest, headers, params, auth.accessTokenUrl!);
+
+    return this._postTokenRequest(tokenUrl, headers, params.toString());
   }
 
   private async _fetchAuthorizationCode(auth: import('../models/types').AuthOAuth2AuthorizationCode): Promise<OAuth2TokenData> {
@@ -235,6 +243,7 @@ export class OAuth2Service implements vscode.Disposable {
     if (!auth.authorizationUrl) throw new Error('OAuth2: Authorization URL is required for authorization_code flow');
 
     const usePkce = auth.pkce?.enabled !== false; // default true for auth code flow
+    const pkceMethod = auth.pkce?.method ?? 'S256';
     let codeVerifier: string | undefined;
     let codeChallenge: string | undefined;
 
@@ -242,10 +251,12 @@ export class OAuth2Service implements vscode.Disposable {
       // Generate PKCE code_verifier (43–128 chars, URL-safe)
       codeVerifier = crypto.randomBytes(32).toString('base64url');
       // S256 challenge
-      codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+      codeChallenge = pkceMethod === 'plain'
+        ? codeVerifier
+        : crypto.createHash('sha256').update(codeVerifier).digest('base64url');
     }
 
-    const state = crypto.randomBytes(16).toString('hex');
+    const state = auth.state || crypto.randomBytes(16).toString('hex');
 
     // Start a temporary local HTTP server to receive the callback, with cancel support
     const { code, callbackUrl } = await vscode.window.withProgress(
@@ -254,7 +265,7 @@ export class OAuth2Service implements vscode.Disposable {
         title: 'OAuth2: Waiting for browser authorization…',
         cancellable: true,
       },
-      (_progress, cancelToken) => this._waitForAuthorizationCode(auth, state, codeChallenge, cancelToken),
+      (_progress, cancelToken) => this._waitForAuthorizationCode(auth, state, codeChallenge, usePkce ? pkceMethod : undefined, cancelToken),
     );
 
     // Exchange authorization code for tokens
@@ -274,7 +285,9 @@ export class OAuth2Service implements vscode.Disposable {
 
     this._applyCredentials(creds, headers, params);
 
-    return this._postTokenRequest(auth.accessTokenUrl!, headers, params.toString());
+    const tokenUrl = this._applyAdditionalParameters(auth.additionalParameters?.accessTokenRequest, headers, params, auth.accessTokenUrl!);
+
+    return this._postTokenRequest(tokenUrl, headers, params.toString());
   }
 
   /**
@@ -285,6 +298,7 @@ export class OAuth2Service implements vscode.Disposable {
     auth: import('../models/types').AuthOAuth2AuthorizationCode,
     state: string,
     codeChallenge?: string,
+    codeChallengeMethod?: import('../models/types').OAuth2PKCE['method'],
     cancelToken?: vscode.CancellationToken,
   ): Promise<{ code: string; callbackUrl: string }> {
     return new Promise((resolve, reject) => {
@@ -304,9 +318,13 @@ export class OAuth2Service implements vscode.Disposable {
         });
       }
 
-      server.listen(0, '127.0.0.1', () => {
+      const callbackConfig = this._resolveCallbackConfig(auth.callbackUrl);
+
+      server.listen(callbackConfig.port, callbackConfig.hostname, () => {
         const addr = server.address() as { port: number };
-        const callbackUrl = `http://localhost:${addr.port}`;
+        const callbackUrl = callbackConfig.callbackUrl
+          ? callbackConfig.callbackUrl
+          : `http://localhost:${addr.port}${callbackConfig.pathname}`;
 
         // Build authorization URL
         const authUrl = new URL(auth.authorizationUrl!);
@@ -317,14 +335,20 @@ export class OAuth2Service implements vscode.Disposable {
         if (auth.scope) authUrl.searchParams.set('scope', auth.scope);
         if (codeChallenge) {
           authUrl.searchParams.set('code_challenge', codeChallenge);
-          authUrl.searchParams.set('code_challenge_method', 'S256');
+          authUrl.searchParams.set('code_challenge_method', codeChallengeMethod ?? 'S256');
         }
+        this._applyAuthorizationRequestParameters(auth.additionalParameters?.authorizationRequest, authUrl);
 
         // Open browser
         vscode.env.openExternal(vscode.Uri.parse(authUrl.toString()));
 
         server.on('request', (req, res) => {
           const reqUrl = new URL(req.url ?? '/', `http://localhost:${addr.port}`);
+          if (callbackConfig.pathname !== '/' && reqUrl.pathname !== callbackConfig.pathname) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+            return;
+          }
 
           const error = reqUrl.searchParams.get('error');
           if (error) {
@@ -384,6 +408,39 @@ export class OAuth2Service implements vscode.Disposable {
 <body><div class="card"><div class="logo">${logo}</div><div class="brand">MISSIO</div><div class="status">${statusIcon}</div><p class="msg">${message}</p></div></body></html>`;
   }
 
+  private _resolveCallbackConfig(callbackUrl: string | undefined): { hostname: string; port: number; pathname: string; callbackUrl?: string } {
+    if (!callbackUrl) {
+      return { hostname: '127.0.0.1', port: 0, pathname: '/' };
+    }
+
+    const parsed = new URL(callbackUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'http:' || (hostname !== 'localhost' && hostname !== '127.0.0.1')) {
+      throw new Error('OAuth2: callbackUrl must be an http://localhost or http://127.0.0.1 URL so Missio can receive the authorization callback locally.');
+    }
+    if (!parsed.port) {
+      throw new Error('OAuth2: callbackUrl must include an explicit port.');
+    }
+
+    return {
+      hostname: parsed.hostname,
+      port: Number(parsed.port),
+      pathname: parsed.pathname || '/',
+      callbackUrl: parsed.toString(),
+    };
+  }
+
+  private _applyAuthorizationRequestParameters(entries: OAuth2AdditionalParameter[] | undefined, authUrl: URL): void {
+    for (const entry of entries ?? []) {
+      if (!entry.name) continue;
+      const placement = entry.placement ?? 'query';
+      if (placement !== 'query') {
+        throw new Error(`OAuth2: authorizationRequest additional parameter "${entry.name}" uses unsupported ${placement} placement. Browser authorization requests can only send query parameters.`);
+      }
+      authUrl.searchParams.set(entry.name, entry.value ?? '');
+    }
+  }
+
   /** Apply client credentials to headers/params based on placement setting. */
   private _applyCredentials(
     creds: import('../models/types').OAuth2Credentials,
@@ -420,7 +477,35 @@ export class OAuth2Service implements vscode.Disposable {
       this._applyCredentials(creds, headers, params);
     }
 
-    return this._postTokenRequest(url, headers, params.toString());
+    const refreshUrl = this._applyAdditionalParameters(auth.additionalParameters?.refreshTokenRequest, headers, params, url);
+
+    return this._postTokenRequest(refreshUrl, headers, params.toString());
+  }
+
+  private _applyAdditionalParameters(
+    entries: OAuth2AdditionalParameter[] | undefined,
+    headers: Record<string, string>,
+    bodyParams: URLSearchParams,
+    url: string,
+  ): string {
+    if (!entries?.length) return url;
+    const parsed = new URL(url);
+    for (const entry of entries) {
+      if (!entry.name) continue;
+      const value = entry.value ?? '';
+      switch (entry.placement ?? 'body') {
+        case 'header':
+          headers[entry.name] = value;
+          break;
+        case 'query':
+          parsed.searchParams.set(entry.name, value);
+          break;
+        case 'body':
+          bodyParams.set(entry.name, value);
+          break;
+      }
+    }
+    return parsed.toString();
   }
 
   // ── Private: HTTP ───────────────────────────────────────────────────

@@ -402,16 +402,26 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     folderDefaults: import('../../models/types').RequestDefaults | undefined,
     headers: Record<string, string>,
     variables: Map<string, string>,
-  ): void {
+    url: string,
+  ): string {
     const auth = this._selectEffectiveAuth(request, collection, folderDefaults);
-    if (!auth || auth === 'inherit' || typeof auth !== 'object') return;
+    if (!auth || auth === 'inherit' || typeof auth !== 'object') return url;
 
     switch ((auth as any).type) {
       case 'apikey': {
         const keyRaw = (auth as any).key;
         const placement = (auth as any).placement;
-        if (!keyRaw || placement === 'query') return;
+        if (!keyRaw) return url;
         const key = this._environmentService.interpolate(String(keyRaw), variables);
+        if (placement === 'query') {
+          try {
+            const parsed = new URL(url);
+            parsed.searchParams.set(key, '[redacted]');
+            return parsed.toString();
+          } catch {
+            return url;
+          }
+        }
         headers[key] = '[redacted]';
         break;
       }
@@ -430,6 +440,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         break;
       }
     }
+    return url;
   }
 
   async prepareInvocation(
@@ -657,19 +668,50 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       for (const [k, v] of extraVariables) variables.set(k, v);
     }
     const details = request.http;
-    const url = details?.url ? this._environmentService.interpolate(details.url, variables) : '';
-    const method = details?.method ?? 'GET';
-    const headers: Record<string, string> = {};
-    for (const h of details?.headers ?? []) {
-      if (!h.disabled) {
-        headers[this._environmentService.interpolate(h.name, variables)] =
-          this._environmentService.interpolate(h.value, variables);
+    let url = details?.url ? this._environmentService.interpolate(details.url, variables) : '';
+    if (url && !/^https?:\/\//i.test(url)) {
+      url = 'http://' + url;
+    }
+    if (details?.params?.length) {
+      for (const param of details.params) {
+        if (param.disabled || param.type !== 'path') continue;
+        const name = this._environmentService.interpolate(param.name, variables);
+        const value = this._environmentService.interpolate(param.value, variables);
+        url = url.replace(`:${name}`, encodeURIComponent(value));
+      }
+      try {
+        const parsed = new URL(url);
+        parsed.search = '';
+        for (const param of details.params) {
+          if (param.disabled) continue;
+          const name = this._environmentService.interpolate(param.name, variables);
+          const value = this._environmentService.interpolate(param.value, variables);
+          if (param.type === 'query' && name && value !== '') {
+            parsed.searchParams.set(name, value);
+          }
+        }
+        url = parsed.toString();
+      } catch {
+        // Leave the interpolated URL as-is when it cannot be parsed.
       }
     }
+    const method = details?.method ?? 'GET';
+    const headers: Record<string, string> = {};
+    const addHeaders = (entries: import('../../models/types').HttpRequestHeader[] | undefined) => {
+      for (const h of entries ?? []) {
+        if (!h.disabled) {
+          headers[this._environmentService.interpolate(h.name, variables)] =
+            this._environmentService.interpolate(h.value, variables);
+        }
+      }
+    };
+    addHeaders(collection.data.request?.headers);
+    addHeaders(folderDefaults?.headers);
+    addHeaders(details?.headers);
 
     // Auth — apply effective auth chain (request → folder → collection), mirroring httpClient selection.
     // We only synthesize preview headers here. OAuth2 token acquisition and CLI command execution are not performed in dryRun.
-    this._applyDryRunAuth(request, collection, folderDefaults, headers, variables);
+    url = this._applyDryRunAuth(request, collection, folderDefaults, headers, variables, url);
     // Resolve body using the same logic as httpClient._buildBody
     let body: string | undefined;
     const rawBody = details?.body;

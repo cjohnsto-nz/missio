@@ -1,0 +1,19 @@
+info:
+  name: API Key Query Auth
+  type: http
+  seq: 1
+  description: Run `node examples/demo-api/server.js`; this request proves API-key query placement reaches the server query string.
+http:
+  method: GET
+  url: "{{baseUrl}}/auth/api-key-query"
+runtime:
+  auth:
+    type: apikey
+    key: demo_key
+    value: "{{demoToken}}"
+    placement: query
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5

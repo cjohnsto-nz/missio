@@ -60,6 +60,8 @@ export async function handleOAuth2TokenMessage(
         refreshTokenUrl: await resolve(auth.refreshTokenUrl),
         scope: await resolve(auth.scope),
         credentials: interpolatedCreds,
+        tokenConfig: auth.tokenConfig,
+        additionalParameters: await resolveAdditionalParameters(auth.additionalParameters, resolve),
         settings: { ...auth.settings, autoFetchToken: true },
         credentialsId: auth.credentialsId,
       };
@@ -77,6 +79,7 @@ export async function handleOAuth2TokenMessage(
         const ac = auth as import('../models/types').AuthOAuth2AuthorizationCode;
         base.authorizationUrl = await resolve(ac.authorizationUrl);
         base.callbackUrl = ac.callbackUrl;
+        base.state = await resolve(ac.state);
         base.pkce = ac.pkce;
       }
 
@@ -90,4 +93,24 @@ export async function handleOAuth2TokenMessage(
   } catch (e: any) {
     webview.postMessage({ type: 'oauth2Progress', message: `Error: ${e.message}` });
   }
+}
+
+async function resolveAdditionalParameters(
+  params: import('../models/types').OAuth2AdditionalParameters | undefined,
+  resolve: (value: string | undefined) => Promise<string | undefined>,
+): Promise<import('../models/types').OAuth2AdditionalParameters | undefined> {
+  if (!params) return undefined;
+  const resolveEntries = async (entries: import('../models/types').OAuth2AdditionalParameter[] | undefined) => {
+    if (!entries) return undefined;
+    return Promise.all(entries.map(async entry => ({
+      ...entry,
+      name: await resolve(entry.name),
+      value: await resolve(entry.value),
+    })));
+  };
+  return {
+    authorizationRequest: await resolveEntries(params.authorizationRequest),
+    accessTokenRequest: await resolveEntries(params.accessTokenRequest),
+    refreshTokenRequest: await resolveEntries(params.refreshTokenRequest),
+  };
 }

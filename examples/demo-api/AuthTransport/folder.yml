@@ -1,0 +1,8 @@
+info:
+  name: Auth Transport
+  type: folder
+  description: Run `node examples/demo-api/server.js` before sending these auth, redirect, OAuth2, proxy, and mTLS demo requests.
+request:
+  headers:
+    - name: X-Demo-Folder
+      value: auth-transport
