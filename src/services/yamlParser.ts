@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import type { OpenCollection, OpenCollectionWorkspace, HttpRequest, Folder } from '../models/types';
+import type { OpenCollection, OpenCollectionWorkspace, RequestFileItem, Folder } from '../models/types';
 import { migrateCollection, migrateRequest, migrateFolder } from './migrations';
 
 /** Files that had migrations applied in-memory but not yet persisted to disk. */
@@ -77,13 +77,17 @@ export async function readWorkspaceFile(filePath: string): Promise<OpenCollectio
   return readYamlFile<OpenCollectionWorkspace>(filePath);
 }
 
-export async function readRequestFile(filePath: string): Promise<HttpRequest> {
-  const data = await readYamlFile<HttpRequest>(filePath);
+export async function readRequestFile(filePath: string): Promise<RequestFileItem> {
+  const data = await readYamlFile<RequestFileItem>(filePath);
   const result = migrateRequest(data);
   if (result.changed) {
     _pendingMigrations.set(filePath, { data, applied: result.applied });
   }
   return data;
+}
+
+export async function readItemFile(filePath: string): Promise<RequestFileItem> {
+  return readRequestFile(filePath);
 }
 
 export async function readFolderFile(filePath: string): Promise<Folder> {

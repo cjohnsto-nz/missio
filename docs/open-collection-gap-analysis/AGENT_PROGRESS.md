@@ -51,13 +51,13 @@ Use full branch names for stacking existing branches with `but move <child-branc
 
 | ID | Task | Status | Owner | GitButler Branch/Stack/PR | Coverage Plan | Verification | Last Update | Next Action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| OC-000 | Foundation and protocol dispatch | Unclaimed | - | - | - | - | - | Claim first; many other tracks depend on it. |
+| OC-000 | Foundation and protocol dispatch | Done | Codex | feature/oc-000-foundation-dispatch (fo), stacked on docs/open-collection-agent-plan (do); implementation commit `c30cdec` | Satisfied by `test/openCollectionFoundation.test.ts`: schema item guards and mixed parsing, unbundled scan/tree routing for HTTP, GraphQL, gRPC, WebSocket, folder, and script items, execution facade HTTP delegation, unsupported GraphQL/WebSocket/gRPC diagnostics, validation schema routing, and non-HTTP editor save guard. Full suite covers shared HTTP/import/export regressions. | `npm run compile` passed; `npx vitest run test/openCollectionFoundation.test.ts` passed 9 tests; `npm test` passed 333 tests; `npm run build` passed. | 2026-06-14 22:24 NZT | OC-010/OC-020/OC-030/OC-070 can build on the stable item guards and execution facade. |
 | OC-010 | GraphQL support | Unclaimed | - | - | - | - | - | Start after or alongside OC-000 interface design. |
 | OC-020 | WebSocket support | Unclaimed | - | - | - | - | - | Start after OC-000 dispatch shape is stable. |
 | OC-030 | gRPC support | Unclaimed | - | - | - | - | - | Start after OC-000 and dependency choice. |
 | OC-040 | Scripts, tests, assertions, actions | Unclaimed | - | - | - | - | - | Can start with runtime design spike before OC-000 lands. |
 | OC-050 | Auth, proxy, mTLS, transport completion | Unclaimed | - | - | - | - | - | Can start with HTTP-only fixes; proxy/mTLS need executor refactor. |
-| OC-060 | Schema round-trip and validation | Unclaimed | - | - | - | - | - | Can start now with tests and validation schema selection. |
+| OC-060 | Schema round-trip and validation | Done | Codex | feature/oc-060-schema-roundtrip-validation (sc) | Add golden no-op editor/serializer round-trip tests for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; add validation tests proving protocol-aware request subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP files not gaining `http` keys. Run targeted validation/editor/service tests plus existing touched HTTP/import-export/editor regressions. | `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm run compile` passed; `npm run build` passed; `npm test` passed (15 files, 341 tests). | 2026-06-14 22:22 NZT | OC-060 complete; keep commit/review scoped to OC-060 files because unrelated OC-000 work is also unassigned. |
 | OC-070 | Imports, exports, tree, CodeLens, Copilot tools | Unclaimed | - | - | - | - | - | Start after type guards exist; some validation work can begin now. |
 
 ## Dependency Map
@@ -81,12 +81,30 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 | --- | --- | --- | --- |
 | 2026-06-14 | Keep `schema/opencollectionschema-source.json` as upstream-only input and apply Missio additions through `schema/missio-extensions.json`. | Existing build system already separates upstream schema from Missio-specific extensions. | Codex |
 | 2026-06-14 | Use GitButler for all version-control write operations. | `but` CLI 0.20.0 is installed, and `but skill check` reports current global Agent Skills and local OpenCode GitButler skills. This lets agents isolate work in parallel branches/stacks. | Codex |
+| 2026-06-14 | Agent skills now require a finalization audit before marking tasks done. | Parallel agents need each task to classify uncommitted change IDs, commit only owned slices with GitButler, and log remaining unrelated IDs so completed work is not left only in `zz`. | Codex |
 
 ## Task Logs
 
 ### OC-000 Foundation and Protocol Dispatch
 
-No updates yet.
+- 2026-06-14 22:02 NZT - Codex: Claimed OC-000 and recorded coverage before implementation.
+  GitButler: feature/oc-000-foundation-dispatch (fo); workspace also has docs/open-collection-agent-plan (do) and feature/scripting (sc) applied from existing work.
+  Coverage: planned automated tests for schema item guards/mixed parsing, unbundled scan/tree routing, HTTP execution regression behavior, and unsupported protocol diagnostics.
+  Changed: docs/open-collection-gap-analysis/AGENT_PROGRESS.md.
+  Verified: `but status -fv` read successfully; implementation tests not run yet.
+  Next: inspect current model/parser/executor/test structure and implement the OC-000 slice.
+- 2026-06-14 22:17 NZT - Codex: Completed OC-000 foundation and protocol dispatch.
+  GitButler: feature/oc-000-foundation-dispatch (fo); `but status -fv` shows OC-000 changes currently in unassigned change IDs including model/parser/executor/tree/tool/test files, with parallel OC-060 round-trip/webview work also present in the workspace.
+  Coverage: implemented `test/openCollectionFoundation.test.ts` for item guards, non-HTTP parsing, unbundled mixed scan, protocol-aware tree nodes, execution facade dispatch, unsupported diagnostics, validation routing, Copilot send diagnostics, and the non-HTTP request editor save guard.
+  Changed: `src/models/types.ts`, `src/services/yamlParser.ts`, `src/services/collectionService.ts`, `src/services/requestExecutionService.ts`, `src/services/validationService.ts`, `src/providers/collectionTreeProvider.ts`, `src/commands/*`, `src/copilot/tools/*`, `src/extension.ts`, `src/panels/requestPanel.ts`, `test/mocks/vscode.ts`, `test/openCollectionFoundation.test.ts`; also made minimal type-only compile fixes in unassigned `src/models/schemaRoundTrip.ts` that belongs to the parallel round-trip slice.
+  Verified: `npm run compile` passed; `npx vitest run test/openCollectionFoundation.test.ts` passed 9 tests; `npm test` passed 333 tests; `npm run build` passed.
+  Next: OC-010, OC-020, OC-030, and OC-070 can use `OpenCollectionItem`, protocol type guards, and `RequestExecutionService`; protocol executors remain explicit follow-up work.
+- 2026-06-14 22:24 NZT - Codex: Finalized OC-000 into GitButler.
+  GitButler: stacked `feature/oc-000-foundation-dispatch` on `docs/open-collection-agent-plan`; committed implementation as `c30cdec` (`Add OC-000 protocol dispatch foundation`). Agent skill feedback committed separately on `docs/open-collection-agent-plan` as `98c9d3d`.
+  Coverage: unchanged from the 22:17 verification; no implementation files changed after the passing compile/test/build run.
+  Changed: committed OC-000-owned implementation/test files to `fo`; left parallel OC-060 files (`src/models/schemaRoundTrip.ts`, `src/webview/*Panel.ts`, `test/schemaRoundTrip.test.ts`, `test/validationService.test.ts`) out of the OC-000 commit.
+  Verified: `but commit feature/oc-000-foundation-dispatch -m "Add OC-000 protocol dispatch foundation" --changes ...` succeeded; final status audit pending after this ledger commit.
+  Next: commit this ledger update to `fo`, then hand off protocol tracks to build on `OpenCollectionItem`, protocol guards, and `RequestExecutionService`.
 
 ### OC-010 GraphQL Support
 
@@ -110,7 +128,19 @@ No updates yet.
 
 ### OC-060 Schema Round-Trip and Validation
 
-No updates yet.
+- 2026-06-14 22:04 NZT - Codex: Claimed OC-060 and recorded the coverage plan before implementation.
+  GitButler: feature/oc-060-schema-roundtrip-validation (he); workspace also has docs/open-collection-agent-plan (do), feature/scripting (cr), and feature/oc-000-foundation-dispatch (fo) applied from existing work.
+  Coverage: planned golden no-op editor/serializer round-trip tests for HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; validation tests for protocol-aware subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP safety.
+  Changed: docs/open-collection-gap-analysis/AGENT_PROGRESS.md.
+  Verified: `but status -fv`, `but diff`, and task page review completed; implementation tests not run yet.
+  Next: inspect validation/editor serializer structure, add failing coverage, implement fixes, and run complete automated coverage.
+
+- 2026-06-14 22:22 NZT - Codex: Completed OC-060 schema round-trip and validation implementation with automated coverage passing.
+  GitButler: feature/oc-060-schema-roundtrip-validation (sc); latest `but status -fv` shows OC-060 files unassigned alongside unrelated OC-000 work, so commit/review must use explicit change IDs.
+  Coverage: implemented no-op editor/serializer round-trip coverage for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; validation coverage for protocol-aware request schema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field/defaults preservation, and non-HTTP files not gaining `http` keys.
+  Changed: src/models/schemaRoundTrip.ts; src/services/validationService.ts; src/webview/requestPanel.ts; src/webview/collectionPanel.ts; src/webview/folderPanel.ts; test/schemaRoundTrip.test.ts; test/validationService.test.ts; docs/open-collection-gap-analysis/AGENT_PROGRESS.md.
+  Verified: `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); final `npm test` passed (15 files, 341 tests); final `npm run compile` passed; final `npm run build` passed.
+  Next: Review or commit OC-060 with explicit GitButler change IDs only; do not include the parallel OC-000 files.
 
 ### OC-070 Imports, Exports, Tree, CodeLens, Copilot Tools
 

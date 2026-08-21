@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
 import type { Item, Folder, HttpRequest } from '../../models/types';
+import { isFolder, isHttpRequest } from '../../models/types';
 import { varPatternGlobal } from '../../models/varPattern';
 
 export interface ListRequestsParams {
@@ -52,13 +53,13 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
 
   private _extract(items: Item[], folder: string, out: RequestEntry[]): void {
     for (const item of items) {
-      if (item.info?.type === 'folder') {
+      if (isFolder(item)) {
         const f = item as Folder;
         const name = f.info?.name ?? 'folder';
         const subPath = folder ? `${folder}/${name}` : name;
         if (f.items) this._extract(f.items, subPath, out);
-      } else {
-        const req = item as HttpRequest;
+      } else if (isHttpRequest(item)) {
+        const req = item;
         const url = req.http?.url ?? '';
         const templateVariables = this._extractTemplateVariables(req);
         const entry: RequestEntry = {
