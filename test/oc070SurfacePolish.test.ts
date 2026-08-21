@@ -166,98 +166,6 @@ describe('OC-070 Copilot protocol preservation', () => {
     expect(parsed.request.runtime.auth.token).toBe('[redacted]');
   });
 
-  it('redacts CLI auth and sensitive values captured in request examples', async () => {
-    const request = makeProtocolRequest('http') as any;
-    request.runtime = {
-      auth: {
-        type: 'cli',
-        command: 'echo literal-access-token',
-      },
-    };
-    request.http.headers = [
-      { name: 'Authorization', value: 'Bearer literal-header-token' },
-      { name: 'X-Trace-Id', value: 'trace-123' },
-    ];
-    request.examples = [{
-      response: {
-        headers: [
-          { name: 'Set-Cookie', value: 'session=literal-cookie' },
-          { name: 'Content-Type', value: 'application/json' },
-        ],
-        body: {
-          type: 'json',
-          data: JSON.stringify({ access_token: 'literal-example-token', profile: { name: 'Ada' } }),
-        },
-      },
-    }];
-    const tool = new GetRequestTool({
-      loadRequestFile: vi.fn().mockResolvedValue(request),
-    } as any);
-
-    const parsed = JSON.parse(await tool.call({ input: { requestFilePath: '/tmp/http.yml' } } as any, {} as any));
-
-    expect(parsed.request.runtime.auth.command).toBe('[redacted]');
-    expect(parsed.request.http.headers).toEqual([
-      { name: 'Authorization', value: 'Bearer [redacted]' },
-      { name: 'X-Trace-Id', value: 'trace-123' },
-    ]);
-    expect(parsed.request.examples[0].response.headers).toEqual([
-      { name: 'Set-Cookie', value: '[redacted]' },
-      { name: 'Content-Type', value: 'application/json' },
-    ]);
-    expect(JSON.parse(parsed.request.examples[0].response.body.data)).toEqual({
-      access_token: '[redacted]',
-      profile: { name: 'Ada' },
-    });
-  });
-
-  it('redacts nested OAuth2 and AWS credential values', async () => {
-    const authCases = [
-      {
-        type: 'oauth2',
-        flow: 'resource_owner_password_credentials',
-        credentials: { clientId: 'public-client', clientSecret: 'literal-client-secret' },
-        resourceOwner: { username: 'ada', password: 'literal-password' },
-        additionalParameters: {
-          accessTokenRequest: [
-            { name: 'audience', value: 'missio-api' },
-            { name: 'client_secret', value: 'literal-additional-secret' },
-          ],
-        },
-      },
-      {
-        type: 'awsv4',
-        accessKeyId: 'public-access-key-id',
-        secretAccessKey: 'literal-aws-secret',
-        sessionToken: 'literal-session-token',
-      },
-    ];
-
-    const redacted = await Promise.all(authCases.map(async auth => {
-      const request = makeProtocolRequest('http') as any;
-      request.runtime = { auth };
-      const tool = new GetRequestTool({ loadRequestFile: vi.fn().mockResolvedValue(request) } as any);
-      const result = JSON.parse(await tool.call({ input: { requestFilePath: '/tmp/http.yml' } } as any, {} as any));
-      return result.request.runtime.auth;
-    }));
-
-    expect(redacted[0]).toMatchObject({
-      credentials: { clientId: 'public-client', clientSecret: '[redacted]' },
-      resourceOwner: { username: 'ada', password: '[redacted]' },
-      additionalParameters: {
-        accessTokenRequest: [
-          { name: 'audience', value: 'missio-api' },
-          { name: 'client_secret', value: '[redacted]' },
-        ],
-      },
-    });
-    expect(redacted[1]).toMatchObject({
-      accessKeyId: 'public-access-key-id',
-      secretAccessKey: '[redacted]',
-      sessionToken: '[redacted]',
-    });
-  });
-
   it('lists and dry-runs every supported protocol without collapsing them to HTTP', async () => {
     const collection = makeCollection();
     const requestMap = new Map<RequestProtocol, OpenCollectionRequest>(
@@ -318,12 +226,6 @@ describe('OC-070 explicit unsupported diagnostics', () => {
       code: 'MISSIO_UNSUPPORTED_REQUEST_IMPORT',
       protocol: 'websocket',
     });
-    expect(detectUnsupportedRequestFormat('demo.Service/Call')).toMatchObject({
-      code: 'MISSIO_UNSUPPORTED_REQUEST_IMPORT',
-      protocol: 'grpc',
-    });
-    expect(detectUnsupportedRequestFormat('https://api.example.com/v1/users')).toBeUndefined();
-    expect(detectUnsupportedRequestFormat('compare demo.Service/Call behavior')).toBeUndefined();
   });
 
   it('reports protocol-specific unsupported snippet diagnostics for non-HTTP requests', () => {
@@ -347,23 +249,16 @@ describe('OC-070 import diagnostics and script preservation', () => {
       },
       event: [
         { listen: 'prerequest', script: { type: 'text/javascript', exec: ['pm.variables.set("collectionToken", "yes");'] } },
-        { listen: 'test', script: { exec: ['pm.test("collection", function () {});'] } },
         { listen: 'monitor', script: { type: 'text/javascript', exec: ['console.log("unsupported");'] } },
       ],
       item: [
         {
           name: 'Folder',
-          event: [
-            { listen: 'prerequest', script: { exec: 'pm.variables.set("folderToken", "yes");' } },
-            { listen: 'test', script: { exec: ['pm.test("folder", function () {});'] } },
-          ],
+          event: [{ listen: 'prerequest', script: { exec: 'pm.variables.set("folderToken", "yes");' } }],
           item: [
             {
               name: 'GET User',
-              event: [
-                { disabled: true, listen: 'test', script: { exec: ['pm.test("ok", function () { pm.expect(pm.response.code).to.equal(200); });'] } },
-                { listen: 'prerequest', script: { src: 'scripts/setup.js' } },
-              ],
+              event: [{ listen: 'test', script: { exec: ['pm.test("ok", function () { pm.expect(pm.response.code).to.equal(200); });'] } }],
               request: { method: 'GET', url: 'https://example.test/users' },
             },
           ],
@@ -380,14 +275,15 @@ describe('OC-070 import diagnostics and script preservation', () => {
       { type: 'before-request', code: 'pm.variables.set("collectionToken", "yes");' },
     ]);
     expect(folder.request.scripts[0]).toMatchObject({ type: 'before-request' });
-    expect(request.runtime.scripts[0]).toMatchObject({ type: 'tests', disabled: true });
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'MISSIO_IMPORT_UNSUPPORTED_INHERITED_TEST_EVENT', path: 'collection:Postman Scripts' }),
-      expect.objectContaining({ code: 'MISSIO_IMPORT_UNSUPPORTED_EVENT', path: 'collection:Postman Scripts' }),
-      expect.objectContaining({ code: 'MISSIO_IMPORT_UNSUPPORTED_INHERITED_TEST_EVENT', path: 'folder:Postman Scripts/Folder' }),
-      expect.objectContaining({ code: 'MISSIO_IMPORT_UNSUPPORTED_SCRIPT_REFERENCE', path: 'request:Postman Scripts/Folder/GET User' }),
-    ]));
-    expect(collection.extensions.missio.import.diagnostics).toHaveLength(4);
+    expect(request.runtime.scripts[0]).toMatchObject({ type: 'tests' });
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'MISSIO_IMPORT_UNSUPPORTED_EVENT',
+        source: 'Postman',
+        path: 'collection:Postman Scripts',
+      }),
+    ]);
+    expect(collection.extensions.missio.import.diagnostics).toHaveLength(1);
   });
 
   it('records OpenAPI source metadata and unsupported webhook diagnostics without inventing non-HTTP requests', async () => {

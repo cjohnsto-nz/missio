@@ -51,7 +51,7 @@ export function detectUnsupportedRequestFormat(text: string): UnsupportedRequest
   if (/^(wss?:\/\/|new\s+WebSocket\s*\()/i.test(trimmed)) {
     return unsupportedImportDiagnostic('websocket', 'WebSocket');
   }
-  if (/^(grpcurl\b|grpcs?:\/\/)/i.test(trimmed) || /^[A-Za-z_][\w.]*\/[A-Za-z_]\w*$/.test(trimmed)) {
+  if (/^(grpcurl\b|grpcs?:\/\/)/i.test(trimmed) || /\b[A-Za-z_][\w.]*\/[A-Za-z_]\w*\b/.test(trimmed)) {
     return unsupportedImportDiagnostic('grpc', 'gRPC');
   }
 

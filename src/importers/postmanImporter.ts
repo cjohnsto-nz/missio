@@ -44,7 +44,7 @@ export class PostmanImporter implements CollectionImporter {
       collection.info.summary = this.extractDescription(postman.info.description);
     }
 
-    const collectionScripts = this.convertEvents(postman.event, 'collection', `collection:${collName}`, diagnostics);
+    const collectionScripts = this.convertEvents(postman.event, `collection:${collName}`, diagnostics);
     if (collectionScripts.length > 0) {
       collection.request = collection.request || {};
       collection.request.scripts = collectionScripts;
@@ -250,7 +250,7 @@ export class PostmanImporter implements CollectionImporter {
       hasContent = true;
     }
 
-    const scripts = this.convertEvents(item.event, 'folder', diagnosticPath, diagnostics);
+    const scripts = this.convertEvents(item.event, diagnosticPath, diagnostics);
     if (scripts.length > 0) {
       meta.request = meta.request || {};
       meta.request.scripts = scripts;
@@ -302,7 +302,7 @@ export class PostmanImporter implements CollectionImporter {
       request.http.body = body;
     }
 
-    const scripts = this.convertEvents(item.event, 'request', diagnosticPath, diagnostics);
+    const scripts = this.convertEvents(item.event, diagnosticPath, diagnostics);
     if (scripts.length > 0) {
       request.runtime = request.runtime || {};
       request.runtime.scripts = scripts;
@@ -392,12 +392,7 @@ export class PostmanImporter implements CollectionImporter {
     }
   }
 
-  private convertEvents(
-    events: any,
-    scope: 'collection' | 'folder' | 'request',
-    diagnosticPath: string,
-    diagnostics: ImportDiagnostic[],
-  ): any[] {
+  private convertEvents(events: any, diagnosticPath: string, diagnostics: ImportDiagnostic[]): any[] {
     if (!Array.isArray(events)) return [];
     const scripts: any[] = [];
 
@@ -422,17 +417,6 @@ export class PostmanImporter implements CollectionImporter {
         continue;
       }
 
-      if (listen === 'test' && scope !== 'request') {
-        diagnostics.push({
-          code: 'MISSIO_IMPORT_UNSUPPORTED_INHERITED_TEST_EVENT',
-          severity: 'warning',
-          source: 'Postman',
-          path: diagnosticPath,
-          message: `Postman ${scope}-level test scripts run after each request in Postman, but Missio does not execute inherited test scripts; the script was not imported.`,
-        });
-        continue;
-      }
-
       if (scriptType !== 'text/javascript' && scriptType !== 'javascript') {
         diagnostics.push({
           code: 'MISSIO_IMPORT_UNSUPPORTED_SCRIPT_TYPE',
@@ -445,16 +429,6 @@ export class PostmanImporter implements CollectionImporter {
       }
 
       const code = this.extractScriptCode(script?.exec);
-      if (!code.trim() && script?.src != null) {
-        diagnostics.push({
-          code: 'MISSIO_IMPORT_UNSUPPORTED_SCRIPT_REFERENCE',
-          severity: 'warning',
-          source: 'Postman',
-          path: diagnosticPath,
-          message: `Postman ${event.listen} external script references are not supported and were not imported.`,
-        });
-        continue;
-      }
       if (!code.trim()) {
         diagnostics.push({
           code: 'MISSIO_IMPORT_EMPTY_SCRIPT',
@@ -466,11 +440,7 @@ export class PostmanImporter implements CollectionImporter {
         continue;
       }
 
-      scripts.push({
-        type: mappedType,
-        code,
-        ...(event?.disabled === true || script?.disabled === true ? { disabled: true } : {}),
-      });
+      scripts.push({ type: mappedType, code });
     }
 
     return scripts;
