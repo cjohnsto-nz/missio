@@ -1,5 +1,10 @@
 .vscode/**
 .vscode-test/**
+.agents/**
+.github/**
+.opencode/**
+.socket/**
+.windsurf/**
 src/**
 out/**
 node_modules/**
@@ -10,4 +15,5 @@ esbuild.js
 **/*.ts
 !dist/**
 test/**
+docs/open-collection-gap-analysis/**
 vitest.config.ts

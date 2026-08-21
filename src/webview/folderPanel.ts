@@ -89,9 +89,9 @@ function buildAndSend() {
   data.request.variables = vars.length > 0 ? vars : undefined;
 
   const mergedRequestDefaults = applyRequestDefaultsEditorModel(folderData?.request, {
-    headers,
+    headers: headers.length > 0 ? headers : undefined,
     auth: authData,
-    variables: vars,
+    variables: vars.length > 0 ? vars : undefined,
   });
   if (mergedRequestDefaults) data.request = mergedRequestDefaults;
   else delete data.request;
