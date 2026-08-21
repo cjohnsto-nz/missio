@@ -52,6 +52,12 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 /goal Complete OC-070 request creation, import/export, snippet, and Copilot protocol surface polish using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until protocol-specific new request templates, protocol-preserving get/dry-run/list/send tooling, explicit unsupported import/export/snippet diagnostics, baseline tree/CodeLens/command regressions, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
 ```
 
+## Request Type UX
+
+```text
+/goal Complete OC-100 request type UX using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until Bruno/Postman UX benchmarking is recorded, UI request creation supports HTTP/GraphQL/WebSocket/gRPC type selection, the visual editor clearly shows and safely switches request type with preservation/loss confirmation, schema-valid conversion helpers are implemented, AGENT_PROGRESS updates are complete, and complete automated creation, conversion, validation, round-trip, and regression tests are passing.
+```
+
 ## Protocol Runtime Lifecycle
 
 ```text
@@ -67,5 +73,5 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## Final Integration
 
 ```text
-/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-090 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-100 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
 ```
