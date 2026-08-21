@@ -71,6 +71,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-120 | Preview Media Controls | [12-preview-media-controls.md](tasks/12-preview-media-controls.md) | Zoom, rotate, fit, reset, and Ctrl+scroll controls for image/PDF response previews. |
 | OC-130 | Protocol Layout Stability | [13-protocol-layout-stability.md](tasks/13-protocol-layout-stability.md) | Protocol-native first paint and layout stability when opening non-HTTP requests. |
 | OC-140 | WebSocket Lifecycle UX | [14-websocket-lifecycle-ux.md](tasks/14-websocket-lifecycle-ux.md) | First-class connect, disconnect, send, status bar, CodeLens, and Copilot lifecycle management for WebSocket sessions. |
+| OC-150 | Runtime Assertion Variables And WebSocket Results UX | [15-runtime-assertion-variables.md](tasks/15-runtime-assertion-variables.md) | Variable-aware assertion fields, assertion interpolation, WebSocket runtime result visibility, and lifecycle button contrast. |
 
 ## Project Skills
 
@@ -87,7 +88,7 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 
 ## Final Compatibility Evidence
 
-OC-000 through OC-120 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). OC-130 and OC-140 are follow-up UX tasks for protocol-native editor first paint and first-class WebSocket lifecycle management. The table below records the main evidence surfaces that remain useful for maintenance and future audits.
+OC-000 through OC-140 are implemented and tracked in [AGENT_PROGRESS.md](AGENT_PROGRESS.md). OC-150 is a focused follow-up for runtime assertion variable parity, WebSocket runtime result visibility, and WebSocket lifecycle button contrast. The table below records the main evidence surfaces that remain useful for maintenance and future audits.
 
 | Evidence Surface | Location |
 | --- | --- |

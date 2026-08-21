@@ -421,14 +421,14 @@ describe('WebSocket execution lifecycle', () => {
         scripts: [
           {
             type: 'before-request',
-            code: 'missio.variables.set("runtimeUser", missio.variables.get("runtimeUserName"));',
+            code: 'missio.variables.set("runtimeUser", "{{runtimeUserName}}");',
           },
           {
             type: 'before-request',
             code: [
               'missio.request.headers.set("X-Demo-Client", "missio-demo");',
-              'missio.request.headers.set("X-Runtime-Header", missio.variables.get("runtimeHeader"));',
-              'missio.request.body = { user: missio.variables.get("runtimeUser"), count: Number(missio.variables.get("runtimeCount")) };',
+              'missio.request.headers.set("X-Runtime-Header", "{{runtimeHeader}}");',
+              'missio.request.body = { user: "{{runtimeUser}}", count: Number("{{runtimeCount}}") };',
             ].join('\n'),
           },
           {

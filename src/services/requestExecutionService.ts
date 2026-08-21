@@ -120,13 +120,7 @@ export class RequestExecutionService {
     options?: { includeAuth?: boolean; includeBody?: boolean },
   ): Promise<ResolvedRequest> {
     if (isHttpRequest(request)) {
-      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(
-        request,
-        collection,
-        folderDefaults,
-        extraVariables,
-        environmentName,
-      );
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(request, extraVariables);
       return this._httpClient.buildResolvedRequest(
         request,
         collection,
@@ -139,13 +133,7 @@ export class RequestExecutionService {
     }
     if (isGraphQLRequest(request)) {
       const httpRequest = buildGraphQLHttpRequest(request);
-      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(
-        httpRequest,
-        collection,
-        folderDefaults,
-        extraVariables,
-        environmentName,
-      );
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(httpRequest, extraVariables);
       return this._httpClient.buildResolvedRequest(
         httpRequest,
         collection,
