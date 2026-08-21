@@ -119,6 +119,10 @@ export async function detectUnresolvedVars(
     scanAllStrings(auth, varNames);
   }
 
+  // Assertion templates are evaluated after after-response scripts/actions, so
+  // they may depend on variables produced during runtime. Leave unresolved
+  // assertion placeholders to deterministic runtime assertion diagnostics.
+
   if (varNames.size === 0) return [];
 
   // Resolve variables, then find which referenced names remain unresolved

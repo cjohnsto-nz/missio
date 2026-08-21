@@ -285,9 +285,21 @@ describe('OC-110 runtime authoring UI shell', () => {
     expect(css).toContain('.runtime-authoring');
     expect(css).toContain('.runtime-editor-row');
     expect(css).toContain('.runtime-row-toolbar');
+    expect(css).toContain('.runtime-var-field');
     expect(css).toContain('.runtime-icon-btn');
     expect(css).toContain('.runtime-unsupported-note');
     expect(css).toContain('.runtime-list:empty::before');
+  });
+
+  it('reuses the shared variable overlay path for runtime assertion fields', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.ts'), 'utf8');
+
+    expect(source).toContain('function enableRuntimeAssertionVariableFields');
+    expect(source).toContain('enableVarOverlay(input)');
+    expect(source).toContain('.rt-assertion-expression, .rt-assertion-value, .rt-assertion-description');
+    expect(source).toContain('runtime-var-field rt-assertion-expression-field');
+    expect(source).toContain('runtime-var-field rt-assertion-value-field');
+    expect(source).toContain('runtime-var-field rt-assertion-description-field');
   });
 
   it('offers only runtime-executable script phases and supported set-variable scopes for new rows', () => {

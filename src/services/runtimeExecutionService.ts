@@ -316,28 +316,48 @@ export class RuntimeExecutionService {
 
   private _runAssertions(state: RuntimeState, assertions: Assertion[]): void {
     for (const assertion of assertions) {
+      const visibleVariables = buildVisibleVariables(state.variables);
+      const expression = interpolateRuntimeTemplate(assertion.expression, visibleVariables);
+      const expected = assertion.value === undefined
+        ? undefined
+        : interpolateRuntimeTemplate(String(assertion.value), visibleVariables);
+      const description = interpolateOptionalTemplate(descriptionToText(assertion.description), visibleVariables);
       if (assertion.disabled) {
         state.result.assertions.push({
-          expression: assertion.expression,
+          expression,
           operator: assertion.operator,
-          expected: assertion.value,
+          expected,
           actual: undefined,
           passed: true,
           skipped: true,
-          description: descriptionToText(assertion.description),
+          description,
         });
         continue;
       }
 
-      const actual = evaluateExpression(assertion.expression, state);
-      const comparison = compareValues(actual, assertion.value, assertion.operator);
+      const unresolved = unresolvedTemplateNames(expression, expected, description);
+      if (unresolved.length > 0) {
+        state.result.assertions.push({
+          expression,
+          operator: assertion.operator,
+          expected,
+          actual: undefined,
+          passed: false,
+          description,
+          message: unresolvedAssertionMessage(unresolved),
+        });
+        continue;
+      }
+
+      const actual = evaluateExpression(expression, state);
+      const comparison = compareValues(actual, expected, assertion.operator);
       state.result.assertions.push({
-        expression: assertion.expression,
+        expression,
         operator: assertion.operator,
-        expected: assertion.value,
+        expected,
         actual,
         passed: comparison.passed,
-        description: descriptionToText(assertion.description),
+        description,
         message: comparison.message,
       });
     }
@@ -533,6 +553,28 @@ function interpolateRuntimeTemplate(template: string, variables: Map<string, str
     if (builtin !== undefined) return builtin;
     return variables.has(key) ? variables.get(key)! : match;
   });
+}
+
+function interpolateOptionalTemplate(template: string | undefined, variables: Map<string, string>): string | undefined {
+  return template === undefined ? undefined : interpolateRuntimeTemplate(template, variables);
+}
+
+function unresolvedTemplateNames(...values: Array<string | undefined>): string[] {
+  const names = new Set<string>();
+  for (const value of values) {
+    if (!value) continue;
+    const re = varPatternGlobal();
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(value)) !== null) {
+      names.add(match[1].trim());
+    }
+  }
+  return [...names];
+}
+
+function unresolvedAssertionMessage(names: string[]): string {
+  const label = names.length === 1 ? 'variable' : 'variables';
+  return `Unresolved assertion ${label}: ${names.map(name => `{{${name}}}`).join(', ')}`;
 }
 
 function resolveRuntimeBuiltin(name: string): string | undefined {
