@@ -1,0 +1,13 @@
+info:
+  name: Redirect Follow
+  type: http
+  seq: 3
+  description: Run `node examples/demo-api/server.js`; this request follows `/redirect/start` to `/redirect/final`.
+http:
+  method: GET
+  url: "{{baseUrl}}/redirect/start"
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 2

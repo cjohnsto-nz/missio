@@ -1,14 +1,16 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
+import * as tls from 'tls';
 import { URL } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import type {
   HttpRequest, HttpRequestDetails, HttpRequestBody,
   Auth, AuthOAuth2, AuthCli, HttpResponse, HttpRequestSettings, HttpRequestBodyVariant,
-  MissioCollection,
+  MissioCollection, ClientCertificate, OAuth2AdditionalParameters, OAuth2AdditionalParameter,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { OAuth2Service } from './oauth2Service';
@@ -32,11 +34,29 @@ export interface ResolvedRequest {
   headers: Record<string, string>;
   /** String for text bodies; Buffer for binary file bodies. */
   body?: string | Buffer;
+  /** Auth-derived headers that must not cross an origin boundary. */
+  sensitiveHeaders?: string[];
+  /** Auth-derived query parameters that must not cross an origin boundary or appear in logs. */
+  sensitiveQueryParameters?: string[];
 }
 
 interface CliTokenCacheEntry {
   token: string;
   expiresAt: number; // epoch ms
+}
+
+interface ResolvedHttpRequestSettings {
+  timeout: number;
+  followRedirects: boolean;
+  maxRedirects: number;
+  encodeUrl: boolean;
+}
+
+interface ResolvedProxyConfig {
+  protocol: 'http:' | 'https:';
+  hostname: string;
+  port: number;
+  authHeader?: string;
 }
 
 /** Callback to prompt user for CLI command approval. Returns true if approved. */
@@ -88,6 +108,7 @@ export class HttpClient implements vscode.Disposable {
     if (!details?.url || !details?.method) {
       throw new Error('Request must have a URL and method');
     }
+    const settings = this._resolveSettings(request.settings, vscode.workspace.getConfiguration('missio'));
 
     // Interpolate URL
     let url = this._environmentService.interpolate(details.url, variables);
@@ -104,10 +125,7 @@ export class HttpClient implements vscode.Disposable {
         if (p.disabled) continue;
         const resolvedValue = this._environmentService.interpolate(p.value, variables);
         if (resolvedValue === '') continue;
-        urlObj.searchParams.set(
-          this._environmentService.interpolate(p.name, variables),
-          resolvedValue,
-        );
+        this._setQueryParam(urlObj, this._environmentService.interpolate(p.name, variables), resolvedValue, settings.encodeUrl);
       }
       url = urlObj.toString();
     }
@@ -117,7 +135,7 @@ export class HttpClient implements vscode.Disposable {
     for (const p of pathParams) {
       const name = this._environmentService.interpolate(p.name, variables);
       const value = this._environmentService.interpolate(p.value, variables);
-      url = url.replace(`:${name}`, encodeURIComponent(value));
+      url = url.replace(`:${name}`, settings.encodeUrl ? encodeURIComponent(value) : value);
     }
 
     // Build headers: collection -> folder -> request (each layer overrides)
@@ -144,6 +162,8 @@ export class HttpClient implements vscode.Disposable {
     }
 
     // Auth (skip when exporting without auth)
+    const sensitiveHeaders = new Set<string>();
+    const sensitiveQueryParameters = new Set<string>();
     if (options?.includeAuth !== false) {
       let auth: Auth | undefined;
       if (collection.data.config?.forceAuthInherit) {
@@ -161,12 +181,25 @@ export class HttpClient implements vscode.Disposable {
         if (auth === 'inherit') auth = collection.data.request?.auth;
       }
       if (auth && auth !== 'inherit') {
+        const headersBeforeAuth = { ...headers };
+        const urlBeforeAuth = url;
         if (auth.type === 'oauth2') {
-          await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName);
+          url = await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName, url, settings.encodeUrl);
         } else if (auth.type === 'cli') {
           await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
         } else {
-          this._applyAuth(auth, headers, variables);
+          url = this._applyAuth(auth, headers, variables, url, settings.encodeUrl);
+        }
+        for (const [name, value] of Object.entries(headers)) {
+          const previousName = Object.keys(headersBeforeAuth).find(candidate => candidate.toLowerCase() === name.toLowerCase());
+          if (!previousName || headersBeforeAuth[previousName] !== value) sensitiveHeaders.add(name);
+        }
+        const configuredHeader = this._configuredAuthHeaderName(auth, variables);
+        if (configuredHeader) sensitiveHeaders.add(configuredHeader);
+        const configuredQuery = this._configuredAuthQueryName(auth, variables);
+        if (configuredQuery) sensitiveQueryParameters.add(configuredQuery);
+        for (const name of this._changedQueryParameterNames(urlBeforeAuth, url)) {
+          sensitiveQueryParameters.add(name);
         }
       }
     }
@@ -205,7 +238,16 @@ export class HttpClient implements vscode.Disposable {
       }
     }
 
-    return { method: details.method.toUpperCase(), url, headers, body };
+    url = this._normalizeUrl(url, settings.encodeUrl);
+
+    return {
+      method: details.method.toUpperCase(),
+      url,
+      headers,
+      body,
+      sensitiveHeaders: sensitiveHeaders.size > 0 ? [...sensitiveHeaders] : undefined,
+      sensitiveQueryParameters: sensitiveQueryParameters.size > 0 ? [...sensitiveQueryParameters] : undefined,
+    };
   }
 
   async send(
@@ -234,48 +276,81 @@ export class HttpClient implements vscode.Disposable {
     const settings = this._resolveSettings(request.settings, config);
 
     onProgress?.('Sending request…');
-    // Execute
-    const { method, url, headers, body } = resolved;
-    _log(`  executing: ${method} ${url}`);
-    tPhase = Date.now();
-    const parsedUrl = new URL(url);
-    const isHttps = parsedUrl.protocol === 'https:';
-    const requestModule = isHttps ? https : http;
+    const variables = await this._environmentService.resolveVariables(collection, folderDefaults, environmentName);
+    if (extraVariables) {
+      for (const [k, v] of extraVariables) variables.set(k, v);
+    }
 
+    tPhase = Date.now();
     const requestId = `${Date.now()}-${Math.random()}`;
+    const response = await this._sendWithRedirects(
+      resolved,
+      settings,
+      collection,
+      variables,
+      environmentName,
+      requestId,
+    );
+    _mark('HTTP', tPhase);
+    return { ...response, timing: _timing };
+  }
+
+  private async _sendWithRedirects(
+    resolved: ResolvedRequest,
+    settings: ResolvedHttpRequestSettings,
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    environmentName: string | undefined,
+    requestId: string,
+  ): Promise<HttpResponse> {
+    let current: ResolvedRequest = {
+      ...resolved,
+      headers: { ...resolved.headers },
+    };
+    const startedAt = Date.now();
+    let redirects = 0;
+
+    while (true) {
+      _log(`  executing: ${current.method} ${this._redactUrlForLog(current.url, current.sensitiveQueryParameters)}`);
+      const response = await this._sendOnce(current, settings, collection, variables, environmentName, requestId, startedAt);
+      const location = this._getRedirectLocation(response);
+      if (!location || !settings.followRedirects) {
+        return response;
+      }
+      if (redirects >= settings.maxRedirects) {
+        throw new Error(`Too many redirects: exceeded maxRedirects (${settings.maxRedirects})`);
+      }
+      redirects += 1;
+      current = this._buildRedirectRequest(current, response.status, location, settings.encodeUrl);
+    }
+  }
+
+  private async _sendOnce(
+    resolved: ResolvedRequest,
+    settings: ResolvedHttpRequestSettings,
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    environmentName: string | undefined,
+    requestId: string,
+    startedAt: number,
+  ): Promise<HttpResponse> {
+    const transport = await this._buildRequestOptions(resolved, settings, collection, variables, environmentName);
+    const requestModule = transport.module;
 
     return new Promise<HttpResponse>((resolve, reject) => {
-      const startTime = Date.now();
-
-      const options: http.RequestOptions = {
-        method,
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: parsedUrl.pathname + parsedUrl.search,
-        headers,
-        timeout: settings.timeout,
-      };
-
-      if (isHttps) {
-        (options as https.RequestOptions).rejectUnauthorized =
-          vscode.workspace.getConfiguration('missio').get<boolean>('rejectUnauthorized', true);
-      }
-
-      const req = requestModule.request(options, (res) => {
+      const req = requestModule.request(transport.options, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk) => chunks.push(chunk));
         res.on('end', () => {
           this._activeRequests.delete(requestId);
           const buffer = Buffer.concat(chunks);
-          const duration = Date.now() - startTime;
+          const duration = Date.now() - startedAt;
           const responseHeaders: Record<string, string> = {};
           for (const [key, val] of Object.entries(res.headers)) {
             if (val) {
               responseHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
             }
           }
-
-          _mark('HTTP', tPhase);
 
           // Detect binary content types for preview support
           const ct = (responseHeaders['content-type'] ?? '').toLowerCase();
@@ -289,7 +364,6 @@ export class HttpClient implements vscode.Disposable {
             bodyBase64: isBinary ? buffer.toString('base64') : undefined,
             duration,
             size: buffer.length,
-            timing: _timing,
           } as any);
         });
       });
@@ -305,8 +379,8 @@ export class HttpClient implements vscode.Disposable {
 
       this._activeRequests.set(requestId, req);
 
-      if (body !== undefined) {
-        const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf-8');
+      if (resolved.body !== undefined) {
+        const bodyBuffer = Buffer.isBuffer(resolved.body) ? resolved.body : Buffer.from(resolved.body, 'utf-8');
         req.setHeader('Content-Length', bodyBuffer.length);
         _log(`  body: ${bodyBuffer.length} bytes`);
         req.write(bodyBuffer);
@@ -324,14 +398,384 @@ export class HttpClient implements vscode.Disposable {
 
   // ── Private ──────────────────────────────────────────────────────
 
+  private async _buildRequestOptions(
+    resolved: ResolvedRequest,
+    settings: ResolvedHttpRequestSettings,
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    environmentName: string | undefined,
+  ): Promise<{ module: typeof http | typeof https; options: http.RequestOptions | https.RequestOptions }> {
+    const parsedUrl = new URL(resolved.url);
+    const isHttps = parsedUrl.protocol === 'https:';
+    const headers = { ...resolved.headers };
+    const tlsOptions = isHttps
+      ? await this._resolveTlsOptions(collection, variables, environmentName, parsedUrl.hostname)
+      : undefined;
+    const proxy = this._resolveProxy(collection, variables, parsedUrl);
+
+    if (proxy && isHttps) {
+      const socket = await this._createProxyTunnel(parsedUrl, proxy, settings, tlsOptions);
+      return {
+        module: https,
+        options: {
+          method: resolved.method,
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port || 443,
+          path: parsedUrl.pathname + parsedUrl.search,
+          headers,
+          timeout: settings.timeout,
+          agent: false,
+          createConnection: () => socket,
+          ...tlsOptions,
+        } as https.RequestOptions,
+      };
+    }
+
+    if (proxy) {
+      if (!this._hasHeader(headers, 'host')) {
+        headers.Host = parsedUrl.host;
+      }
+      if (proxy.authHeader) {
+        headers['Proxy-Authorization'] = proxy.authHeader;
+      }
+      return {
+        module: proxy.protocol === 'https:' ? https : http,
+        options: {
+          method: resolved.method,
+          hostname: proxy.hostname,
+          port: proxy.port,
+          path: parsedUrl.toString(),
+          headers,
+          timeout: settings.timeout,
+          ...(proxy.protocol === 'https:'
+            ? { rejectUnauthorized: vscode.workspace.getConfiguration('missio').get<boolean>('rejectUnauthorized', true) }
+            : {}),
+        },
+      };
+    }
+
+    return {
+      module: isHttps ? https : http,
+      options: {
+        method: resolved.method,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (isHttps ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        headers,
+        timeout: settings.timeout,
+        ...(tlsOptions ?? {}),
+      },
+    };
+  }
+
+  private _resolveProxy(
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    targetUrl: URL,
+  ): ResolvedProxyConfig | undefined {
+    const proxy = collection.data.config?.proxy;
+    if (!proxy || proxy.disabled || proxy.enabled === false) return undefined;
+    const config = proxy.config;
+    if (!config || !config.hostname || !config.port) return undefined;
+    if (this._isProxyBypassed(config.bypassProxy, targetUrl.hostname, variables)) return undefined;
+
+    const rawProtocol = this._environmentService.interpolate(config.protocol || 'http', variables).toLowerCase();
+    const protocol = rawProtocol.endsWith(':') ? rawProtocol : `${rawProtocol}:`;
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      throw new Error(`Proxy protocol "${rawProtocol}" is not supported. Use http or https.`);
+    }
+
+    let authHeader: string | undefined;
+    const auth = config.auth;
+    if (auth && typeof auth === 'object' && !auth.disabled) {
+      const username = this._environmentService.interpolate(auth.username ?? '', variables);
+      const password = this._environmentService.interpolate(auth.password ?? '', variables);
+      authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    }
+
+    return {
+      protocol,
+      hostname: this._environmentService.interpolate(config.hostname, variables),
+      port: config.port,
+      authHeader,
+    };
+  }
+
+  private _isProxyBypassed(bypassProxy: string | undefined, hostname: string, variables: Map<string, string>): boolean {
+    if (!bypassProxy) return false;
+    const host = hostname.toLowerCase();
+    const entries = this._environmentService.interpolate(bypassProxy, variables)
+      .split(/[,\s]+/)
+      .map(entry => entry.trim().toLowerCase())
+      .filter(Boolean);
+    return entries.some(entry => {
+      if (entry === '*') return true;
+      if (entry === '<local>') return !host.includes('.');
+      if (entry.startsWith('*.')) return host.endsWith(entry.slice(1));
+      return host === entry;
+    });
+  }
+
+  private async _createProxyTunnel(
+    targetUrl: URL,
+    proxy: ResolvedProxyConfig,
+    settings: ResolvedHttpRequestSettings,
+    tlsOptions: tls.ConnectionOptions | undefined,
+  ): Promise<tls.TLSSocket> {
+    const proxyModule = proxy.protocol === 'https:' ? https : http;
+    const targetPort = targetUrl.port || '443';
+    const tunnelHeaders: Record<string, string> = {
+      Host: `${targetUrl.hostname}:${targetPort}`,
+    };
+    if (proxy.authHeader) {
+      tunnelHeaders['Proxy-Authorization'] = proxy.authHeader;
+    }
+
+    return new Promise<tls.TLSSocket>((resolve, reject) => {
+      const req = proxyModule.request({
+        method: 'CONNECT',
+        hostname: proxy.hostname,
+        port: proxy.port,
+        path: `${targetUrl.hostname}:${targetPort}`,
+        headers: tunnelHeaders,
+        timeout: settings.timeout,
+      });
+
+      req.on('connect', (res, socket) => {
+        if (res.statusCode !== 200) {
+          socket.destroy();
+          reject(new Error(`Proxy CONNECT failed with status ${res.statusCode ?? 0}`));
+          return;
+        }
+
+        const tlsSocket = tls.connect({
+          socket,
+          servername: targetUrl.hostname,
+          ...(tlsOptions ?? {}),
+        }, () => resolve(tlsSocket));
+        tlsSocket.once('error', reject);
+      });
+      req.on('timeout', () => req.destroy(new Error('Proxy CONNECT timed out')));
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  private async _resolveTlsOptions(
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    environmentName: string | undefined,
+    hostname: string,
+  ): Promise<tls.ConnectionOptions> {
+    const options: tls.ConnectionOptions = {
+      rejectUnauthorized: vscode.workspace.getConfiguration('missio').get<boolean>('rejectUnauthorized', true),
+    };
+    const certificate = this._selectClientCertificate(collection, variables, environmentName, hostname);
+    if (!certificate) return options;
+
+    if (certificate.type === 'pem') {
+      options.cert = await fs.promises.readFile(this._resolveCollectionPath(collection.rootDir, this._environmentService.interpolate(certificate.certificateFilePath, variables)));
+      options.key = await fs.promises.readFile(this._resolveCollectionPath(collection.rootDir, this._environmentService.interpolate(certificate.privateKeyFilePath, variables)));
+    } else {
+      options.pfx = await fs.promises.readFile(this._resolveCollectionPath(collection.rootDir, this._environmentService.interpolate(certificate.pkcs12FilePath, variables)));
+    }
+    if (certificate.passphrase) {
+      options.passphrase = this._environmentService.interpolate(certificate.passphrase, variables);
+    }
+    return options;
+  }
+
+  private _selectClientCertificate(
+    collection: MissioCollection,
+    variables: Map<string, string>,
+    environmentName: string | undefined,
+    hostname: string,
+  ): ClientCertificate | undefined {
+    const envName = environmentName ?? this._environmentService.getActiveEnvironmentName(collection.id);
+    const env = envName
+      ? collection.data.config?.environments?.find(candidate => candidate.name === envName)
+      : undefined;
+    const candidates = [
+      ...(env?.clientCertificates ?? []),
+      ...(collection.data.config?.clientCertificates ?? []),
+    ];
+    return candidates.find(certificate => this._certificateMatches(certificate, hostname, variables));
+  }
+
+  private _certificateMatches(certificate: ClientCertificate, hostname: string, variables: Map<string, string>): boolean {
+    const domain = this._environmentService.interpolate(certificate.domain, variables).toLowerCase();
+    const host = hostname.toLowerCase();
+    if (domain === '*') return true;
+    if (domain.startsWith('*.')) return host.endsWith(domain.slice(1));
+    return domain === host;
+  }
+
+  private _resolveCollectionPath(rootDir: string, filePath: string): string {
+    return path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
+  }
+
+  private _getRedirectLocation(response: HttpResponse): string | undefined {
+    if (![301, 302, 303, 307, 308].includes(response.status)) return undefined;
+    return response.headers.location || response.headers.Location;
+  }
+
+  private _buildRedirectRequest(current: ResolvedRequest, status: number, location: string, encodeUrl: boolean): ResolvedRequest {
+    const currentUrl = new URL(current.url);
+    const redirectUrl = new URL(location, current.url);
+    const crossesOrigin = currentUrl.origin !== redirectUrl.origin;
+    let url = this._normalizeUrl(redirectUrl.toString(), encodeUrl);
+    const headers = { ...current.headers };
+    let method = current.method;
+    let body = current.body;
+
+    if (crossesOrigin) {
+      for (const name of ['authorization', 'cookie', 'proxy-authorization', ...(current.sensitiveHeaders ?? [])]) {
+        this._deleteHeader(headers, name);
+      }
+      if (current.sensitiveQueryParameters?.length) {
+        const sanitizedUrl = new URL(url);
+        for (const name of current.sensitiveQueryParameters) {
+          this._deleteQueryParam(sanitizedUrl, name, encodeUrl);
+        }
+        url = this._normalizeUrl(sanitizedUrl.toString(), encodeUrl);
+      }
+    }
+
+    if ([301, 302, 303].includes(status) && method !== 'GET' && method !== 'HEAD') {
+      method = 'GET';
+      body = undefined;
+      this._deleteHeader(headers, 'content-length');
+    }
+
+    return {
+      method,
+      url,
+      headers,
+      body,
+      sensitiveHeaders: current.sensitiveHeaders,
+      sensitiveQueryParameters: current.sensitiveQueryParameters,
+    };
+  }
+
+  private _setQueryParam(url: URL, name: string, value: string, encodeUrl = true): void {
+    if (!name) return;
+    if (encodeUrl) {
+      url.searchParams.set(name, value);
+      return;
+    }
+
+    const entries = url.search.slice(1)
+      .split('&')
+      .filter(Boolean)
+      .filter(entry => this._queryParameterName(entry) !== name);
+    entries.push(`${name}=${value}`);
+    url.search = entries.join('&');
+  }
+
+  private _deleteQueryParam(url: URL, name: string, encodeUrl: boolean): void {
+    if (encodeUrl) {
+      url.searchParams.delete(name);
+      return;
+    }
+    const entries = url.search.slice(1)
+      .split('&')
+      .filter(Boolean)
+      .filter(entry => this._queryParameterName(entry) !== name);
+    url.search = entries.join('&');
+  }
+
+  private _queryParameterName(entry: string): string {
+    const rawName = entry.split('=', 1)[0];
+    try {
+      return decodeURIComponent(rawName.replace(/\+/g, ' '));
+    } catch {
+      return rawName;
+    }
+  }
+
+  private _changedQueryParameterNames(before: string, after: string): string[] {
+    try {
+      const beforeParams = new URL(before).searchParams;
+      const afterParams = new URL(after).searchParams;
+      return [...new Set(afterParams.keys())].filter(name =>
+        JSON.stringify(beforeParams.getAll(name)) !== JSON.stringify(afterParams.getAll(name)));
+    } catch {
+      return [];
+    }
+  }
+
+  private _configuredAuthHeaderName(auth: Exclude<Auth, 'inherit'>, variables: Map<string, string>): string | undefined {
+    if (auth.type === 'basic' || auth.type === 'bearer') return 'Authorization';
+    if (auth.type === 'apikey' && auth.placement !== 'query') {
+      return this._environmentService.interpolate(auth.key ?? '', variables) || undefined;
+    }
+    if (auth.type === 'cli') {
+      return this._environmentService.interpolate(auth.tokenHeader || 'Authorization', variables);
+    }
+    if (auth.type === 'oauth2') {
+      const placement = auth.tokenConfig?.placement;
+      if (placement && 'query' in placement) return undefined;
+      const header = placement && 'header' in placement ? placement.header : 'Authorization';
+      return this._environmentService.interpolate(header || 'Authorization', variables);
+    }
+    return undefined;
+  }
+
+  private _configuredAuthQueryName(auth: Exclude<Auth, 'inherit'>, variables: Map<string, string>): string | undefined {
+    if (auth.type === 'apikey' && auth.placement === 'query') {
+      return this._environmentService.interpolate(auth.key ?? '', variables) || undefined;
+    }
+    if (auth.type === 'oauth2') {
+      const placement = auth.tokenConfig?.placement;
+      if (placement && 'query' in placement) {
+        return this._environmentService.interpolate(placement.query || 'access_token', variables);
+      }
+    }
+    return undefined;
+  }
+
+  private _redactUrlForLog(url: string, sensitiveQueryParameters: string[] | undefined): string {
+    if (!sensitiveQueryParameters?.length) return url;
+    try {
+      const parsed = new URL(url);
+      for (const name of sensitiveQueryParameters) {
+        if (parsed.searchParams.has(name)) parsed.searchParams.set(name, '[REDACTED]');
+      }
+      return parsed.toString();
+    } catch {
+      return '<URL redacted: invalid URL>';
+    }
+  }
+
+  private _normalizeUrl(url: string, encodeUrl: boolean): string {
+    if (!encodeUrl) return url;
+    try {
+      return new URL(url).toString();
+    } catch {
+      return url;
+    }
+  }
+
+  private _hasHeader(headers: Record<string, string>, name: string): boolean {
+    const lower = name.toLowerCase();
+    return Object.keys(headers).some(header => header.toLowerCase() === lower);
+  }
+
+  private _deleteHeader(headers: Record<string, string>, name: string): void {
+    const lower = name.toLowerCase();
+    for (const key of Object.keys(headers)) {
+      if (key.toLowerCase() === lower) delete headers[key];
+    }
+  }
+
   private _resolveSettings(
     settings: HttpRequestSettings | undefined,
     config: vscode.WorkspaceConfiguration,
-  ) {
+  ): ResolvedHttpRequestSettings {
     return {
-      timeout: (settings?.timeout !== 'inherit' && settings?.timeout) || config.get<number>('timeout', 30000),
+      timeout: (settings?.timeout !== 'inherit' ? settings?.timeout : undefined) ?? config.get<number>('timeout', 30000),
       followRedirects: (settings?.followRedirects !== 'inherit' && settings?.followRedirects) ?? config.get<boolean>('followRedirects', true),
-      maxRedirects: (settings?.maxRedirects !== 'inherit' && settings?.maxRedirects) || config.get<number>('maxRedirects', 5),
+      maxRedirects: (settings?.maxRedirects !== 'inherit' ? settings?.maxRedirects : undefined) ?? config.get<number>('maxRedirects', 5),
       encodeUrl: (settings?.encodeUrl !== 'inherit' && settings?.encodeUrl) ?? true,
     };
   }
@@ -420,7 +864,9 @@ export class HttpClient implements vscode.Disposable {
     variables: Map<string, string>,
     collection: MissioCollection,
     environmentName?: string,
-  ): Promise<void> {
+    url = '',
+    encodeUrl = true,
+  ): Promise<string> {
     if (!this._oauth2Service) {
       throw new Error('OAuth2 service not available');
     }
@@ -439,8 +885,8 @@ export class HttpClient implements vscode.Disposable {
     const creds = auth.credentials;
     const interpolatedCreds = creds ? {
       clientId: await resolve(creds.clientId),
-      clientSecret: await resolve(creds.clientSecret),
-      placement: creds.placement,
+      clientSecret: 'clientSecret' in creds ? await resolve(creds.clientSecret) : undefined,
+      placement: 'placement' in creds ? creds.placement : undefined,
     } : undefined;
 
     const base: any = {
@@ -450,6 +896,8 @@ export class HttpClient implements vscode.Disposable {
       refreshTokenUrl: await resolve(auth.refreshTokenUrl),
       scope: await resolve(auth.scope),
       credentials: interpolatedCreds,
+      tokenConfig: await this._resolveOAuth2TokenConfig(auth.tokenConfig, resolve),
+      additionalParameters: await this._resolveOAuth2AdditionalParameters(auth.additionalParameters, resolve),
       settings: auth.settings,
       credentialsId: auth.credentialsId,
     };
@@ -467,7 +915,13 @@ export class HttpClient implements vscode.Disposable {
       const ac = auth as import('../models/types').AuthOAuth2AuthorizationCode;
       base.authorizationUrl = await resolve(ac.authorizationUrl);
       base.callbackUrl = ac.callbackUrl;
+      base.state = await resolve(ac.state);
       base.pkce = ac.pkce;
+    } else if (auth.flow === 'implicit') {
+      const implicit = auth as import('../models/types').AuthOAuth2Implicit;
+      base.authorizationUrl = await resolve(implicit.authorizationUrl);
+      base.callbackUrl = implicit.callbackUrl;
+      base.state = await resolve(implicit.state);
     }
 
     const interpolated: AuthOAuth2 = base;
@@ -476,8 +930,68 @@ export class HttpClient implements vscode.Disposable {
     const token = await this._oauth2Service.getToken(interpolated, collection.id, envName);
 
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      return this._applyOAuth2Token(interpolated, headers, token, url, encodeUrl);
     }
+    return url;
+  }
+
+  private _applyOAuth2Token(
+    auth: AuthOAuth2,
+    headers: Record<string, string>,
+    token: string,
+    url: string,
+    encodeUrl: boolean,
+  ): string {
+    const placement = auth.tokenConfig?.placement;
+    if (placement && 'query' in placement) {
+      const parsed = new URL(url);
+      this._setQueryParam(parsed, placement.query || 'access_token', token, encodeUrl);
+      return parsed.toString();
+    }
+
+    const headerName = placement && 'header' in placement ? placement.header : 'Authorization';
+    headers[headerName || 'Authorization'] = (headerName || 'Authorization').toLowerCase() === 'authorization'
+      ? `Bearer ${token}`
+      : token;
+    return url;
+  }
+
+  private async _resolveOAuth2TokenConfig(
+    tokenConfig: AuthOAuth2['tokenConfig'],
+    resolve: (value: string | undefined) => Promise<string | undefined>,
+  ): Promise<AuthOAuth2['tokenConfig']> {
+    if (!tokenConfig) return undefined;
+    const placement = tokenConfig.placement;
+    let resolvedPlacement = placement;
+    if (placement && 'header' in placement) {
+      resolvedPlacement = { header: await resolve(placement.header) ?? placement.header };
+    } else if (placement && 'query' in placement) {
+      resolvedPlacement = { query: await resolve(placement.query) ?? placement.query };
+    }
+    return {
+      id: await resolve(tokenConfig.id),
+      placement: resolvedPlacement,
+    };
+  }
+
+  private async _resolveOAuth2AdditionalParameters(
+    params: OAuth2AdditionalParameters | undefined,
+    resolve: (value: string | undefined) => Promise<string | undefined>,
+  ): Promise<OAuth2AdditionalParameters | undefined> {
+    if (!params) return undefined;
+    const resolveEntries = async (entries: OAuth2AdditionalParameter[] | undefined): Promise<OAuth2AdditionalParameter[] | undefined> => {
+      if (!entries) return undefined;
+      return Promise.all(entries.map(async entry => ({
+        ...entry,
+        name: await resolve(entry.name),
+        value: await resolve(entry.value),
+      })));
+    };
+    return {
+      authorizationRequest: await resolveEntries(params.authorizationRequest),
+      accessTokenRequest: await resolveEntries(params.accessTokenRequest),
+      refreshTokenRequest: await resolveEntries(params.refreshTokenRequest),
+    };
   }
 
   private _isAuthComplete(auth: Exclude<Auth, 'inherit'>): boolean {
@@ -659,31 +1173,37 @@ export class HttpClient implements vscode.Disposable {
     auth: Exclude<Auth, 'inherit'>,
     headers: Record<string, string>,
     variables: Map<string, string>,
-  ): void {
+    url: string,
+    encodeUrl = true,
+  ): string {
     switch (auth.type) {
       case 'basic':
         headers['Authorization'] = 'Basic ' + Buffer.from(
           `${this._environmentService.interpolate(auth.username || '', variables)}:${this._environmentService.interpolate(auth.password || '', variables)}`
         ).toString('base64');
-        break;
+        return url;
       case 'bearer': {
         const token = this._environmentService.interpolate(auth.token ?? '', variables);
         headers['Authorization'] = `Bearer ${token}`;
-        break;
+        return url;
       }
       case 'apikey': {
         const key = this._environmentService.interpolate(auth.key ?? '', variables);
         const value = this._environmentService.interpolate(auth.value ?? '', variables);
+        if (!key) return url;
         if (auth.placement === 'query') {
+          const parsed = new URL(url);
+          this._setQueryParam(parsed, key, value, encodeUrl);
+          return parsed.toString();
           // Handled elsewhere — would need URL mutation
         } else {
           headers[key] = value;
         }
-        break;
+        return url;
       }
       // digest, ntlm, wsse, awsv4 — complex auth flows, stub for now
       default:
-        break;
+        throw new Error(`Authentication type "${(auth as any).type ?? 'unknown'}" is not supported by the Missio runtime yet.`);
     }
   }
 

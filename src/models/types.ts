@@ -225,12 +225,35 @@ export interface OAuth2Settings {
   autoRefreshToken?: boolean;
 }
 
+export interface OAuth2TokenPlacedInHeader { header: string; }
+export interface OAuth2TokenPlacedInQuery { query: string; }
+export type OAuth2TokenPlacement = OAuth2TokenPlacedInHeader | OAuth2TokenPlacedInQuery;
+
+export interface OAuth2TokenConfig {
+  id?: string;
+  placement?: OAuth2TokenPlacement;
+}
+
+export interface OAuth2AdditionalParameter {
+  name?: string;
+  value?: string;
+  placement?: 'header' | 'query' | 'body';
+}
+
+export interface OAuth2AdditionalParameters {
+  authorizationRequest?: OAuth2AdditionalParameter[];
+  accessTokenRequest?: OAuth2AdditionalParameter[];
+  refreshTokenRequest?: OAuth2AdditionalParameter[];
+}
+
 export interface AuthOAuth2Base {
   type: 'oauth2';
   accessTokenUrl?: string;
   refreshTokenUrl?: string;
   scope?: string;
   credentials?: OAuth2Credentials;
+  tokenConfig?: OAuth2TokenConfig;
+  additionalParameters?: OAuth2AdditionalParameters;
   settings?: OAuth2Settings;
   credentialsId?: string;
 }
@@ -248,13 +271,25 @@ export interface AuthOAuth2AuthorizationCode extends AuthOAuth2Base {
   flow: 'authorization_code';
   authorizationUrl?: string;
   callbackUrl?: string;
+  state?: string;
   pkce?: OAuth2PKCE;
+}
+
+export interface AuthOAuth2Implicit extends Omit<AuthOAuth2Base, 'credentials'> {
+  flow: 'implicit';
+  accessTokenUrl?: never;
+  refreshTokenUrl?: never;
+  authorizationUrl?: string;
+  callbackUrl?: string;
+  credentials?: { clientId?: string };
+  state?: string;
 }
 
 export type AuthOAuth2 =
   | AuthOAuth2ClientCredentials
   | AuthOAuth2ResourceOwnerPassword
-  | AuthOAuth2AuthorizationCode;
+  | AuthOAuth2AuthorizationCode
+  | AuthOAuth2Implicit;
 
 export type Auth =
   | AuthBasic
@@ -554,11 +589,12 @@ export interface ProxyConnectionConfig {
   protocol?: string;
   hostname?: string;
   port?: number;
-  auth?: { disabled?: boolean; username?: string; password?: string };
+  auth?: false | { disabled?: boolean; username?: string; password?: string };
   bypassProxy?: string;
 }
 
 export interface Proxy {
+  enabled?: boolean;
   disabled?: boolean;
   inherit?: boolean;
   config?: ProxyConnectionConfig;

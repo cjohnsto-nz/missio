@@ -1,0 +1,13 @@
+info:
+  name: Proxy Through Local
+  type: http
+  seq: 5
+  description: Run `node examples/demo-api/proxy-server.js`, temporarily set `config.proxy.enabled` to true in `opencollection.yml`, then send this request.
+http:
+  method: GET
+  url: http://upstream.example.test/proxy/demo
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5

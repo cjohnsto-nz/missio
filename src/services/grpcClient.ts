@@ -862,7 +862,9 @@ export class GrpcClient implements vscode.Disposable {
       }
       case 'apikey': {
         const apiKey = auth as AuthApiKey;
-        if (apiKey.placement === 'query') return;
+        if (apiKey.placement === 'query') {
+          throw new Error('API key query auth is not supported for gRPC requests. Use header placement so the key can be sent as metadata.');
+        }
         const key = this._environmentService.interpolate(apiKey.key ?? '', variables);
         if (key) metadata.set(key, this._environmentService.interpolate(apiKey.value ?? '', variables));
         break;
@@ -875,6 +877,8 @@ export class GrpcClient implements vscode.Disposable {
         metadata.set(headerName, prefix ? `${prefix} ${token}` : token);
         break;
       }
+      default:
+        throw new Error(`Authentication type "${(auth as any).type ?? 'unknown'}" is not supported for gRPC requests by the Missio runtime yet.`);
     }
   }
 

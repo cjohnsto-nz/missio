@@ -1,0 +1,13 @@
+info:
+  name: mTLS Secure
+  type: http
+  seq: 4
+  description: Run `node examples/demo-api/mtls-server.js` and set `missio.rejectUnauthorized` to false for this self-signed local fixture.
+http:
+  method: GET
+  url: "{{mtlsBaseUrl}}/secure"
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5

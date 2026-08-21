@@ -12,11 +12,28 @@ config:
         path: proto/services/missio_demo.proto
     importPaths:
       - path: proto
+  proxy:
+    enabled: false
+    config:
+      protocol: http
+      hostname: 127.0.0.1
+      port: 3457
+      auth:
+        username: demo-proxy
+        password: demo-proxy
+      bypassProxy: localhost,127.0.0.1
+  clientCertificates:
+    - domain: 127.0.0.1
+      type: pem
+      certificateFilePath: fixtures/mtls-client.crt
+      privateKeyFilePath: fixtures/mtls-client.key
   environments:
     - name: LOCAL
       variables:
         - name: baseUrl
           value: http://localhost:3456
+        - name: mtlsBaseUrl
+          value: https://127.0.0.1:3443
         - name: grpcBaseUrl
           value: localhost:50051
         - name: userId

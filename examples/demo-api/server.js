@@ -141,6 +141,7 @@ const server = http.createServer(async (req, res) => {
 
   const { method, url, headers } = req;
   const contentType = headers['content-type'] || 'application/octet-stream';
+  const requestUrl = new URL(url, `http://localhost:${PORT}`);
 
   // Pre-flight
   if (method === 'OPTIONS') {
@@ -182,6 +183,57 @@ const server = http.createServer(async (req, res) => {
     }
 
     return json(res, 200, buildGraphQLFixture(payload, headers));
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/auth/api-key-query') {
+    const key = requestUrl.searchParams.get('demo_key');
+    return json(res, key === 'demo-token' ? 200 : 401, {
+      ok: key === 'demo-token',
+      route: '/auth/api-key-query',
+      receivedKey: key,
+      placement: 'query',
+    });
+  }
+
+  if (method === 'POST' && requestUrl.pathname === '/oauth/token') {
+    const body = await collectBody(req);
+    const params = new URLSearchParams(body.toString('utf8'));
+    return json(res, 200, {
+      access_token: 'demo-oauth-token',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      echoed: {
+        queryTrace: requestUrl.searchParams.get('trace'),
+        tenant: headers['x-demo-tenant'] || null,
+        audience: params.get('audience'),
+        grantType: params.get('grant_type'),
+      },
+    });
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/oauth/resource') {
+    const queryToken = requestUrl.searchParams.get('access_token');
+    const headerToken = (headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const token = queryToken || headerToken;
+    return json(res, token === 'demo-oauth-token' ? 200 : 401, {
+      ok: token === 'demo-oauth-token',
+      route: '/oauth/resource',
+      tokenPlacement: queryToken ? 'query' : headerToken ? 'header' : 'missing',
+    });
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/redirect/start') {
+    res.writeHead(302, { Location: '/redirect/final' });
+    res.end();
+    return;
+  }
+
+  if (method === 'GET' && requestUrl.pathname === '/redirect/final') {
+    return json(res, 200, {
+      ok: true,
+      route: '/redirect/final',
+      followed: true,
+    });
   }
 
   // Generic binary upload: accepts anything, returns metadata.
@@ -404,6 +456,10 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`  GET  http://localhost:${PORT}/health`);
   console.log(`  GET  http://localhost:${PORT}/graphql        (GraphQL fixture info)`);
   console.log(`  POST http://localhost:${PORT}/graphql        (GraphQL JSON body -> JSON response)`);
+  console.log(`  GET  http://localhost:${PORT}/auth/api-key-query?demo_key=demo-token`);
+  console.log(`  POST http://localhost:${PORT}/oauth/token    (OAuth2 token fixture)`);
+  console.log(`  GET  http://localhost:${PORT}/oauth/resource (OAuth2 protected resource)`);
+  console.log(`  GET  http://localhost:${PORT}/redirect/start (302 to /redirect/final)`);
   console.log(`  POST http://localhost:${PORT}/upload          (any binary body → JSON info)`);
   console.log(`  POST http://localhost:${PORT}/upload/image    (image body → echoed back)`);
   console.log(`  POST http://localhost:${PORT}/upload/pdf      (PDF body → JSON info)`);

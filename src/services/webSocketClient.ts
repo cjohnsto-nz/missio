@@ -305,7 +305,7 @@ export class WebSocketClient implements vscode.Disposable {
         return url;
       }
       default:
-        return url;
+        throw new Error(`Authentication type "${(auth as any).type ?? 'unknown'}" is not supported for WebSocket requests by the Missio runtime yet.`);
     }
   }
 
