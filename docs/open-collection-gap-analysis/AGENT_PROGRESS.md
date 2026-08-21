@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-020 stack cleanup and branch hygiene verification. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-080/OC-090 task planning and OC-070 refresh. |
 
 ## Test Coverage Rules
 
@@ -62,9 +62,11 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-020 | WebSocket support | Done | Codex | feature/oc-020-websocket-support (we); WebSocket demo/test commit `d599906`; shared runtime/editor/tooling is in applied protocol/runtime commits `a67a3ad`, `7a9dea5`, `872660b`, and dependency commit `0daa7be` | Satisfied by `test/webSocketSupport.test.ts`: WebSocketClient connect/send/receive/close/cancel cleanup, text/JSON/binary message types, selected message variants, inherited headers, bearer auth, invalid URL diagnostics, RequestExecutionService dispatch/cancel, schema-native editor merge and save guard, unresolved variable scanning, CodeLens/list/send Copilot routing, demo collection validation, and committed demo request smoke coverage. | `npx vitest run test/webSocketSupport.test.ts` passed 13 tests; targeted protocol/editor suite passed 54 tests; `npm test` passed 20 files/380 tests; `npm run compile` passed; `node scripts/validate-collection.js examples/demo-api` passed 32/32 files; live `node examples/demo-api/server.js` WebSocket smoke returned echo `hello demo`, auth `true`, close code `4000`; `npm run build` passed. | 2026-06-14 23:18 NZT | OC-020 complete; no OC-020-owned changes remain uncommitted. |
 | OC-030 | gRPC support | Done | Codex | feature/oc-030-grpc-unary-protobuf (rp); implementation commit `02155e6` | Satisfied by `test/grpcSupport.test.ts`: protobuf config editing and preservation, gRPC validation/demo validation, metadata defaults and precedence, proto import path loading, unary fixture execution, variables/auth metadata, missing proto and invalid method diagnostics, unsupported streaming diagnostics, `RequestExecutionService` gRPC dispatch, and demo server smoke coverage. | `npx vitest run test/grpcSupport.test.ts test/schemaRoundTrip.test.ts test/validationService.test.ts` passed 16 tests; `npx vitest run test/openCollectionFoundation.test.ts test/runtimeExecutionService.test.ts test/grpcSupport.test.ts test/sendRequestTool.test.ts` passed 30 tests; `node scripts/validate-collection.js examples/demo-api` passed 32/32 files; `npm run compile`, `npm test` (20 files, 380 tests), and `npm run build` passed; demo `node examples/demo-api/grpc-server.js` unary smoke returned `ok: true`. | 2026-06-14 23:16 NZT | OC-030 complete; gRPC unary/protobuf is implemented and streaming remains explicitly unsupported with diagnostics. |
 | OC-040 | Scripts, tests, assertions, actions | Done | Codex | feature/oc-040-runtime-scripting-testing (ru); primary implementation commit `Add OC-040 runtime scripting support`; shared runtime dependency commits `Add OC-010 GraphQL request support`, `Wire shared runtime execution services`, and `Add OC-030 gRPC unary protobuf support` on the applied stack | Satisfied by `test/runtimeExecutionService.test.ts`, `test/sendRequestTool.test.ts`, `test/responseProvider.test.ts`, and foundation/runtime regressions: lifecycle ordering, protocol-neutral context, sandbox-denied filesystem/process/network globals, console/test diagnostics, assertions, JSON selector `set-variable` actions, runtime variable mutation, HTTP request mutation, Runtime response tab/provider/tool output, fixture-backed demo runtime routes/requests, deterministic pass/fail diagnostics, demo collection validation, and shared HTTP no-op regression coverage. | `npx vitest run test/openCollectionFoundation.test.ts test/runtimeExecutionService.test.ts test/sendRequestTool.test.ts test/responseProvider.test.ts` passed 4 files/24 tests; `npm run compile` passed; `npm test` passed 20 files/380 tests; `npm run build` passed; `node scripts/validate-collection.js examples/demo-api` passed 32/32 files; live `node examples/demo-api/server.js` smoke verified `POST /runtime/echo`, `POST /runtime/token`, and `GET /runtime/assert-fail`. | 2026-06-14 23:42 NZT | OC-040 complete; no-change GitButler retry commits were removed during supervisor stack cleanup. |
-| OC-050 | Auth, proxy, mTLS, transport completion | Unclaimed | - | - | - | - | - | Can start with HTTP-only fixes; proxy/mTLS need executor refactor. |
+| OC-050 | Auth, proxy, mTLS, transport completion | In Progress | Codex | feature/oc-050-auth-transport (ut) | Add fixture-backed executor tests for API-key query placement, OAuth2 header/query placement, token/additional params, redirect follow/stop/max handling, proxy routing/auth/bypass failure, mTLS success/failure, URL encoding, and explicit diagnostics for unsupported digest/NTLM/WSSE/AWS/implicit auth. Add demo server routes/requests for user-verifiable auth, redirects, proxy, and mTLS. Run targeted transport tests, demo collection validation, compile, full test, and build. | Pending | 2026-06-14 23:48 NZT | Inspect auth/transport models, executor, OAuth2 service, export/dry-run paths, and demo fixture shape; then implement the smallest HTTP-compatible slice with automated tests. |
 | OC-060 | Schema round-trip and validation | Done | Codex | feature/oc-060-schema-roundtrip-validation (sc), stacked on feature/oc-000-foundation-dispatch (fo); implementation commit `166c297` | Add golden no-op editor/serializer round-trip tests for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; add validation tests proving protocol-aware request subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP files not gaining `http` keys. Run targeted validation/editor/service tests plus existing touched HTTP/import-export/editor regressions. | `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm test` passed (15 files, 341 tests); `npm run compile` passed; `npm run build` passed. | 2026-06-14 22:30 NZT | OC-060 complete and committed; no OC-060-owned unassigned changes remain after implementation commit. |
-| OC-070 | Imports, exports, tree, CodeLens, Copilot tools | Unclaimed | - | - | - | - | - | Start after type guards exist; some validation work can begin now. |
+| OC-070 | Request creation, import/export, snippet, and Copilot surface polish | Unclaimed | - | - | - | - | - | Start after OC-050 if auth/transport templates matter; otherwise can begin with baseline audit and request creation. |
+| OC-080 | Runtime lifecycle for WebSocket and unary gRPC | Unclaimed | - | - | - | - | - | Start after OC-040 and protocol executors; coordinate with OC-070 if Copilot runtime output changes. |
+| OC-090 | gRPC streaming | Unclaimed | - | - | - | - | - | Start after OC-030; coordinate with OC-080 for runtime parity and with OC-070 for tooling summaries. |
 
 ## Dependency Map
 
@@ -77,7 +79,9 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-040 | Runtime context contract from OC-000 is helpful | Full protocol lifecycle support |
 | OC-050 | Can begin now; proxy/mTLS easier after OC-000 | Production-grade transport |
 | OC-060 | None | Safe editor work across all tracks |
-| OC-070 | OC-000 type guards, protocol executors | Agent/tool completeness |
+| OC-070 | OC-000 type guards, protocol executors; OC-050 if auth/template surfaces change | User/agent surface completeness |
+| OC-080 | OC-040 runtime engine, OC-020 WebSocket executor, OC-030 gRPC unary executor | Runtime parity for supported protocols |
+| OC-090 | OC-030 gRPC unary/protobuf support | Full gRPC protocol compatibility |
 
 ## Shared Decisions
 
@@ -92,6 +96,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 ## Task Logs
 
 ### Supervisor Reports
+
+- 2026-06-14 23:49 NZT - Codex: Added follow-up task definitions for the residual OpenCollection gaps and refreshed OC-070.
+  GitButler: planning update is on `supervisor/add-oc080-oc090-tasks`, stacked on `supervisor/oc-010-040-audit`; OC-050 is already claimed on `feature/oc-050-auth-transport` and was left untouched.
+  Coverage: documentation-only planning change; no runtime behavior changed.
+  Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, `tasks/07-import-export-copilot.md`, `tasks/08-runtime-non-http-protocols.md`, and `tasks/09-grpc-streaming.md`.
+  Verified: `rg "OC-080|OC-090|OC-070" docs/open-collection-gap-analysis` confirmed the task board, prompts, task pages, and README references are present; GitButler commit pending.
+  Next: user can launch OC-050 now; OC-080 and OC-090 are ready for later parallel kickoff after the current auth/transport slice is underway.
 
 - 2026-06-14 22:33 NZT - Codex: Declared Supervisor role and completed the first sanity audit for OC-000 and OC-060.
   GitButler: current applied stack includes `supervisor/oc-000-oc-060-audit` on top of `feature/oc-060-schema-roundtrip-validation` (sc), `feature/oc-000-foundation-dispatch` (fo), and `docs/open-collection-agent-plan` (do). Workspace had no unassigned changes before the supervisor ledger update.
@@ -212,7 +223,12 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 
 ### OC-050 Auth, Proxy, mTLS, Transport Completion
 
-No updates yet.
+- 2026-06-14 23:48 NZT - Codex: Claimed OC-050 and recorded the coverage plan before implementation.
+  GitButler: feature/oc-050-auth-transport (ut); `but status -fv` showed no unassigned changes at claim time, with completed OC-000 through OC-060 protocol/runtime stacks applied.
+  Coverage: planned fixture-backed executor tests for API-key query placement, OAuth2 token placement/additional params/PKCE diagnostics, redirects, proxy auth/bypass/failure, mTLS success/failure, URL encoding, unsupported schema auth diagnostics, demo collection validation, compile, full test, and build.
+  Changed: docs/open-collection-gap-analysis/AGENT_PROGRESS.md only.
+  Verified: `but status -fv`, OC-050 task page, demo server, and demo collection review completed; implementation tests not run yet.
+  Next: inspect auth/transport model and executor code, add failing coverage, then implement schema-native auth and transport behavior with local fixtures.
 
 ### OC-060 Schema Round-Trip and Validation
 
@@ -238,6 +254,14 @@ No updates yet.
   Blockers/parallel changes: none; `but status -fv` was empty in `zz` immediately after the implementation commit, before this ledger-only update.
   Next: commit this ledger update separately to `sc`, then confirm no OC-060-owned unassigned changes remain.
 
-### OC-070 Imports, Exports, Tree, CodeLens, Copilot Tools
+### OC-070 Request Creation, Import/Export, And Copilot Surface Polish
+
+No updates yet.
+
+### OC-080 Runtime Lifecycle For Non-HTTP Protocols
+
+No updates yet.
+
+### OC-090 gRPC Streaming
 
 No updates yet.

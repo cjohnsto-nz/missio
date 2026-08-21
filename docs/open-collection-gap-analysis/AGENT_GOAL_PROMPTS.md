@@ -49,11 +49,23 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## User And Agent Surfaces
 
 ```text
-/goal Complete OC-070 imports, exports, tree, CodeLens, commands, and Copilot protocol tooling using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until all user-facing and agent-facing surfaces are protocol-aware, unsupported conversions are explicit, AGENT_PROGRESS updates are complete, and complete automated tests for tree, CodeLens, commands, import/export, and Copilot tools are implemented and passing.
+/goal Complete OC-070 request creation, import/export, snippet, and Copilot protocol surface polish using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until protocol-specific new request templates, protocol-preserving get/dry-run/list/send tooling, explicit unsupported import/export/snippet diagnostics, baseline tree/CodeLens/command regressions, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
+```
+
+## Protocol Runtime Lifecycle
+
+```text
+/goal Complete OC-080 runtime lifecycle support for WebSocket and unary gRPC using $missio-agent-coordination, $missio-runtime-implementer, and $missio-demo-server-fixtures without stopping until before/after scripts, assertions, tests, actions, runtime variable mutation, response UI/tool output, local demo WebSocket and gRPC runtime fixtures, AGENT_PROGRESS updates, and complete automated unit, integration, security, failure-path, and cleanup tests are implemented and passing.
+```
+
+## gRPC Streaming
+
+```text
+/goal Complete OC-090 gRPC streaming support using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until client-streaming, server-streaming, and bidirectional-streaming execution, schema-native message sequences, validation, cancellation, response streaming UI/tool output, local demo streaming fixtures, AGENT_PROGRESS updates, and complete automated unit, integration, round-trip, failure-path, and cleanup tests are implemented and passing.
 ```
 
 ## Final Integration
 
 ```text
-/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-070 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-090 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
 ```
