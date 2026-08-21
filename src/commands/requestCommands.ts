@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import type { HttpRequest, MissioCollection, OpenCollectionRequest, RequestDefaults } from '../models/types';
+import type { MissioCollection, OpenCollectionRequest, RequestDefaults } from '../models/types';
 import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
 import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
 import { promptForUnresolvedVars } from '../services/unresolvedVars';
+import { createRequestTemplate, REQUEST_PROTOCOL_CHOICES, requestProtocolLabel, slugifyRequestName } from '../services/requestTemplates';
 
 export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[] {
   const { collectionService, httpClient, requestExecutionService, responseProvider } = ctx;
@@ -160,32 +161,35 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
         targetDir = collection.rootDir;
       }
 
+      const protocolPick = await vscode.window.showQuickPick(
+        REQUEST_PROTOCOL_CHOICES.map(choice => ({
+          label: choice.label,
+          description: choice.description,
+          protocol: choice.protocol,
+        })),
+        { placeHolder: 'Select request type' },
+      );
+      if (!protocolPick) { return; }
+
+      const protocolLabel = requestProtocolLabel(protocolPick.protocol);
       const name = await vscode.window.showInputBox({
-        prompt: 'Request name',
-        placeHolder: 'get-users',
+        prompt: `${protocolLabel} request name`,
+        placeHolder: protocolPick.protocol === 'graphql'
+          ? 'graphql-health'
+          : protocolPick.protocol === 'websocket'
+            ? 'socket-echo'
+            : protocolPick.protocol === 'grpc'
+              ? 'echo-unary'
+              : 'get-users',
       });
       if (!name) { return; }
 
       if (!targetDir) { return; }
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const slug = slugifyRequestName(name);
       const fileName = `${slug}.yml`;
       const filePath = path.join(targetDir, fileName);
 
-      const template: HttpRequest = {
-        info: { name, type: 'http', seq: 1 },
-        http: {
-          method: 'GET',
-          url: '{{baseUrl}}/',
-          headers: [],
-          params: [],
-        },
-        settings: {
-          encodeUrl: true,
-          timeout: 30000,
-          followRedirects: true,
-          maxRedirects: 5,
-        },
-      };
+      const template = createRequestTemplate(protocolPick.protocol, name);
 
       const content = stringifyYaml(template, { lineWidth: 120 });
       await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf-8'));

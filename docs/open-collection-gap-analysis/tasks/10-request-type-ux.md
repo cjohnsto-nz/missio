@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make request type management obvious and deliberate in Missio's UI. Users should be able to choose the request type when creating a request, see the current type while editing, and convert between compatible request types without corrupting schema data.
+Make request type management obvious and deliberate in Missio's UI. Users should be able to choose the request type when creating a request and see the current type while editing without needing to inspect YAML.
 
 ## Product Benchmark
 
@@ -14,7 +14,7 @@ Review current request-type workflows in industry-standard REST/API clients befo
 | Postman | New request protocol picker, type labels in tabs/sidebar, request conversion behavior, and guardrails when switching protocols with incompatible fields. |
 | Missio current state | Command palette/tree context creation, request editor header, YAML fallback, and how `type: http`, `type: graphql`, `type: websocket`, and `type: grpc` are represented. |
 
-Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Prefer patterns that are familiar to users of Bruno/Postman, but keep Missio aligned with the OpenCollection schema rather than copying product-specific data models.
+Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Prefer patterns that are familiar to users of Bruno/Postman, but keep Missio aligned with the OpenCollection schema rather than copying product-specific data models. Do not add a saved-request type switcher unless future benchmark evidence or product direction calls for one; current Bruno/Postman behavior emphasizes protocol selection at creation, and Postman documents protocol lock-in after saving.
 
 ## Current Gap
 
@@ -22,10 +22,8 @@ Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Pref
 | --- | --- |
 | New request | Users cannot choose `http`, `graphql`, `websocket`, or `grpc` from the UI when creating a request. |
 | Editor header | The current request type is not prominent or editable in the visual editor. |
-| Type switching | There is no guided way to change request type, even when common fields such as name, URL, headers, auth, variables, runtime, and settings can be preserved. |
-| Data safety | Switching between incompatible protocols needs explicit confirmation and a preview of fields that will be preserved, transformed, or dropped. |
 | Tree/context actions | Context menus do not expose protocol-specific creation commands at collection/folder scope. |
-| Tests | Existing protocol tests prove execution/editor behavior, but not request-type creation or conversion UX. |
+| Tests | Existing protocol tests prove execution/editor behavior, but not request-type creation UX. |
 
 ## Implementation Plan
 
@@ -44,38 +42,27 @@ Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Pref
 | --- | --- |
 | Creation | User selects HTTP, GraphQL, WebSocket, or gRPC before the starter YAML is written. |
 | Current type | Editor shows a clear protocol/type control near the request title or primary request controls. |
-| Switching | Type control offers compatible conversions and marks destructive conversions with confirmation. |
-| Preservation preview | Conversion explains preserved, transformed, and removed fields before applying. |
+| Current type | The visual editor shows the saved request type as read-only protocol identity; users create a new request when they need a different protocol. |
 | Defaults | New templates use realistic schema-valid defaults and line up with demo requests. |
 
-3. Implement schema-aware conversion:
-
-| Source/Target | Minimum Preservation |
-| --- | --- |
-| HTTP to GraphQL | Name, URL, method where relevant, headers, auth, params, variables, runtime, settings. |
-| GraphQL to HTTP | Name, URL, method, headers, auth, params, variables, runtime, settings; GraphQL query/variables become a safe body representation only with user confirmation. |
-| HTTP/GraphQL to WebSocket | Name, URL where compatible, headers, auth, variables, runtime, settings. |
-| HTTP/GraphQL to gRPC | Name, auth, variables, runtime, settings; URL/metadata preserved only when semantically valid. |
-| WebSocket/gRPC to other protocols | Preserve shared schema fields and require confirmation for protocol-specific message/method/proto data loss. |
-
-4. Add guardrails:
+3. Add guardrails:
 
 | Guardrail | Behavior |
 | --- | --- |
-| Non-destructive default | Do not discard protocol-specific fields without explicit confirmation. |
-| YAML round-trip | Unknown but schema-valid fields must survive no-op edits and safe conversions. |
-| Validation | Converted requests validate against the selected type's schema before saving. |
-| Undo | Conversion should be a normal editor/workspace edit that users can undo. |
+| Non-destructive default | Do not change `info.type` or protocol roots from the visual editor. |
+| YAML round-trip | Unknown but schema-valid fields must survive no-op edits. |
+| Validation | Created starter requests validate against the selected type's schema before saving. |
+| Manual YAML edits | Manual `type:` changes remain possible through YAML and must keep protocol-aware validation diagnostics. |
 
-5. Add tests and docs:
+4. Add tests and docs:
 
 | Area | Coverage |
 | --- | --- |
-| Command/service unit tests | Creation templates and conversion helpers for all supported request types. |
-| Editor/webview tests | Type selector rendering, conversion confirmation messaging, and save payloads. |
-| Round-trip tests | Converted requests preserve shared fields and do not leak old protocol roots. |
+| Command/service unit tests | Creation templates for all supported request types. |
+| Editor/webview tests | Type identity rendering and save payloads. |
+| Round-trip tests | Created and existing protocol requests preserve shared/schema-valid fields and do not leak stale protocol roots. |
 | Regression tests | Existing HTTP, GraphQL, WebSocket, and gRPC fixtures still load, edit, validate, and execute. |
-| User docs | Briefly document how to create and switch request types, including destructive conversion warnings. |
+| User docs | Briefly document how to create request types and that existing request type changes are done by editing YAML or creating a new request. |
 
 ## Acceptance Criteria
 
@@ -83,7 +70,7 @@ Record the benchmark findings in `AGENT_PROGRESS.md` before implementation. Pref
 | --- | --- |
 | Protocol creation | UI can create schema-valid HTTP, GraphQL, WebSocket, and gRPC requests. |
 | Type visibility | Visual editor makes the current request type obvious without requiring YAML inspection. |
-| Safe switching | Users can switch request type with clear preservation/loss preview and confirmation for destructive conversions. |
+| No unsafe switching | Visual editor does not present a saved-request type switcher; request type remains schema-owned and visible. |
 | Schema alignment | Saved YAML uses the OpenCollection `type:` field and protocol-specific roots correctly. |
 | Industry alignment | Progress log records Bruno/Postman UX observations and the resulting Missio decisions. |
 | Tests | Complete automated tests cover creation, conversion, validation, round-trip preservation, and regressions for existing protocol fixtures. |

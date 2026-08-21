@@ -75,21 +75,6 @@ body {
   position: relative;
   min-width: 100px;
 }
-.protocol-chip {
-  min-width: 72px;
-  background: var(--input-bg);
-  color: var(--vscode-textLink-foreground, #4fc1ff);
-  border: 1px solid var(--input-border);
-  border-radius: 4px;
-  padding: 6px 10px;
-  font-size: 14px;
-  font-weight: 600;
-  font-family: var(--vscode-editor-font-family, monospace);
-  align-items: center;
-  justify-content: center;
-  line-height: 1.4;
-  box-sizing: border-box;
-}
 .method-picker .method-select {
   width: 100%;
 }
@@ -217,13 +202,33 @@ body {
   position: relative;
   min-width: 0;
 }
+.protocol-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  z-index: 101;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.95;
+}
+.protocol-icon-http { color: var(--m-protocol-http); }
+.protocol-icon-graphql { color: var(--m-protocol-graphql); }
+.protocol-icon-websocket { color: var(--m-protocol-websocket); }
+.protocol-icon-grpc { color: var(--m-protocol-grpc); }
 .url-input {
   width: 100%;
   height: 100%;
   background: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
-  padding: 6px 10px;
+  padding: 6px 10px 6px 34px;
   border-radius: 4px;
   font-size: 12px;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -773,9 +778,9 @@ td.var-cell .var-overlay {
 .add-row-btn:hover { border-color: var(--btn-bg); background: rgba(0,120,212,0.05); }
 
 /* ── Body Type Pills ────────────────────── */
-.body-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; justify-content: space-between; }
+.body-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; justify-content: flex-start; }
 .body-type-pills { display: flex; border: 1px solid var(--input-border); border-radius: 4px; overflow: hidden; }
-.body-toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.body-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .body-type-pills .pill {
   padding: 5px 12px;
   background: transparent;
