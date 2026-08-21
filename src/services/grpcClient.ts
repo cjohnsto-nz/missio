@@ -11,7 +11,6 @@ import type {
   AuthBasic,
   AuthBearer,
   AuthCli,
-  GrpcMessageVariant,
   GrpcMetadata,
   GrpcMethodType,
   GrpcRequest,
@@ -24,8 +23,14 @@ import type { CliApprovalPrompt } from './httpClient';
 
 const execAsync = promisify(exec);
 
+interface CancellableGrpcCall {
+  cancel?: () => void;
+  destroy?: (error?: Error) => void;
+  removeAllListeners?: () => void;
+}
+
 interface ActiveGrpcCall {
-  call?: grpc.ClientUnaryCall;
+  call?: CancellableGrpcCall;
   cancelled: boolean;
 }
 
@@ -39,13 +44,38 @@ interface ResolvedGrpcTarget {
   secure: boolean;
 }
 
-export class GrpcStreamingUnsupportedError extends Error {
-  public readonly code = 'MISSIO_GRPC_STREAMING_UNSUPPORTED';
+interface ResolvedGrpcMethod {
+  methodKey: string;
+  methodType: GrpcMethodType;
+  displayMethod: string;
+}
 
-  constructor(public readonly methodType: Exclude<GrpcMethodType, 'unary'>) {
-    super(`gRPC ${methodType} requests are not supported yet. Missio currently supports unary gRPC requests for OC-030; streaming modes are explicit follow-up work.`);
-    this.name = 'GrpcStreamingUnsupportedError';
-  }
+interface BuiltGrpcMessage {
+  index: number;
+  description?: string;
+  message: Record<string, unknown>;
+}
+
+interface GrpcStreamEvent {
+  type: 'sent' | 'received' | 'metadata' | 'status' | 'error' | 'end';
+  direction?: 'sent' | 'received';
+  index?: number;
+  description?: string;
+  message?: unknown;
+  metadata?: Record<string, string>;
+  status?: GrpcStatusSummary;
+  error?: GrpcErrorSummary;
+  elapsedMs: number;
+}
+
+interface GrpcStatusSummary {
+  code: number;
+  name: string;
+  details: string;
+}
+
+interface GrpcErrorSummary extends GrpcStatusSummary {
+  message: string;
 }
 
 export class GrpcClient implements vscode.Disposable {
@@ -74,12 +104,6 @@ export class GrpcClient implements vscode.Disposable {
 
     const details = request.grpc;
     if (!details) throw new Error('gRPC request must include a grpc object.');
-
-    const methodType = details.methodType ?? 'unary';
-    if (methodType !== 'unary') {
-      throw new GrpcStreamingUnsupportedError(methodType);
-    }
-
     if (!details.url) throw new Error('gRPC request must include grpc.url.');
     if (!details.method) throw new Error('gRPC request must include grpc.method as "package.Service/Method".');
 
@@ -101,31 +125,90 @@ export class GrpcClient implements vscode.Disposable {
     });
     const loadedPackage = grpc.loadPackageDefinition(packageDefinition) as Record<string, unknown>;
     const serviceConstructor = this._resolveService(loadedPackage, method.servicePath);
-    const methodKey = this._resolveUnaryMethodKey(serviceConstructor, method);
+    const resolvedMethod = this._resolveMethod(serviceConstructor, method);
+    const methodType = details.methodType ?? resolvedMethod.methodType;
+    this._assertMethodType(details.methodType, resolvedMethod);
     mark('Load proto', phaseStart);
 
     const metadata = await this._buildMetadata(request, collection, folderDefaults, variables, cliApprovalPrompt);
-    const message = this._buildMessage(details.message, variables);
+    const displayMethod = resolvedMethod.displayMethod;
 
     onProgress?.(`Calling ${details.method}...`);
     phaseStart = Date.now();
-    return this._executeUnary({
+
+    if (methodType === 'unary') {
+      const message = this._buildUnaryMessage(details.message, variables, methodType);
+      return this._executeUnary({
+        serviceConstructor,
+        methodKey: resolvedMethod.methodKey,
+        target,
+        message,
+        metadata,
+        displayMethod,
+        methodType,
+        timing,
+        t0,
+        phaseStart,
+      });
+    }
+
+    if (methodType === 'server-streaming') {
+      const message = this._buildUnaryMessage(details.message, variables, methodType);
+      return this._executeServerStreaming({
+        serviceConstructor,
+        methodKey: resolvedMethod.methodKey,
+        target,
+        message,
+        metadata,
+        displayMethod,
+        methodType,
+        timing,
+        t0,
+        phaseStart,
+        onProgress,
+      });
+    }
+
+    const messages = this._buildStreamingMessages(details.message, variables, methodType);
+    if (methodType === 'client-streaming') {
+      return this._executeClientStreaming({
+        serviceConstructor,
+        methodKey: resolvedMethod.methodKey,
+        target,
+        messages,
+        metadata,
+        displayMethod,
+        methodType,
+        timing,
+        t0,
+        phaseStart,
+        onProgress,
+      });
+    }
+
+    return this._executeBidiStreaming({
       serviceConstructor,
-      methodKey,
+      methodKey: resolvedMethod.methodKey,
       target,
-      message,
+      messages,
       metadata,
-      displayMethod: `${method.servicePath}/${method.rpcName}`,
+      displayMethod,
+      methodType,
       timing,
       t0,
       phaseStart,
+      onProgress,
     });
   }
 
   cancelAll(): void {
     for (const activeCall of this._activeCalls.values()) {
       activeCall.cancelled = true;
-      activeCall.call?.cancel();
+      try {
+        activeCall.call?.cancel?.();
+      } catch {
+        activeCall.call?.destroy?.(new Error('Request cancelled'));
+      }
     }
     this._activeCalls.clear();
   }
@@ -141,16 +224,13 @@ export class GrpcClient implements vscode.Disposable {
     message: Record<string, unknown>;
     metadata: grpc.Metadata;
     displayMethod: string;
+    methodType: GrpcMethodType;
     timing: { label: string; start: number; end: number }[];
     t0: number;
     phaseStart: number;
   }): Promise<HttpResponse> {
-    const credentials = args.target.secure
-      ? grpc.credentials.createSsl()
-      : grpc.credentials.createInsecure();
-    const client = new args.serviceConstructor(args.target.target, credentials);
-    const config = vscode.workspace.getConfiguration('missio');
-    const timeout = config.get<number>('timeout', 30000);
+    const client = this._createClient(args.serviceConstructor, args.target);
+    const timeout = this._requestTimeout();
     const requestId = `${Date.now()}-${Math.random()}`;
     const activeCall: ActiveGrpcCall = { cancelled: false };
     this._activeCalls.set(requestId, activeCall);
@@ -187,13 +267,14 @@ export class GrpcClient implements vscode.Disposable {
           const headers = this._metadataToRecord(responseMetadata);
           const grpcCode = finalStatus?.code ?? grpc.status.OK;
           headers['x-missio-grpc-status'] = String(grpcCode);
-          headers['x-missio-grpc-status-text'] = grpc.status[grpcCode] ?? 'OK';
+          headers['x-missio-grpc-status-text'] = this._statusName(grpcCode);
           headers['x-missio-grpc-method'] = args.displayMethod;
+          headers['x-missio-grpc-method-type'] = args.methodType;
           headers['content-type'] = 'application/json';
           finish();
           resolve({
             status: grpcCode === grpc.status.OK ? 200 : 0,
-            statusText: finalStatus?.details || (grpc.status[grpcCode] ?? 'OK'),
+            statusText: finalStatus?.details || this._statusName(grpcCode),
             headers,
             body,
             duration,
@@ -209,14 +290,404 @@ export class GrpcClient implements vscode.Disposable {
     });
   }
 
+  private _executeServerStreaming(args: {
+    serviceConstructor: any;
+    methodKey: string;
+    target: ResolvedGrpcTarget;
+    message: Record<string, unknown>;
+    metadata: grpc.Metadata;
+    displayMethod: string;
+    methodType: GrpcMethodType;
+    timing: { label: string; start: number; end: number }[];
+    t0: number;
+    phaseStart: number;
+    onProgress?: (message: string) => void;
+  }): Promise<HttpResponse> {
+    const client = this._createClient(args.serviceConstructor, args.target);
+    const timeout = this._requestTimeout();
+    const requestId = `${Date.now()}-${Math.random()}`;
+    const activeCall: ActiveGrpcCall = { cancelled: false };
+    this._activeCalls.set(requestId, activeCall);
+    const startTime = Date.now();
+    const sentMessages: BuiltGrpcMessage[] = [{ index: 0, message: args.message }];
+    const receivedMessages: unknown[] = [];
+    const events: GrpcStreamEvent[] = [];
+    let responseMetadata = new grpc.Metadata();
+    let finalStatus: grpc.StatusObject | undefined;
+
+    return new Promise<HttpResponse>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        this._activeCalls.delete(requestId);
+        activeCall.call?.removeAllListeners?.();
+        client.close();
+      };
+      const settle = (error?: grpc.ServiceError | Error) => {
+        if (settled) return;
+        settled = true;
+        if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
+          finish();
+          reject(new Error('Request cancelled'));
+          return;
+        }
+        args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });
+        const response = this._buildStreamResponse({
+          method: args.displayMethod,
+          methodType: args.methodType,
+          sentMessages,
+          receivedMessages,
+          events,
+          responseMetadata,
+          finalStatus,
+          error,
+          duration: Date.now() - startTime,
+          timing: args.timing,
+        });
+        finish();
+        resolve(response);
+      };
+
+      events.push({ type: 'sent', direction: 'sent', index: 0, message: args.message, elapsedMs: 0 });
+      const call = client[args.methodKey](
+        args.message,
+        args.metadata,
+        { deadline: new Date(Date.now() + timeout) },
+      ) as grpc.ClientReadableStream<unknown>;
+      activeCall.call = call as unknown as CancellableGrpcCall;
+      call.on('metadata', metadata => {
+        responseMetadata = metadata;
+        events.push({ type: 'metadata', metadata: this._metadataToRecord(metadata), elapsedMs: Date.now() - startTime });
+      });
+      call.on('data', response => {
+        receivedMessages.push(response);
+        const index = receivedMessages.length - 1;
+        events.push({ type: 'received', direction: 'received', index, message: response, elapsedMs: Date.now() - startTime });
+        args.onProgress?.(`Received gRPC stream message ${receivedMessages.length}...`);
+      });
+      call.on('status', status => {
+        finalStatus = status;
+        events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
+      });
+      call.on('error', err => {
+        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        settle(err);
+      });
+      call.on('end', () => {
+        events.push({ type: 'end', elapsedMs: Date.now() - startTime });
+        settle();
+      });
+    });
+  }
+
+  private _executeClientStreaming(args: {
+    serviceConstructor: any;
+    methodKey: string;
+    target: ResolvedGrpcTarget;
+    messages: BuiltGrpcMessage[];
+    metadata: grpc.Metadata;
+    displayMethod: string;
+    methodType: GrpcMethodType;
+    timing: { label: string; start: number; end: number }[];
+    t0: number;
+    phaseStart: number;
+    onProgress?: (message: string) => void;
+  }): Promise<HttpResponse> {
+    const client = this._createClient(args.serviceConstructor, args.target);
+    const timeout = this._requestTimeout();
+    const requestId = `${Date.now()}-${Math.random()}`;
+    const activeCall: ActiveGrpcCall = { cancelled: false };
+    this._activeCalls.set(requestId, activeCall);
+    const startTime = Date.now();
+    const receivedMessages: unknown[] = [];
+    const events: GrpcStreamEvent[] = [];
+    let responseMetadata = new grpc.Metadata();
+    let finalStatus: grpc.StatusObject | undefined;
+
+    return new Promise<HttpResponse>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        this._activeCalls.delete(requestId);
+        activeCall.call?.removeAllListeners?.();
+        client.close();
+      };
+      const settle = (error?: grpc.ServiceError | Error) => {
+        if (settled) return;
+        settled = true;
+        if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
+          finish();
+          reject(new Error('Request cancelled'));
+          return;
+        }
+        args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });
+        const response = this._buildStreamResponse({
+          method: args.displayMethod,
+          methodType: args.methodType,
+          sentMessages: args.messages,
+          receivedMessages,
+          events,
+          responseMetadata,
+          finalStatus,
+          error,
+          duration: Date.now() - startTime,
+          timing: args.timing,
+        });
+        finish();
+        resolve(response);
+      };
+
+      const call = client[args.methodKey](
+        args.metadata,
+        { deadline: new Date(Date.now() + timeout) },
+        (err: grpc.ServiceError | null, response: unknown) => {
+          if (err) {
+            if (settled) return;
+            events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+            settle(err);
+            return;
+          }
+          receivedMessages.push(response ?? {});
+          events.push({ type: 'received', direction: 'received', index: 0, message: response ?? {}, elapsedMs: Date.now() - startTime });
+          settle();
+        },
+      ) as grpc.ClientWritableStream<unknown>;
+      activeCall.call = call as unknown as CancellableGrpcCall;
+      call.on('metadata', metadata => {
+        responseMetadata = metadata;
+        events.push({ type: 'metadata', metadata: this._metadataToRecord(metadata), elapsedMs: Date.now() - startTime });
+      });
+      call.on('status', status => {
+        finalStatus = status;
+        events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
+      });
+      call.on('error', err => {
+        if (settled) return;
+        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        settle(err);
+      });
+
+      for (const item of args.messages) {
+        if (activeCall.cancelled) break;
+        events.push({
+          type: 'sent',
+          direction: 'sent',
+          index: item.index,
+          description: item.description,
+          message: item.message,
+          elapsedMs: Date.now() - startTime,
+        });
+        args.onProgress?.(`Sending gRPC stream message ${item.index + 1}/${args.messages.length}...`);
+        call.write(item.message);
+      }
+      call.end();
+    });
+  }
+
+  private _executeBidiStreaming(args: {
+    serviceConstructor: any;
+    methodKey: string;
+    target: ResolvedGrpcTarget;
+    messages: BuiltGrpcMessage[];
+    metadata: grpc.Metadata;
+    displayMethod: string;
+    methodType: GrpcMethodType;
+    timing: { label: string; start: number; end: number }[];
+    t0: number;
+    phaseStart: number;
+    onProgress?: (message: string) => void;
+  }): Promise<HttpResponse> {
+    const client = this._createClient(args.serviceConstructor, args.target);
+    const timeout = this._requestTimeout();
+    const requestId = `${Date.now()}-${Math.random()}`;
+    const activeCall: ActiveGrpcCall = { cancelled: false };
+    this._activeCalls.set(requestId, activeCall);
+    const startTime = Date.now();
+    const receivedMessages: unknown[] = [];
+    const events: GrpcStreamEvent[] = [];
+    let responseMetadata = new grpc.Metadata();
+    let finalStatus: grpc.StatusObject | undefined;
+
+    return new Promise<HttpResponse>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        this._activeCalls.delete(requestId);
+        activeCall.call?.removeAllListeners?.();
+        client.close();
+      };
+      const settle = (error?: grpc.ServiceError | Error) => {
+        if (settled) return;
+        settled = true;
+        if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
+          finish();
+          reject(new Error('Request cancelled'));
+          return;
+        }
+        args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });
+        const response = this._buildStreamResponse({
+          method: args.displayMethod,
+          methodType: args.methodType,
+          sentMessages: args.messages,
+          receivedMessages,
+          events,
+          responseMetadata,
+          finalStatus,
+          error,
+          duration: Date.now() - startTime,
+          timing: args.timing,
+        });
+        finish();
+        resolve(response);
+      };
+
+      const call = client[args.methodKey](
+        args.metadata,
+        { deadline: new Date(Date.now() + timeout) },
+      ) as grpc.ClientDuplexStream<unknown, unknown>;
+      activeCall.call = call as unknown as CancellableGrpcCall;
+      call.on('metadata', metadata => {
+        responseMetadata = metadata;
+        events.push({ type: 'metadata', metadata: this._metadataToRecord(metadata), elapsedMs: Date.now() - startTime });
+      });
+      call.on('data', response => {
+        receivedMessages.push(response);
+        const index = receivedMessages.length - 1;
+        events.push({ type: 'received', direction: 'received', index, message: response, elapsedMs: Date.now() - startTime });
+        args.onProgress?.(`Received gRPC stream message ${receivedMessages.length}...`);
+      });
+      call.on('status', status => {
+        finalStatus = status;
+        events.push({ type: 'status', status: this._statusSummary(status), elapsedMs: Date.now() - startTime });
+      });
+      call.on('error', err => {
+        events.push({ type: 'error', error: this._errorSummary(err), elapsedMs: Date.now() - startTime });
+        settle(err);
+      });
+      call.on('end', () => {
+        events.push({ type: 'end', elapsedMs: Date.now() - startTime });
+        settle();
+      });
+
+      for (const item of args.messages) {
+        if (activeCall.cancelled) break;
+        events.push({
+          type: 'sent',
+          direction: 'sent',
+          index: item.index,
+          description: item.description,
+          message: item.message,
+          elapsedMs: Date.now() - startTime,
+        });
+        args.onProgress?.(`Sending gRPC stream message ${item.index + 1}/${args.messages.length}...`);
+        call.write(item.message);
+      }
+      call.end();
+    });
+  }
+
+  private _buildStreamResponse(args: {
+    method: string;
+    methodType: GrpcMethodType;
+    sentMessages: BuiltGrpcMessage[];
+    receivedMessages: unknown[];
+    events: GrpcStreamEvent[];
+    responseMetadata: grpc.Metadata;
+    finalStatus?: grpc.StatusObject;
+    error?: grpc.ServiceError | Error;
+    duration: number;
+    timing: { label: string; start: number; end: number }[];
+  }): HttpResponse {
+    const error = args.error ? this._errorSummary(args.error) : undefined;
+    const status = args.finalStatus
+      ? this._statusSummary(args.finalStatus)
+      : error
+        ? { code: error.code, name: error.name, details: error.details }
+        : { code: grpc.status.OK, name: this._statusName(grpc.status.OK), details: 'OK' };
+    const headers = this._metadataToRecord(args.responseMetadata);
+    headers['x-missio-grpc-status'] = String(status.code);
+    headers['x-missio-grpc-status-text'] = status.name;
+    headers['x-missio-grpc-method'] = args.method;
+    headers['x-missio-grpc-method-type'] = args.methodType;
+    headers['x-missio-grpc-streaming'] = 'true';
+    headers['x-missio-grpc-sent-message-count'] = String(args.sentMessages.length);
+    headers['x-missio-grpc-received-message-count'] = String(args.receivedMessages.length);
+    headers['content-type'] = 'application/json';
+
+    const stream = {
+      protocol: 'grpc',
+      method: args.method,
+      methodType: args.methodType,
+      sentMessageCount: args.sentMessages.length,
+      receivedMessageCount: args.receivedMessages.length,
+      status,
+      metadata: headers,
+      sentMessages: args.sentMessages.map(item => ({
+        index: item.index,
+        description: item.description,
+        message: item.message,
+      })),
+      receivedMessages: args.receivedMessages.map((message, index) => ({ index, message })),
+      events: args.events,
+      error,
+    };
+    const body = JSON.stringify(stream, null, 2);
+
+    return {
+      status: status.code === grpc.status.OK ? 200 : 0,
+      statusText: status.details || status.name,
+      headers,
+      body,
+      duration: args.duration,
+      size: Buffer.byteLength(body, 'utf-8'),
+      timing: args.timing,
+      stream,
+    } as any;
+  }
+
+  private _createClient(serviceConstructor: any, target: ResolvedGrpcTarget): any {
+    const credentials = target.secure
+      ? grpc.credentials.createSsl()
+      : grpc.credentials.createInsecure();
+    return new serviceConstructor(target.target, credentials);
+  }
+
+  private _requestTimeout(): number {
+    return vscode.workspace.getConfiguration('missio').get<number>('timeout', 30000);
+  }
+
   private _normalizeGrpcError(err: grpc.ServiceError, method: string): Error {
-    const statusName = typeof err.code === 'number' ? grpc.status[err.code] : undefined;
-    const message = `gRPC ${method} failed${statusName ? ` with ${statusName}` : ''}: ${err.details || err.message}`;
+    const summary = this._errorSummary(err);
+    const message = `gRPC ${method} failed with ${summary.name}: ${summary.details || summary.message}`;
     const normalized = new Error(message);
-    (normalized as any).code = typeof err.code === 'number' ? `GRPC_${statusName ?? err.code}` : err.code;
-    (normalized as any).grpcStatus = err.code;
-    (normalized as any).grpcDetails = err.details;
+    (normalized as any).code = `GRPC_${summary.name}`;
+    (normalized as any).grpcStatus = summary.code;
+    (normalized as any).grpcDetails = summary.details;
     return normalized;
+  }
+
+  private _errorSummary(err: grpc.ServiceError | Error): GrpcErrorSummary {
+    const grpcCode = typeof (err as grpc.ServiceError).code === 'number'
+      ? (err as grpc.ServiceError).code
+      : grpc.status.UNKNOWN;
+    const details = typeof (err as grpc.ServiceError).details === 'string' && (err as grpc.ServiceError).details
+      ? (err as grpc.ServiceError).details
+      : err.message;
+    return {
+      code: grpcCode,
+      name: this._statusName(grpcCode),
+      details,
+      message: err.message,
+    };
+  }
+
+  private _statusSummary(status: grpc.StatusObject): GrpcStatusSummary {
+    return {
+      code: status.code,
+      name: this._statusName(status.code),
+      details: status.details,
+    };
+  }
+
+  private _statusName(code: number): string {
+    return (grpc.status as any)[code] ?? String(code);
   }
 
   private _normalizeTarget(url: string): ResolvedGrpcTarget {
@@ -295,7 +766,7 @@ export class GrpcClient implements vscode.Disposable {
     return service;
   }
 
-  private _resolveUnaryMethodKey(serviceConstructor: any, method: ParsedGrpcMethod): string {
+  private _resolveMethod(serviceConstructor: any, method: ParsedGrpcMethod): ResolvedGrpcMethod {
     const serviceDefinition = serviceConstructor.service ?? {};
     const match = Object.entries<any>(serviceDefinition).find(([key, definition]) => {
       return definition?.path === `/${method.servicePath}/${method.rpcName}`
@@ -307,16 +778,23 @@ export class GrpcClient implements vscode.Disposable {
       throw new Error(`gRPC method "${method.servicePath}/${method.rpcName}" was not found in the loaded proto service.`);
     }
     const [methodKey, definition] = match;
-    if (definition?.requestStream || definition?.responseStream) {
-      throw new GrpcStreamingUnsupportedError(
-        definition.requestStream && definition.responseStream
-          ? 'bidi-streaming'
-          : definition.requestStream
-            ? 'client-streaming'
-            : 'server-streaming',
-      );
-    }
-    return methodKey;
+    const methodType: GrpcMethodType = definition?.requestStream && definition?.responseStream
+      ? 'bidi-streaming'
+      : definition?.requestStream
+        ? 'client-streaming'
+        : definition?.responseStream
+          ? 'server-streaming'
+          : 'unary';
+    return {
+      methodKey,
+      methodType,
+      displayMethod: `${method.servicePath}/${method.rpcName}`,
+    };
+  }
+
+  private _assertMethodType(requested: GrpcMethodType | undefined, resolved: ResolvedGrpcMethod): void {
+    if (!requested || requested === resolved.methodType) return;
+    throw new Error(`gRPC method type mismatch for ${resolved.displayMethod}: request declares "${requested}" but the proto defines "${resolved.methodType}".`);
   }
 
   private _lowerFirst(value: string): string {
@@ -450,14 +928,58 @@ export class GrpcClient implements vscode.Disposable {
     return token;
   }
 
-  private _buildMessage(
-    message: string | GrpcMessageVariant[] | undefined,
+  private _buildUnaryMessage(
+    message: unknown,
+    variables: Map<string, string>,
+    methodType: GrpcMethodType,
+  ): Record<string, unknown> {
+    if (this._isMessageSequence(message)) {
+      if (message.length !== 1) {
+        throw new Error(`gRPC ${methodType} requests accept one request message, but grpc.message contains ${message.length} messages. Use client-streaming or bidi-streaming for ordered message sequences.`);
+      }
+      return this._parseMessageJson(message[0].message, variables);
+    }
+
+    const selectedMessage = Array.isArray(message)
+      ? this._selectedVariantMessage(message)
+      : message;
+    return this._parseMessageJson(typeof selectedMessage === 'string' ? selectedMessage : undefined, variables);
+  }
+
+  private _buildStreamingMessages(
+    message: unknown,
+    variables: Map<string, string>,
+    methodType: GrpcMethodType,
+  ): BuiltGrpcMessage[] {
+    if (!this._isMessageSequence(message)) {
+      throw new Error(`gRPC ${methodType} requests require grpc.message to be an ordered array of request message objects, for example [{ message: "{...}" }].`);
+    }
+    if (message.length === 0) {
+      throw new Error(`gRPC ${methodType} requests require at least one request message.`);
+    }
+    return message.map((entry, index) => ({
+      index,
+      description: typeof entry.description === 'string' ? entry.description : undefined,
+      message: this._parseMessageJson(entry.message, variables),
+    }));
+  }
+
+  private _selectedVariantMessage(message: unknown[]): string | undefined {
+    const selected = message.find(variant => this._isRecord(variant) && variant.selected === true) ?? message[0];
+    if (this._isRecord(selected) && typeof selected.message === 'string') return selected.message;
+    return undefined;
+  }
+
+  private _isMessageSequence(value: unknown): value is Array<{ description?: unknown; message: string }> {
+    return Array.isArray(value)
+      && value.every(entry => this._isRecord(entry) && !Object.prototype.hasOwnProperty.call(entry, 'title') && typeof entry.message === 'string');
+  }
+
+  private _parseMessageJson(
+    message: string | undefined,
     variables: Map<string, string>,
   ): Record<string, unknown> {
-    const selectedMessage = Array.isArray(message)
-      ? (message.find(variant => variant.selected) ?? message[0])?.message
-      : message;
-    const rawMessage = selectedMessage?.trim() || '{}';
+    const rawMessage = message?.trim() || '{}';
     const interpolated = this._environmentService.interpolateJson(rawMessage, variables);
     try {
       const parsed = JSON.parse(interpolated);
@@ -468,6 +990,10 @@ export class GrpcClient implements vscode.Disposable {
     } catch (err: any) {
       throw new Error(`Invalid gRPC message JSON: ${err.message}`);
     }
+  }
+
+  private _isRecord(value: unknown): value is Record<string, any> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
   private _metadataToRecord(metadata: grpc.Metadata): Record<string, string> {

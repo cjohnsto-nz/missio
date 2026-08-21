@@ -47,15 +47,55 @@ function echoUnary(call, callback) {
 
 function streamUsers(call) {
   const request = call.request || {};
-  call.write({ id: request.userId || 1, name: 'Ada' });
-  call.write({ id: (request.userId || 1) + 1, name: 'Grace' });
+  const requestId = request.trace?.requestId || '';
+  call.write({ id: request.userId || 1, name: request.name || 'Ada', requestId });
+  call.write({ id: (request.userId || 1) + 1, name: 'Grace', requestId });
   call.end();
+}
+
+function uploadUsers(call, callback) {
+  const requests = [];
+  call.on('data', (request) => {
+    requests.push(request || {});
+  });
+  call.on('end', () => {
+    callback(null, {
+      count: requests.length,
+      names: requests.map(request => request.name || `user-${request.userId || 0}`).join(','),
+      requestIds: requests.map(request => request.trace?.requestId || '').filter(Boolean).join(','),
+      authorization: metadataValue(call, 'authorization'),
+      defaultMetadata: metadataValue(call, 'x-demo-default'),
+    });
+  });
+}
+
+function chatUsers(call) {
+  call.on('data', (request) => {
+    call.write({
+      id: request.userId || 0,
+      name: `ack:${request.name || 'user'}`,
+      requestId: request.trace?.requestId || '',
+    });
+  });
+  call.on('end', () => call.end());
+}
+
+function streamUsersWithError(call) {
+  const request = call.request || {};
+  call.write({ id: request.userId || 1, name: request.name || 'Partial Ada', requestId: request.trace?.requestId || '' });
+  const error = new Error('Demo stream failure after partial data');
+  error.code = grpc.status.INTERNAL;
+  error.details = 'Demo stream failure after partial data';
+  call.emit('error', error);
 }
 
 const server = new grpc.Server();
 server.addService(proto.DemoService.service, {
   echoUnary,
   streamUsers,
+  uploadUsers,
+  chatUsers,
+  streamUsersWithError,
 });
 
 server.bindAsync(ADDRESS, grpc.ServerCredentials.createInsecure(), (err, port) => {
@@ -69,5 +109,8 @@ server.bindAsync(ADDRESS, grpc.ServerCredentials.createInsecure(), (err, port) =
   console.log('Methods:');
   console.log('  missio.demo.DemoService/EchoUnary');
   console.log('  missio.demo.DemoService/StreamUsers');
+  console.log('  missio.demo.DemoService/UploadUsers');
+  console.log('  missio.demo.DemoService/ChatUsers');
+  console.log('  missio.demo.DemoService/StreamUsersWithError');
   console.log(`Listening on ${HOST}:${port}. Press Ctrl+C to stop.`);
 });
