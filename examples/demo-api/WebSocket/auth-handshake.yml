@@ -1,0 +1,17 @@
+info:
+  name: WebSocket auth handshake
+  type: websocket
+  seq: 3
+websocket:
+  url: "{{wsBaseUrl}}/ws/auth"
+  headers:
+    - name: X-Demo-Client
+      value: missio-demo
+  message:
+    type: json
+    data: '{"user":"{{socketUser}}","messageId":"{{socketMessageId}}","auth":true}'
+runtime:
+  auth:
+    type: bearer
+    token: "{{demoToken}}"
+docs: Exercises WebSocket upgrade headers plus bearer auth on the local demo server.

@@ -1,0 +1,13 @@
+info:
+  name: WebSocket text echo
+  type: websocket
+  seq: 1
+websocket:
+  url: "{{wsBaseUrl}}/ws/echo"
+  headers:
+    - name: X-Demo-Request
+      value: "{{socketMessageId}}"
+  message:
+    type: text
+    data: "Hello {{socketUser}} from {{socketMessageId}}"
+docs: Sends a text frame to the local demo WebSocket echo route.
