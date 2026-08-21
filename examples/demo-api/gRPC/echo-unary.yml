@@ -23,4 +23,4 @@ runtime:
   auth:
     type: bearer
     token: "{{grpcToken}}"
-docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this unary gRPC request.
+docs: Run `node examples/demo-api/grpc-server.js` from the repository root, select the LOCAL environment, then send this unary gRPC request to `LOCAL.grpcBaseUrl=localhost:50051`.

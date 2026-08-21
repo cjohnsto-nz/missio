@@ -14,4 +14,4 @@ grpc:
         "requestId": "{{grpcRequestId}}"
       }
     }
-docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this server-streaming gRPC request.
+docs: Run `node examples/demo-api/grpc-server.js` from the repository root, select the LOCAL environment, then send this server-streaming gRPC request to `LOCAL.grpcBaseUrl=localhost:50051`.
