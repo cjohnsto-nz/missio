@@ -172,7 +172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── Language Model Tools ──────────────────────────────────────
 
-  registerLanguageModelTools(context, collectionService, environmentService, requestExecutionService, secretService);
+  registerLanguageModelTools(context, collectionService, environmentService, requestExecutionService);
 
   // ── Status Bar ─────────────────────────────────────────────────
 
@@ -292,7 +292,6 @@ function registerLanguageModelTools(
   collectionService: CollectionService,
   environmentService: EnvironmentService,
   requestExecutionService: RequestExecutionService,
-  secretService: SecretService,
 ): void {
   // Guard: vscode.lm.registerTool may not exist on older VS Code or non-VS Code editors
   if (typeof vscode.lm?.registerTool !== 'function') {
@@ -312,6 +311,6 @@ function registerLanguageModelTools(
     vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, requestExecutionService)),
     vscode.lm.registerTool('missio_websocket_session', new WebSocketSessionTool(collectionService, environmentService, requestExecutionService)),
     vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
-    vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, environmentService, secretService)),
+    vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, requestExecutionService)),
   );
 }

@@ -1,18 +1,17 @@
 import * as vscode from 'vscode';
-import * as http from 'http';
-import * as https from 'https';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
-import { EnvironmentService } from '../../services/environmentService';
-import type { SecretService } from '../../services/secretService';
+import type { RequestExecutionService } from '../../services/requestExecutionService';
+import type { Auth, HttpRequest, HttpRequestBody, MissioCollection } from '../../models/types';
 
 export interface SendRawRequestParams {
   method: string;
   url: string;
   headers?: Record<string, string>;
   body?: unknown;
+  auth?: Auth;
   collectionId?: string;
   environment?: string;
   variables?: Record<string, unknown>;
@@ -25,8 +24,7 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
 
   constructor(
     private _collectionService: CollectionService,
-    private _environmentService: EnvironmentService,
-    private _secretService: SecretService,
+    private _requestExecutionService: RequestExecutionService,
   ) {
     super();
   }
@@ -35,167 +33,98 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
     options: vscode.LanguageModelToolInvocationOptions<SendRawRequestParams>,
     _token: vscode.CancellationToken,
   ): Promise<string> {
-    const { method, headers: rawHeaders, body: rawBody, collectionId, environment, variables, responseOutputPath, extract } = options.input;
-    let { url } = options.input;
+    const { method, headers: rawHeaders, body: rawBody, auth, collectionId, environment, variables, responseOutputPath, extract } = options.input;
 
-    // Build variable map from collection if available
-    const collection = this._collectionService.resolveCollection(collectionId);
-    const varMap = new Map<string, string>();
-    if (collection) {
-      const resolved = await this._environmentService.resolveVariables(collection, undefined, environment);
-      for (const [k, v] of resolved) varMap.set(k, v);
-    }
-    // Merge user-provided variable overrides (highest priority)
-    if (variables) {
-      for (const [k, v] of Object.entries(variables)) varMap.set(k, String(v));
+    let collection: MissioCollection | undefined;
+    try {
+      collection = this._resolveCollection(collectionId);
+    } catch (error) {
+      return JSON.stringify({ success: false, message: error instanceof Error ? error.message : String(error) });
     }
 
-    // Interpolate URL
-    url = this._environmentService.interpolate(url, varMap);
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'http://' + url;
+    const executionCollection = collection ?? this._createRawCollection();
+    let body: HttpRequestBody | undefined;
+    try {
+      body = rawBody === undefined || rawBody === null
+        ? undefined
+        : typeof rawBody === 'string'
+          ? { type: 'text', data: rawBody }
+          : { type: 'json', data: JSON.stringify(rawBody) };
+    } catch (error) {
+      return JSON.stringify({ success: false, message: `Unable to serialize request body: ${error instanceof Error ? error.message : String(error)}` });
     }
 
-    // Build headers — interpolate values
-    const headers: Record<string, string> = {};
-    if (rawHeaders) {
-      for (const [k, v] of Object.entries(rawHeaders)) {
-        headers[this._environmentService.interpolate(k, varMap)] =
-          this._environmentService.interpolate(v, varMap);
+    const request: HttpRequest = {
+      http: {
+        method,
+        url: options.input.url,
+        headers: Object.entries(rawHeaders ?? {}).map(([name, value]) => ({ name, value: String(value) })),
+        body,
+      },
+      runtime: { auth: auth ?? 'inherit' },
+    };
+    const extraVariables = variables
+      ? new Map<string, string>(Object.entries(variables).map(([key, value]) => [key, String(value)]))
+      : undefined;
+
+    let response;
+    try {
+      response = await this._requestExecutionService.send(
+        request,
+        executionCollection,
+        undefined,
+        undefined,
+        extraVariables,
+        environment,
+      );
+    } catch (error) {
+      return JSON.stringify({ success: false, message: error instanceof Error ? error.message : String(error) });
+    }
+
+    const responseBody = response.body;
+    const warnings: string[] = [];
+    let savedTo: string | undefined;
+    if (responseOutputPath) {
+      try {
+        const dir = path.dirname(responseOutputPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(responseOutputPath, responseBody, 'utf-8');
+        savedTo = responseOutputPath;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push(`Failed to write responseOutputPath "${responseOutputPath}": ${message}`);
       }
     }
 
-    // Apply collection-level auth if available and no Authorization header provided
-    if (collection && !headers['Authorization'] && !headers['authorization']) {
-      const auth = collection.data.request?.auth;
-      if (auth && auth !== 'inherit') {
-        url = this._applyCollectionAuth(auth, headers, varMap, url);
-      }
-    }
+    const result: Record<string, unknown> = {
+      success: true,
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+      body: responseBody.length > 10_000
+        ? responseBody.substring(0, 10_000) + '\n... (truncated)'
+        : responseBody,
+      duration: response.duration,
+      size: response.size,
+    };
 
-    // Build body
-    let bodyStr: string | undefined;
-    if (rawBody !== undefined && rawBody !== null) {
-      if (typeof rawBody === 'string') {
-        // String body: interpolate variables
-        bodyStr = this._environmentService.interpolate(rawBody, varMap);
-      } else {
-        // Object/array/number/boolean: serialize as JSON (no interpolation — already constructed)
-        bodyStr = JSON.stringify(rawBody);
-        if (!headers['Content-Type'] && !headers['content-type']) {
-          headers['Content-Type'] = 'application/json';
+    if (warnings.length > 0) result.warnings = warnings;
+    if (savedTo) result.savedTo = savedTo;
+
+    if (extract && responseBody) {
+      try {
+        const json = JSON.parse(responseBody);
+        const extracted: Record<string, unknown> = {};
+        for (const [key, jsonPath] of Object.entries(extract)) {
+          extracted[key] = this._extractByPath(json, jsonPath);
         }
+        result.extracted = extracted;
+      } catch {
+        result.extractError = 'Response body is not valid JSON; extraction skipped.';
       }
     }
 
-    // Resolve $secret.{vault}.{key} references in URL, headers, and body
-    // (same pipeline as httpClient — required for secret-backed auth like API keys)
-    const providers = collection?.data.config?.secretProviders ?? [];
-    if (providers.length > 0) {
-      url = await this._secretService.resolveSecretReferences(url, providers, varMap);
-      for (const [k, v] of Object.entries(headers)) {
-        const resolved = await this._secretService.resolveSecretReferences(v, providers, varMap);
-        if (resolved !== v) headers[k] = resolved;
-      }
-      if (bodyStr) {
-        bodyStr = await this._secretService.resolveSecretReferences(bodyStr, providers, varMap);
-      }
-    }
-
-    // Execute HTTP request
-    const startTime = Date.now();
-    const parsedUrl = new URL(url);
-    const isHttps = parsedUrl.protocol === 'https:';
-    const requestModule = isHttps ? https : http;
-
-    return new Promise<string>((resolve) => {
-      const reqOptions: http.RequestOptions = {
-        method: method.toUpperCase(),
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: parsedUrl.pathname + parsedUrl.search,
-        headers,
-        timeout: 30_000,
-      };
-
-      if (isHttps) {
-        (reqOptions as https.RequestOptions).rejectUnauthorized =
-          vscode.workspace.getConfiguration('missio').get<boolean>('rejectUnauthorized', true);
-      }
-
-      const req = requestModule.request(reqOptions, (res) => {
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk) => chunks.push(chunk));
-        res.on('end', () => {
-          const buffer = Buffer.concat(chunks);
-          const duration = Date.now() - startTime;
-          const responseHeaders: Record<string, string> = {};
-          for (const [key, val] of Object.entries(res.headers)) {
-            if (val) responseHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
-          }
-
-          const responseBody = buffer.toString('utf-8');
-          const warnings: string[] = [];
-
-          // Write response body to file if requested
-          let savedTo: string | undefined;
-          if (responseOutputPath) {
-            try {
-              const dir = path.dirname(responseOutputPath);
-              if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(responseOutputPath, responseBody, 'utf-8');
-              savedTo = responseOutputPath;
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              warnings.push(`Failed to write responseOutputPath "${responseOutputPath}": ${message}`);
-            }
-          }
-
-          const result: Record<string, unknown> = {
-            success: true,
-            status: res.statusCode,
-            statusText: res.statusMessage,
-            headers: responseHeaders,
-            body: responseBody.length > 10_000
-              ? responseBody.substring(0, 10_000) + '\n... (truncated)'
-              : responseBody,
-            duration,
-            size: buffer.length,
-          };
-
-          if (warnings.length > 0) result.warnings = warnings;
-          if (savedTo) result.savedTo = savedTo;
-
-          // Extract values from JSON response body
-          if (extract && responseBody) {
-            try {
-              const json = JSON.parse(responseBody);
-              const extracted: Record<string, unknown> = {};
-              for (const [key, jsonPath] of Object.entries(extract)) {
-                extracted[key] = this._extractByPath(json, jsonPath);
-              }
-              result.extracted = extracted;
-            } catch {
-              result.extractError = 'Response body is not valid JSON; extraction skipped.';
-            }
-          }
-
-          resolve(JSON.stringify(result));
-        });
-      });
-
-      req.on('error', (err) => {
-        resolve(JSON.stringify({ success: false, message: `Request failed: ${err.message}` }));
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        resolve(JSON.stringify({ success: false, message: 'Request timed out' }));
-      });
-
-      if (bodyStr) req.write(bodyStr);
-      req.end();
-    });
+    return JSON.stringify(result);
   }
 
   async prepareInvocation(
@@ -214,45 +143,29 @@ export class SendRawRequestTool extends ToolBase<SendRawRequestParams> {
 
   // ── Helpers ──
 
-  private _applyCollectionAuth(
-    auth: Exclude<import('../../models/types').Auth, 'inherit'>,
-    headers: Record<string, string>,
-    variables: Map<string, string>,
-    url: string,
-  ): string {
-    switch (auth.type) {
-      case 'bearer':
-        if (auth.token) {
-          headers['Authorization'] = `Bearer ${this._environmentService.interpolate(auth.token, variables)}`;
-        }
-        return url;
-      case 'basic':
-        if (auth.username) {
-          const user = this._environmentService.interpolate(auth.username, variables);
-          const pass = this._environmentService.interpolate(auth.password ?? '', variables);
-          headers['Authorization'] = `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`;
-        }
-        return url;
-      case 'apikey':
-        if (auth.key && auth.value) {
-          const key = this._environmentService.interpolate(auth.key, variables);
-          const val = this._environmentService.interpolate(auth.value, variables);
-          if (auth.placement === 'query') {
-            try {
-              const parsed = new URL(url);
-              parsed.searchParams.set(key, val);
-              return parsed.toString();
-            } catch {
-              headers[key] = val;
-            }
-          } else {
-            headers[key] = val;
-          }
-        }
-        return url;
-      default:
-        return url;
+  private _resolveCollection(collectionId?: string): MissioCollection | undefined {
+    if (collectionId) {
+      const collection = this._collectionService.resolveCollection(collectionId);
+      if (!collection) throw new Error(`Collection not found: ${collectionId}`);
+      return collection;
     }
+
+    const collections = typeof (this._collectionService as any).getCollections === 'function'
+      ? (this._collectionService as any).getCollections() as MissioCollection[]
+      : [];
+    if (collections.length > 1) {
+      throw new Error('Multiple collections are loaded; provide collectionId to select one.');
+    }
+    return this._collectionService.resolveCollection() ?? collections[0];
+  }
+
+  private _createRawCollection(): MissioCollection {
+    return {
+      id: '__raw_request__',
+      filePath: '',
+      rootDir: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
+      data: { config: {}, request: {} } as any,
+    };
   }
 
   /** Simple dot-path/bracket-index extractor */

@@ -1139,7 +1139,7 @@
       {
         "name": "missio_send_raw_request",
         "displayName": "Send Raw HTTP Request",
-        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL supports {{variable}} interpolation from the active collection/environment. Body can be a JSON object (sent as application/json) or a string. Auth is inherited from the collection if one is loaded. Response body is truncated to 10 000 chars — use responseOutputPath for the full body. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
+        "modelDescription": "Send an ad-hoc HTTP request without a .yml file. Provide method, URL, headers, and body directly. The URL, headers, and JSON body support {{variable}} interpolation from the selected collection/environment. Auth is inherited from the selected collection unless explicit auth is provided. If multiple collections are loaded, provide collectionId. Response body is truncated to 10 000 chars — use responseOutputPath for the full body. Use this for exploration, debugging, one-off requests, or dynamic bodies built from prior response data.",
         "userDescription": "Send an ad-hoc HTTP request without a collection file.",
         "toolReferenceName": "missio_send_raw_request",
         "canBeReferencedInPrompt": true,
@@ -1170,9 +1170,38 @@
             "body": {
               "description": "Optional request body. Pass a JSON object (auto-serialized, Content-Type set to application/json) or a string (interpolated with {{variables}}). For JSON APIs, pass the object directly — no string escaping needed."
             },
+            "auth": {
+              "type": "object",
+              "description": "Optional explicit request authentication. When omitted, authentication is inherited from the selected collection. Supported types include bearer, basic, apikey, oauth2, and cli; use the same fields as an OpenCollection request auth object.",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["bearer", "basic", "apikey", "oauth2", "cli", "digest", "ntlm", "wsse", "awsv4"]
+                },
+                "token": { "type": "string" },
+                "username": { "type": "string" },
+                "password": { "type": "string" },
+                "key": { "type": "string" },
+                "value": { "type": "string" },
+                "placement": { "type": "string", "enum": ["header", "query"] },
+                "command": { "type": "string" },
+                "tokenHeader": { "type": "string" },
+                "tokenPrefix": { "type": "string" },
+                "flow": { "type": "string" },
+                "accessTokenUrl": { "type": "string" },
+                "refreshTokenUrl": { "type": "string" },
+                "authorizationUrl": { "type": "string" },
+                "scope": { "type": "string" },
+                "credentials": { "type": "object" },
+                "resourceOwner": { "type": "object" },
+                "tokenConfig": { "type": "object" },
+                "settings": { "type": "object" }
+              },
+              "required": ["type"]
+            },
             "collectionId": {
               "type": "string",
-              "description": "Optional collection ID for variable resolution and auth inheritance. Auto-selected when only one collection is loaded."
+              "description": "Optional collection ID for variable resolution and auth inheritance. Auto-selected when exactly one collection is loaded; required when multiple collections are loaded."
             },
             "environment": {
               "type": "string",
