@@ -14,6 +14,7 @@ import type {
   WebSocketRequest,
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
+import { RequestCancelledError } from './requestCancelledError';
 import type { SecretService } from './secretService';
 
 export interface ResolvedWebSocketRequest {
@@ -150,7 +151,7 @@ export class WebSocketClient implements vscode.Disposable {
       this._activeSockets.set(requestId, {
         socket,
         cancel: () => {
-          fail(new Error('Request cancelled'));
+          fail(new RequestCancelledError());
           socket.terminate();
         },
       });

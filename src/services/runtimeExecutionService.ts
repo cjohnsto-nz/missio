@@ -4,9 +4,12 @@ import type {
   ActionPhase,
   ActionVariableScope,
   Assertion,
+  GrpcMetadata,
+  GrpcRequest,
   HttpRequest,
   HttpRequestBody,
   HttpRequestBodyVariant,
+  HttpRequestHeader,
   HttpResponse,
   MissioCollection,
   RequestDefaults,
@@ -23,6 +26,9 @@ import type {
   Variable,
   VariableValue,
   VariableValueVariant,
+  WebSocketMessage,
+  WebSocketMessageVariant,
+  WebSocketRequest,
 } from '../models/types';
 
 export type RuntimeVariableResolver = (
@@ -38,18 +44,29 @@ interface RuntimeVariableScopes {
 }
 
 interface RuntimeState {
-  request: HttpRequest;
+  request: RuntimeCapableRequest;
   response?: HttpResponse;
   variables: RuntimeVariableScopes;
   result: RuntimeExecutionResult;
 }
 
-export interface RuntimePreparedHttpRequest {
-  request: HttpRequest;
+type RuntimeCapableRequest = HttpRequest | WebSocketRequest | GrpcRequest;
+type RuntimeRequestHeader = HttpRequestHeader | GrpcMetadata;
+interface RuntimeRequestConfig {
+  variables?: Variable[];
+  scripts?: Script[];
+  assertions?: Assertion[];
+  actions?: Action[];
+}
+
+export interface RuntimePreparedRequest<TRequest extends RuntimeCapableRequest> {
+  request: TRequest;
   extraVariables?: Map<string, string>;
   runtime: RuntimeExecutionResult;
   state: RuntimeState;
 }
+
+export type RuntimePreparedHttpRequest = RuntimePreparedRequest<HttpRequest>;
 
 export class RuntimeExecutionError extends Error {
   constructor(
@@ -66,23 +83,24 @@ export class RuntimeExecutionService {
   constructor(private readonly _variableResolver?: RuntimeVariableResolver) {}
 
   hasRuntimeWork(
-    request: HttpRequest,
+    request: RuntimeCapableRequest,
     collection: MissioCollection,
     folderDefaults?: RequestDefaults,
   ): boolean {
-    return variablesToMap(request.runtime?.variables).size > 0
-      || lifecycleScripts(collection.data.request?.scripts, folderDefaults?.scripts, request.runtime?.scripts, 'before-request').length > 0
-      || lifecycleScripts(undefined, undefined, request.runtime?.scripts, 'after-response').length > 0
-      || lifecycleScripts(undefined, undefined, request.runtime?.scripts, 'tests').length > 0
-      || (request.runtime?.assertions ?? []).length > 0
-      || (request.runtime?.actions ?? []).length > 0;
+    const runtime = runtimeConfig(request);
+    return variablesToMap(runtime?.variables).size > 0
+      || lifecycleScripts(collection.data.request?.scripts, folderDefaults?.scripts, runtime?.scripts, 'before-request').length > 0
+      || lifecycleScripts(undefined, undefined, runtime?.scripts, 'after-response').length > 0
+      || lifecycleScripts(undefined, undefined, runtime?.scripts, 'tests').length > 0
+      || (runtime?.assertions ?? []).length > 0
+      || (runtime?.actions ?? []).length > 0;
   }
 
   async buildRequestVariableOverrides(
-    request: HttpRequest,
+    request: RuntimeCapableRequest,
     extraVariables?: Map<string, string>,
   ): Promise<Map<string, string> | undefined> {
-    const requestVariables = variablesToMap(request.runtime?.variables);
+    const requestVariables = variablesToMap(runtimeConfig(request)?.variables);
     if (requestVariables.size === 0 && (!extraVariables || extraVariables.size === 0)) {
       return undefined;
     }
@@ -100,19 +118,71 @@ export class RuntimeExecutionService {
     extraVariables?: Map<string, string>,
     environmentName?: string,
   ): Promise<RuntimePreparedHttpRequest> {
+    return this._prepareRequest(request, collection, folderDefaults, extraVariables, environmentName);
+  }
+
+  async prepareWebSocketRequest(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+  ): Promise<RuntimePreparedRequest<WebSocketRequest>> {
+    return this._prepareRequest(request, collection, folderDefaults, extraVariables, environmentName);
+  }
+
+  async prepareGrpcRequest(
+    request: GrpcRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+  ): Promise<RuntimePreparedRequest<GrpcRequest>> {
+    return this._prepareRequest(request, collection, folderDefaults, extraVariables, environmentName);
+  }
+
+  async completeHttpRequest(
+    prepared: RuntimePreparedHttpRequest,
+    response: HttpResponse,
+  ): Promise<HttpResponse> {
+    return this._completeRequest(prepared, response);
+  }
+
+  async completeWebSocketRequest(
+    prepared: RuntimePreparedRequest<WebSocketRequest>,
+    response: HttpResponse,
+  ): Promise<HttpResponse> {
+    return this._completeRequest(prepared, response);
+  }
+
+  async completeGrpcRequest(
+    prepared: RuntimePreparedRequest<GrpcRequest>,
+    response: HttpResponse,
+  ): Promise<HttpResponse> {
+    return this._completeRequest(prepared, response);
+  }
+
+  private async _prepareRequest<TRequest extends RuntimeCapableRequest>(
+    request: TRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+  ): Promise<RuntimePreparedRequest<TRequest>> {
     const clonedRequest = cloneJson(request);
+    const runtime = runtimeConfig(clonedRequest);
     const result = createRuntimeResult();
     const baseVariables = this._variableResolver
       ? await this._variableResolver(collection, folderDefaults, environmentName)
       : new Map<string, string>();
     const variables: RuntimeVariableScopes = {
       base: new Map(baseVariables),
-      request: variablesToMap(clonedRequest.runtime?.variables),
+      request: variablesToMap(runtime?.variables),
       runtime: new Map(extraVariables),
     };
     const state: RuntimeState = { request: clonedRequest, variables, result };
 
-    await this._runScripts(state, lifecycleScripts(collection.data.request?.scripts, folderDefaults?.scripts, clonedRequest.runtime?.scripts, 'before-request'), 'before-request', true);
+    await this._runScripts(state, lifecycleScripts(collection.data.request?.scripts, folderDefaults?.scripts, runtime?.scripts, 'before-request'), 'before-request', true);
     this._runActions(state, 'before-request');
 
     return {
@@ -123,15 +193,16 @@ export class RuntimeExecutionService {
     };
   }
 
-  async completeHttpRequest(
-    prepared: RuntimePreparedHttpRequest,
+  private async _completeRequest<TRequest extends RuntimeCapableRequest>(
+    prepared: RuntimePreparedRequest<TRequest>,
     response: HttpResponse,
   ): Promise<HttpResponse> {
+    const runtime = runtimeConfig(prepared.state.request);
     prepared.state.response = response;
     this._runActions(prepared.state, 'after-response');
-    await this._runScripts(prepared.state, lifecycleScripts(undefined, undefined, prepared.state.request.runtime?.scripts, 'after-response'), 'after-response', false);
-    this._runAssertions(prepared.state, prepared.state.request.runtime?.assertions ?? []);
-    await this._runScripts(prepared.state, lifecycleScripts(undefined, undefined, prepared.state.request.runtime?.scripts, 'tests'), 'tests', false);
+    await this._runScripts(prepared.state, lifecycleScripts(undefined, undefined, runtime?.scripts, 'after-response'), 'after-response', false);
+    this._runAssertions(prepared.state, runtime?.assertions ?? []);
+    await this._runScripts(prepared.state, lifecycleScripts(undefined, undefined, runtime?.scripts, 'tests'), 'tests', false);
     finalizeRuntimeResult(prepared.runtime);
     return hasRuntimeActivity(prepared.runtime)
       ? { ...response, runtime: prepared.runtime }
@@ -261,7 +332,7 @@ export class RuntimeExecutionService {
   }
 
   private _runActions(state: RuntimeState, phase: ActionPhase): void {
-    const actions = state.request.runtime?.actions ?? [];
+    const actions = runtimeConfig(state.request)?.actions ?? [];
     for (const action of actions) {
       const actionPhase = action.phase ?? 'after-response';
       if (actionPhase !== phase) continue;
@@ -380,6 +451,10 @@ function cloneJson<T>(value: T): T {
   return value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
+function runtimeConfig(request: RuntimeCapableRequest): RuntimeRequestConfig | undefined {
+  return (request as { runtime?: RuntimeRequestConfig }).runtime;
+}
+
 function mergeInto(target: Map<string, string>, source: Map<string, string>): void {
   for (const [key, value] of source) {
     target.set(key, value);
@@ -450,40 +525,48 @@ function makeVariablesApi(state: RuntimeState): Record<string, unknown> {
 function makeRequestApi(state: RuntimeState): Record<string, unknown> {
   const api: Record<string, unknown> = {};
   Object.defineProperties(api, {
+    protocol: {
+      enumerable: true,
+      get: () => getRuntimeRequestProtocol(state.request),
+    },
     method: {
       enumerable: true,
-      get: () => state.request.http?.method,
+      get: () => getRuntimeRequestMethod(state.request),
       set: (value: unknown) => {
-        if (!state.request.http) state.request.http = {};
-        state.request.http.method = String(value);
+        setRuntimeRequestMethod(state.request, value);
       },
     },
     url: {
       enumerable: true,
-      get: () => state.request.http?.url,
+      get: () => getRuntimeRequestUrl(state.request),
       set: (value: unknown) => {
-        if (!state.request.http) state.request.http = {};
-        state.request.http.url = String(value);
+        setRuntimeRequestUrl(state.request, value);
       },
     },
     body: {
       enumerable: true,
-      get: () => getRequestBodyValue(state.request),
-      set: (value: unknown) => setRequestBodyValue(state.request, value),
+      get: () => getRuntimeRequestBodyValue(state.request),
+      set: (value: unknown) => setRuntimeRequestBodyValue(state.request, value),
+    },
+    message: {
+      enumerable: true,
+      get: () => getRuntimeRequestBodyValue(state.request),
+      set: (value: unknown) => setRuntimeRequestBodyValue(state.request, value),
     },
   });
 
-  api.headers = makeHeaderApi(
-    () => state.request.http?.headers ?? [],
-    (headers) => {
-      if (!state.request.http) state.request.http = {};
-      state.request.http.headers = headers;
-    },
+  const headerApi = makeHeaderApi(
+    () => getRuntimeRequestHeaders(state.request),
+    (headers) => setRuntimeRequestHeaders(state.request, headers),
   );
-  api.setHeader = (name: string, value: unknown) => setHeader(state.request, name, value);
-  api.getHeader = (name: string) => getHeader(state.request, name);
-  api.setBody = (value: unknown) => setRequestBodyValue(state.request, value);
-  api.json = () => parseMaybeJson(getRequestBodyValue(state.request));
+  api.headers = headerApi;
+  api.metadata = headerApi;
+  api.setHeader = (name: string, value: unknown) => setRuntimeRequestHeader(state.request, name, value);
+  api.getHeader = (name: string) => getRuntimeRequestHeader(state.request, name);
+  api.setMetadata = (name: string, value: unknown) => setRuntimeRequestHeader(state.request, name, value);
+  api.getMetadata = (name: string) => getRuntimeRequestHeader(state.request, name);
+  api.setBody = (value: unknown) => setRuntimeRequestBodyValue(state.request, value);
+  api.json = () => parseMaybeJson(getRuntimeRequestBodyValue(state.request));
   return Object.freeze(api);
 }
 
@@ -507,10 +590,12 @@ function makeResponseApi(state: RuntimeState): Record<string, unknown> {
       get: () => state.response?.body,
     },
   });
-  api.headers = Object.freeze({
+  const headersApi = Object.freeze({
     get: (name: string) => getResponseHeader(state.response, name),
     toObject: () => ({ ...(state.response?.headers ?? {}) }),
   });
+  api.headers = headersApi;
+  api.metadata = headersApi;
   api.text = () => state.response?.body ?? '';
   api.json = () => parseMaybeJson(state.response?.body ?? '');
   return Object.freeze(api);
@@ -578,8 +663,8 @@ function makeExpectApi(actual: unknown, assertApi: (condition: unknown, message?
 }
 
 function makeHeaderApi(
-  getHeaders: () => NonNullable<HttpRequest['http']>['headers'],
-  setHeaders: (headers: NonNullable<HttpRequest['http']>['headers']) => void,
+  getHeaders: () => RuntimeRequestHeader[],
+  setHeaders: (headers: RuntimeRequestHeader[]) => void,
 ): Record<string, unknown> {
   return Object.freeze({
     get: (name: string) => {
@@ -617,18 +702,17 @@ function makeHeaderApi(
   });
 }
 
-function setHeader(request: HttpRequest, name: string, value: unknown): void {
-  if (!request.http) request.http = {};
-  const headers = [...(request.http.headers ?? [])];
+function setRuntimeRequestHeader(request: RuntimeCapableRequest, name: string, value: unknown): void {
+  const headers = [...getRuntimeRequestHeaders(request)];
   const index = headers.findIndex(header => header.name.toLowerCase() === String(name).toLowerCase());
   const next = { name: String(name), value: stringifyVariableValue(value) };
   if (index >= 0) headers[index] = { ...headers[index], ...next };
   else headers.push(next);
-  request.http.headers = headers;
+  setRuntimeRequestHeaders(request, headers);
 }
 
-function getHeader(request: HttpRequest, name: string): string | undefined {
-  return request.http?.headers?.find(header => !header.disabled && header.name.toLowerCase() === String(name).toLowerCase())?.value;
+function getRuntimeRequestHeader(request: RuntimeCapableRequest, name: string): string | undefined {
+  return getRuntimeRequestHeaders(request).find(header => !header.disabled && header.name.toLowerCase() === String(name).toLowerCase())?.value;
 }
 
 function getResponseHeader(response: HttpResponse | undefined, name: string): string | undefined {
@@ -637,22 +721,120 @@ function getResponseHeader(response: HttpResponse | undefined, name: string): st
   return found?.[1];
 }
 
-function getRequestBodyValue(request: HttpRequest): unknown {
-  const body = selectedHttpBody(request.http?.body);
+function isRuntimeWebSocketRequest(request: RuntimeCapableRequest): request is WebSocketRequest {
+  return Object.prototype.hasOwnProperty.call(request, 'websocket');
+}
+
+function isRuntimeGrpcRequest(request: RuntimeCapableRequest): request is GrpcRequest {
+  return Object.prototype.hasOwnProperty.call(request, 'grpc');
+}
+
+function getRuntimeRequestProtocol(request: RuntimeCapableRequest): string {
+  if (isRuntimeWebSocketRequest(request)) return 'websocket';
+  if (isRuntimeGrpcRequest(request)) return 'grpc';
+  return 'http';
+}
+
+function getRuntimeRequestMethod(request: RuntimeCapableRequest): string | undefined {
+  if (isRuntimeWebSocketRequest(request)) return 'WS';
+  if (isRuntimeGrpcRequest(request)) return request.grpc?.method;
+  return (request as HttpRequest).http?.method;
+}
+
+function setRuntimeRequestMethod(request: RuntimeCapableRequest, value: unknown): void {
+  if (isRuntimeGrpcRequest(request)) {
+    if (!request.grpc) request.grpc = {};
+    request.grpc.method = String(value);
+    return;
+  }
+  if (isRuntimeWebSocketRequest(request)) {
+    return;
+  }
+  const httpRequest = request as HttpRequest;
+  if (!httpRequest.http) httpRequest.http = {};
+  httpRequest.http.method = String(value);
+}
+
+function getRuntimeRequestUrl(request: RuntimeCapableRequest): string | undefined {
+  if (isRuntimeWebSocketRequest(request)) return request.websocket?.url;
+  if (isRuntimeGrpcRequest(request)) return request.grpc?.url;
+  return (request as HttpRequest).http?.url;
+}
+
+function setRuntimeRequestUrl(request: RuntimeCapableRequest, value: unknown): void {
+  if (isRuntimeWebSocketRequest(request)) {
+    if (!request.websocket) request.websocket = {};
+    request.websocket.url = String(value);
+    return;
+  }
+  if (isRuntimeGrpcRequest(request)) {
+    if (!request.grpc) request.grpc = {};
+    request.grpc.url = String(value);
+    return;
+  }
+  const httpRequest = request as HttpRequest;
+  if (!httpRequest.http) httpRequest.http = {};
+  httpRequest.http.url = String(value);
+}
+
+function getRuntimeRequestHeaders(request: RuntimeCapableRequest): RuntimeRequestHeader[] {
+  if (isRuntimeWebSocketRequest(request)) return request.websocket?.headers ?? [];
+  if (isRuntimeGrpcRequest(request)) return request.grpc?.metadata ?? [];
+  return (request as HttpRequest).http?.headers ?? [];
+}
+
+function setRuntimeRequestHeaders(request: RuntimeCapableRequest, headers: RuntimeRequestHeader[]): void {
+  if (isRuntimeWebSocketRequest(request)) {
+    if (!request.websocket) request.websocket = {};
+    request.websocket.headers = headers as HttpRequestHeader[];
+    return;
+  }
+  if (isRuntimeGrpcRequest(request)) {
+    if (!request.grpc) request.grpc = {};
+    request.grpc.metadata = headers as GrpcMetadata[];
+    return;
+  }
+  const httpRequest = request as HttpRequest;
+  if (!httpRequest.http) httpRequest.http = {};
+  httpRequest.http.headers = headers as HttpRequestHeader[];
+}
+
+function getRuntimeRequestBodyValue(request: RuntimeCapableRequest): unknown {
+  if (isRuntimeWebSocketRequest(request)) {
+    const message = selectedWebSocketMessage(request.websocket?.message);
+    if (!message) return undefined;
+    return message.type === 'json' ? parseMaybeJson(message.data) : message.data;
+  }
+  if (isRuntimeGrpcRequest(request)) {
+    return parseMaybeJson(selectedGrpcMessage(request.grpc?.message) ?? '{}');
+  }
+
+  const httpRequest = request as HttpRequest;
+  const body = selectedHttpBody(httpRequest.http?.body);
   if (!body) return undefined;
   if (body.type === 'json') return parseMaybeJson(body.data);
   if (body.type === 'text' || body.type === 'xml' || body.type === 'html' || body.type === 'yaml' || body.type === 'sparql') return body.data;
   return cloneJson(body);
 }
 
-function setRequestBodyValue(request: HttpRequest, value: unknown): void {
-  if (!request.http) request.http = {};
-  const body = selectedHttpBody(request.http.body);
+function setRuntimeRequestBodyValue(request: RuntimeCapableRequest, value: unknown): void {
+  if (isRuntimeWebSocketRequest(request)) {
+    setWebSocketMessageValue(request, value);
+    return;
+  }
+  if (isRuntimeGrpcRequest(request)) {
+    setGrpcMessageValue(request, value);
+    return;
+  }
+
+  const httpRequest = request as HttpRequest;
+  if (!httpRequest.http) httpRequest.http = {};
+  const body = selectedHttpBody(httpRequest.http.body);
   const nextType = typeof value === 'object' ? 'json' : body?.type ?? 'text';
   const nextData = typeof value === 'string' ? value : JSON.stringify(value);
 
   if (!body) {
-    request.http.body = { type: nextType, data: nextData } as HttpRequestBody;
+    httpRequest.http.body = { type: nextType, data: nextData } as HttpRequestBody;
     return;
   }
 
@@ -660,13 +842,65 @@ function setRequestBodyValue(request: HttpRequest, value: unknown): void {
   (body as { data?: unknown }).data = nextData;
 }
 
-function selectedHttpBody(body: HttpRequest['http'] extends infer _ ? HttpRequest['http'] extends undefined ? never : NonNullable<HttpRequest['http']>['body'] : never): HttpRequestBody | undefined {
+function selectedHttpBody(body: NonNullable<HttpRequest['http']>['body'] | undefined): HttpRequestBody | undefined {
   if (!body) return undefined;
   if (Array.isArray(body)) {
     const variants = body as HttpRequestBodyVariant[];
     return (variants.find(variant => variant.selected) ?? variants[0])?.body;
   }
   return body as HttpRequestBody;
+}
+
+function selectedWebSocketMessage(message: NonNullable<WebSocketRequest['websocket']>['message']): WebSocketMessage | undefined {
+  if (!message) return undefined;
+  if (!Array.isArray(message)) return message;
+  const selected = message.find(variant => variant.selected) ?? message[0];
+  return selected?.message;
+}
+
+function setWebSocketMessageValue(request: WebSocketRequest, value: unknown): void {
+  if (!request.websocket) request.websocket = {};
+  const existing = selectedWebSocketMessage(request.websocket.message);
+  const nextType = typeof value === 'object' && value !== null ? 'json' : existing?.type ?? 'text';
+  const nextData = typeof value === 'string' ? value : JSON.stringify(value);
+  const nextMessage: WebSocketMessage = { type: nextType, data: nextData };
+
+  if (!request.websocket.message) {
+    request.websocket.message = nextMessage;
+    return;
+  }
+  if (Array.isArray(request.websocket.message)) {
+    const variants = request.websocket.message as WebSocketMessageVariant[];
+    const selected = variants.find(variant => variant.selected) ?? variants[0];
+    if (selected) selected.message = nextMessage;
+    else request.websocket.message = nextMessage;
+    return;
+  }
+  request.websocket.message = nextMessage;
+}
+
+function selectedGrpcMessage(message: NonNullable<GrpcRequest['grpc']>['message']): string | undefined {
+  if (!message) return undefined;
+  if (typeof message === 'string') return message;
+  if (Array.isArray(message)) {
+    const selected = message.find(variant => isRecord(variant) && variant.selected === true) ?? message[0];
+    return isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined;
+  }
+  return undefined;
+}
+
+function setGrpcMessageValue(request: GrpcRequest, value: unknown): void {
+  if (!request.grpc) request.grpc = {};
+  const nextMessage = typeof value === 'string' ? value : JSON.stringify(value);
+  const current = request.grpc.message as unknown;
+  if (Array.isArray(current)) {
+    const selected = current.find(variant => isRecord(variant) && variant.selected === true) ?? current[0];
+    if (isRecord(selected) && typeof selected.message === 'string') {
+      selected.message = nextMessage;
+      return;
+    }
+  }
+  request.grpc.message = nextMessage;
 }
 
 function parseMaybeJson(value: unknown): unknown {
@@ -704,14 +938,21 @@ function setRuntimeVariable(
 function evaluateJsonSelector(expression: string, state: RuntimeState): unknown {
   const root = state.response
     ? parseMaybeJson(state.response.body)
-    : parseMaybeJson(getRequestBodyValue(state.request));
+    : parseMaybeJson(getRuntimeRequestBodyValue(state.request));
   return getPathValue(root, normalizeSelectorExpression(expression));
 }
 
 function evaluateExpression(expression: string, state: RuntimeState): unknown {
   const trimmed = expression.trim();
   const responseBody = state.response ? parseMaybeJson(state.response.body) : undefined;
-  const requestBody = parseMaybeJson(getRequestBodyValue(state.request));
+  const requestBody = parseMaybeJson(getRuntimeRequestBodyValue(state.request));
+  const requestHeaders = Object.fromEntries(
+    getRuntimeRequestHeaders(state.request)
+      .filter(h => !h.disabled)
+      .map(h => [h.name.toLowerCase(), h.value]),
+  );
+  const requestMethod = getRuntimeRequestMethod(state.request);
+  const requestUrl = getRuntimeRequestUrl(state.request);
 
   if (trimmed === 'status' || trimmed === 'statusCode' || trimmed === 'res.status' || trimmed === 'response.status') {
     return state.response?.status;
@@ -731,15 +972,19 @@ function evaluateExpression(expression: string, state: RuntimeState): unknown {
 
   const root = {
     req: {
-      method: state.request.http?.method,
-      url: state.request.http?.url,
-      headers: Object.fromEntries((state.request.http?.headers ?? []).filter(h => !h.disabled).map(h => [h.name.toLowerCase(), h.value])),
+      protocol: getRuntimeRequestProtocol(state.request),
+      method: requestMethod,
+      url: requestUrl,
+      headers: requestHeaders,
+      metadata: requestHeaders,
       body: requestBody,
     },
     request: {
-      method: state.request.http?.method,
-      url: state.request.http?.url,
-      headers: Object.fromEntries((state.request.http?.headers ?? []).filter(h => !h.disabled).map(h => [h.name.toLowerCase(), h.value])),
+      protocol: getRuntimeRequestProtocol(state.request),
+      method: requestMethod,
+      url: requestUrl,
+      headers: requestHeaders,
+      metadata: requestHeaders,
       body: requestBody,
     },
     res: {

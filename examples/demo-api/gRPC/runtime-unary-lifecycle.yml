@@ -1,0 +1,62 @@
+info:
+  name: gRPC unary runtime lifecycle
+  type: grpc
+  seq: 8
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/EchoUnary
+  methodType: unary
+  protoFilePath: proto/services/missio_demo.proto
+  metadata:
+    - name: x-demo-default
+      value: runtime-default-{{grpcRequestId}}
+    - name: x-demo-request
+      value: before-runtime
+  message: |-
+    {
+      "name": "before-runtime",
+      "userId": 0,
+      "trace": {
+        "requestId": "before-runtime"
+      }
+    }
+runtime:
+  auth:
+    type: bearer
+    token: "{{grpcToken}}"
+  variables:
+    - name: grpcRuntimeUserId
+      value: "77"
+  scripts:
+    - type: before-request
+      code: |-
+        missio.variables.set("grpcRuntimeName", "Runtime Ada");
+        missio.variables.set("grpcRuntimeTrace", "runtime-" + missio.variables.get("grpcRequestId"));
+        missio.request.metadata.set("x-demo-request", "script-" + missio.variables.get("grpcRequestId"));
+        missio.request.body = {
+          name: missio.variables.get("grpcRuntimeName"),
+          userId: Number(missio.variables.get("grpcRuntimeUserId")),
+          trace: { requestId: missio.variables.get("grpcRuntimeTrace") }
+        };
+    - type: after-response
+      code: |-
+        console.info("runtime grpc request", response.json().requestId);
+    - type: tests
+      code: |-
+        test("runtime grpc message echoed", () => assert(response.json().name === "Runtime Ada"));
+  assertions:
+    - expression: res.body.name
+      operator: equals
+      value: Runtime Ada
+    - expression: res.body.userId
+      operator: equals
+      value: "77"
+  actions:
+    - type: set-variable
+      selector:
+        method: jsonq
+        expression: $.requestId
+      variable:
+        scope: runtime
+        name: grpcRuntimeRequestId
+docs: Run `node examples/demo-api/grpc-server.js`, select the LOCAL environment, then send this request to see unary gRPC metadata/message mutation plus runtime tests, assertions, logs, and set-variable actions.

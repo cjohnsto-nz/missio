@@ -67,6 +67,7 @@ If a scenario truly cannot be automated in this repo, document the reason, manua
 | OC-080 | Protocol Runtime Lifecycle | [08-runtime-non-http-protocols.md](tasks/08-runtime-non-http-protocols.md) | Apply scripts, assertions, tests, actions, and runtime variables to supported non-HTTP executors. |
 | OC-090 | gRPC Streaming | [09-grpc-streaming.md](tasks/09-grpc-streaming.md) | Client, server, and bidirectional gRPC streaming execution, UI, fixtures, and tests. |
 | OC-100 | Request Type UX | [10-request-type-ux.md](tasks/10-request-type-ux.md) | UI request type selection, read-only type visibility, and Bruno/Postman-aligned workflow review. |
+| OC-110 | Runtime Authoring UX | [11-runtime-authoring-ux.md](tasks/11-runtime-authoring-ux.md) | Visual editor authoring for scripts, tests, assertions, and set-variable actions. |
 
 ## Project Skills
 
@@ -92,6 +93,7 @@ OC-000 through OC-040 and OC-060 have removed most of the original HTTP-only fou
 | Importers and exporters need explicit protocol preservation or unsupported-conversion diagnostics. | [src/importers](../../src/importers) |
 | Snippet export remains HTTP-oriented and should not silently accept non-HTTP requests. | [src/services/snippetService.ts](../../src/services/snippetService.ts) |
 | Runtime scripts/assertions/actions are verified for HTTP and GraphQL-over-HTTP; WebSocket and gRPC need lifecycle parity. | [src/services/requestExecutionService.ts](../../src/services/requestExecutionService.ts) |
+| Runtime scripts/assertions/actions can run, but common authoring still requires YAML edits. | [src/webview/requestPanel.ts](../../src/webview/requestPanel.ts) |
 | gRPC unary execution exists, but streaming request types remain an explicit unsupported path. | [src/services/grpcClient.ts](../../src/services/grpcClient.ts) |
 
 ## Definition Of Done For Any Track

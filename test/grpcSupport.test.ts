@@ -10,6 +10,7 @@ import type { MissioCollection, RequestDefaults } from '../src/models/types';
 import { EnvironmentService } from '../src/services/environmentService';
 import { GrpcClient } from '../src/services/grpcClient';
 import { RequestExecutionService } from '../src/services/requestExecutionService';
+import { RuntimeExecutionError, RuntimeExecutionService } from '../src/services/runtimeExecutionService';
 import { validateCollection } from '../src/services/validationService';
 import {
   applyCollectionEditorModel,
@@ -203,20 +204,28 @@ async function startServer(): Promise<void> {
   server = new grpc.Server();
   server.addService(proto.missio.demo.DemoService.service, {
     echoUnary(call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) {
-      const metadataValue = (name: string) => String(call.metadata.get(name)[0] ?? '');
-      const metadata = new grpc.Metadata();
-      metadata.set('x-demo-grpc', 'ok');
-      call.sendMetadata(metadata);
-      callback(null, {
-        message: `Hello ${call.request.name}`,
-        name: call.request.name,
-        userId: call.request.userId,
-        requestId: call.request.trace?.requestId ?? '',
-        authorization: metadataValue('authorization'),
-        defaultMetadata: metadataValue('x-demo-default'),
-        folderMetadata: metadataValue('x-demo-folder'),
-        requestMetadata: metadataValue('x-demo-request'),
-      });
+      const reply = () => {
+        const metadataValue = (name: string) => String(call.metadata.get(name)[0] ?? '');
+        const metadata = new grpc.Metadata();
+        metadata.set('x-demo-grpc', 'ok');
+        call.sendMetadata(metadata);
+        callback(null, {
+          message: `Hello ${call.request.name}`,
+          name: call.request.name,
+          userId: call.request.userId,
+          requestId: call.request.trace?.requestId ?? '',
+          authorization: metadataValue('authorization'),
+          defaultMetadata: metadataValue('x-demo-default'),
+          folderMetadata: metadataValue('x-demo-folder'),
+          requestMetadata: metadataValue('x-demo-request'),
+        });
+      };
+      if (call.request.userId === 999) {
+        const timer = setTimeout(reply, 250);
+        call.on('cancelled', () => clearTimeout(timer));
+        return;
+      }
+      reply();
     },
     streamUsers(call: grpc.ServerWritableStream<any, any>) {
       if (call.request.userId === 999) {
@@ -340,6 +349,181 @@ describe('gRPC execution', () => {
       ...makeUnaryRequest(address),
       runtime: { auth: { type: 'apikey', key: 'api_key', value: 'secret', placement: 'query' } },
     }, collection)).rejects.toThrow(/API key query auth is not supported for gRPC/);
+  });
+
+  it('runs runtime lifecycle around unary gRPC metadata and message construction', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    const localEnv = collection.data.config?.environments?.find(env => env.name === 'LOCAL');
+    localEnv?.variables?.push({ name: 'grpcBaseUrl', value: address });
+    await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+    const grpcClient = new GrpcClient(environmentService);
+    const runtime = new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+      environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+    );
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      undefined,
+      grpcClient,
+      runtime,
+    );
+    const request = {
+      ...makeUnaryRequest(address),
+      grpc: {
+        ...makeUnaryRequest(address).grpc,
+        message: '{"name":"before","userId":0,"trace":{"requestId":"before"}}',
+      },
+      runtime: {
+        auth: { type: 'bearer' as const, token: '{{grpcToken}}' },
+        variables: [{ name: 'grpcRuntimeUserId', value: '77' }],
+        scripts: [
+          {
+            type: 'before-request' as const,
+            code: [
+              'missio.variables.set("grpcRuntimeName", "Runtime Ada");',
+              'missio.variables.set("grpcRuntimeTrace", "runtime-" + missio.variables.get("grpcRequestId"));',
+              'missio.request.metadata.set("x-demo-request", "script-" + missio.variables.get("grpcRequestId"));',
+              'missio.request.body = { name: missio.variables.get("grpcRuntimeName"), userId: Number(missio.variables.get("grpcRuntimeUserId")), trace: { requestId: missio.variables.get("grpcRuntimeTrace") } };',
+            ].join('\n'),
+          },
+          {
+            type: 'after-response' as const,
+            code: 'console.info("grpc after", response.json().requestId);',
+          },
+          {
+            type: 'tests' as const,
+            code: 'test("grpc runtime response", () => assert(response.json().name === "Runtime Ada"));',
+          },
+        ],
+        assertions: [
+          { expression: 'res.body.requestId', operator: 'equals', value: 'runtime-trace-123' },
+          { expression: 'res.body.userId', operator: 'equals', value: '77' },
+        ],
+        actions: [
+          {
+            type: 'set-variable' as const,
+            selector: { method: 'jsonq' as const, expression: '$.requestId' },
+            variable: { scope: 'runtime' as const, name: 'grpcRuntimeRequestId' },
+          },
+        ],
+      },
+    };
+
+    const response = await execution.send(request as any, collection, {
+      metadata: [{ name: 'x-demo-folder', value: 'folder-{{grpcRequestId}}' }],
+    });
+    const body = JSON.parse(response.body);
+
+    expect(body).toMatchObject({
+      message: 'Hello Runtime Ada',
+      name: 'Runtime Ada',
+      userId: 77,
+      requestId: 'runtime-trace-123',
+      authorization: 'Bearer token-abc',
+      requestMetadata: 'script-trace-123',
+      folderMetadata: 'folder-trace-123',
+    });
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.summary).toEqual({ passed: 4, failed: 0, skipped: 0 });
+    expect(response.runtime?.variableMutations.map(mutation => mutation.name)).toEqual([
+      'grpcRuntimeName',
+      'grpcRuntimeTrace',
+      'grpcRuntimeRequestId',
+    ]);
+    expect(response.runtime?.logs[0].message).toBe('grpc after runtime-trace-123');
+  });
+
+  it('runs after-response runtime for unary gRPC failures without hiding diagnostics', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      undefined,
+      new GrpcClient(environmentService),
+      new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+        environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+      ),
+    );
+    const request = {
+      ...makeUnaryRequest(address),
+      grpc: {
+        ...makeUnaryRequest(address).grpc,
+        method: 'missio.demo.DemoService/MissingMethod',
+      },
+      runtime: {
+        scripts: [{
+          type: 'tests' as const,
+          code: 'test("grpc error is visible", () => assert(response.json().error.message.includes("was not found")));',
+        }],
+        assertions: [
+          { expression: 'res.status', operator: 'equals', value: '200' },
+        ],
+      },
+    };
+
+    const response = await execution.send(request as any, collection);
+
+    expect(response.status).toBe(0);
+    expect(JSON.parse(response.body).error.message).toMatch(/MissingMethod.*was not found/);
+    expect(response.runtime?.success).toBe(false);
+    expect(response.runtime?.tests[0]).toMatchObject({ name: 'grpc error is visible', passed: true });
+    expect(response.runtime?.assertions[0].passed).toBe(false);
+  });
+
+  it('denies unsafe unary gRPC runtime scripts before opening a call', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+    const grpcClient = new GrpcClient(environmentService);
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      undefined,
+      grpcClient,
+      new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+        environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+      ),
+    );
+    const request = {
+      ...makeUnaryRequest(address),
+      runtime: {
+        scripts: [{ type: 'before-request' as const, code: 'require("fs").readFileSync("package.json", "utf8");' }],
+      },
+    };
+
+    await expect(execution.send(request as any, collection)).rejects.toBeInstanceOf(RuntimeExecutionError);
+    expect((grpcClient as any)._activeCalls.size).toBe(0);
+  });
+
+  it('cancels runtime-prepared unary gRPC calls and cleans up active state', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+    const grpcClient = new GrpcClient(environmentService);
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      undefined,
+      grpcClient,
+      new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+        environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+      ),
+    );
+    const request = {
+      ...makeUnaryRequest(address),
+      grpc: {
+        ...makeUnaryRequest(address).grpc,
+        message: '{"name":"Slow Ada","userId":999,"trace":{"requestId":"cancel-runtime"}}',
+      },
+      runtime: {
+        scripts: [{ type: 'before-request' as const, code: 'missio.variables.set("prepared", "yes");' }],
+      },
+    };
+
+    const pending = execution.send(request as any, collection);
+    setTimeout(() => execution.cancelAll(), 10);
+
+    await expect(pending).rejects.toThrow(/cancelled/i);
+    expect((grpcClient as any)._activeCalls.size).toBe(0);
   });
 
   it('executes server-streaming calls and returns ordered response events', async () => {
@@ -529,5 +713,34 @@ describe('gRPC integration surfaces', () => {
     });
 
     expect(JSON.parse(response.body).message).toBe('Hello Ada');
+  });
+
+  it('smoke tests the committed demo unary gRPC runtime lifecycle request', async () => {
+    const environmentService = makeEnvironmentService();
+    const collection = makeCollection();
+    const localEnv = collection.data.config?.environments?.find(env => env.name === 'LOCAL');
+    localEnv?.variables?.push({ name: 'grpcBaseUrl', value: address });
+    await environmentService.setActiveEnvironment(collection.id, 'LOCAL');
+    const request = parseYaml(fs.readFileSync(path.join(demoRoot, 'gRPC', 'runtime-unary-lifecycle.yml'), 'utf-8'));
+    const grpcClient = new GrpcClient(environmentService);
+    const response = await new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      undefined,
+      grpcClient,
+      new RuntimeExecutionService((runtimeCollection, folderDefaults, environmentName) =>
+        environmentService.resolveVariables(runtimeCollection, folderDefaults, environmentName),
+      ),
+    ).send(request as any, collection, {
+      metadata: [{ name: 'x-demo-folder', value: 'folder-{{grpcRequestId}}' }],
+    });
+    const body = JSON.parse(response.body);
+
+    expect(body).toMatchObject({
+      name: 'Runtime Ada',
+      userId: 77,
+      requestMetadata: 'script-trace-123',
+    });
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.actions[0]).toMatchObject({ target: 'runtime.grpcRuntimeRequestId' });
   });
 });

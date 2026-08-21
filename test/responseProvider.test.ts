@@ -73,4 +73,37 @@ describe('ResponseDocumentProvider runtime formatting', () => {
     expect(content).toContain('sent #1 first');
     expect(content).toContain('received #1: {"name":"ack:Ada"}');
   });
+
+  it('prints runtime results for WebSocket response envelopes', () => {
+    const provider = Object.create(ResponseDocumentProvider.prototype) as ResponseDocumentProvider;
+    const response: HttpResponse = {
+      status: 101,
+      statusText: 'WebSocket Exchange',
+      headers: {
+        'content-type': 'application/json',
+        'x-missio-protocol': 'websocket',
+      },
+      body: '{"protocol":"websocket","messageCount":1}',
+      duration: 9,
+      size: 41,
+      runtime: {
+        success: true,
+        summary: { passed: 1, failed: 0, skipped: 0 },
+        tests: [{ name: 'socket echoed', passed: true }],
+        assertions: [],
+        actions: [],
+        variableMutations: [{ scope: 'runtime', name: 'socketToken', value: 'ok', source: 'script' }],
+        logs: [],
+        errors: [],
+      },
+    };
+
+    const content = (provider as any)._formatResponse(response);
+
+    expect(content).toContain('HTTP 101 WebSocket Exchange');
+    expect(content).toContain('x-missio-protocol: websocket');
+    expect(content).toContain('Runtime Results');
+    expect(content).toContain('PASS socket echoed');
+    expect(content).toContain('runtime.socketToken = ok');
+  });
 });
