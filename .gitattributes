@@ -1,0 +1,3 @@
+# Packaged PDF.js bundles are copied from node_modules and should not be EOL-normalized.
+media/pdf.min.mjs -text
+media/pdf.worker.min.mjs -text
