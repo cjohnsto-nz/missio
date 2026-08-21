@@ -20,6 +20,40 @@ export interface FormFieldEditorRow extends KeyValueEditorRow {
   partType?: string;
 }
 
+export interface RuntimeScriptEditorRow {
+  type: string;
+  code: string;
+  disabled?: boolean;
+  originalIndex?: number;
+}
+
+export interface RuntimeAssertionEditorRow {
+  expression: string;
+  operator: string;
+  value?: string;
+  disabled?: boolean;
+  description?: string;
+  originalIndex?: number;
+}
+
+export interface RuntimeActionEditorRow {
+  type: string;
+  phase?: string;
+  selectorMethod?: string;
+  selectorExpression?: string;
+  variableScope?: string;
+  variableName?: string;
+  disabled?: boolean;
+  description?: string;
+  originalIndex?: number;
+}
+
+export interface RuntimeEditorModel {
+  scripts?: RuntimeScriptEditorRow[];
+  assertions?: RuntimeAssertionEditorRow[];
+  actions?: RuntimeActionEditorRow[];
+}
+
 export type RequestEditorBodyModel =
   | { kind: 'none'; bodyVariantIndex?: number }
   | { kind: 'raw'; rawType: string; data: string; bodyVariantIndex?: number }
@@ -35,6 +69,7 @@ export interface RequestEditorModel {
   headers?: KeyValueEditorRow[];
   body?: RequestEditorBodyModel;
   auth?: unknown;
+  runtime?: RuntimeEditorModel;
   settings?: Record<string, unknown>;
 }
 
@@ -154,7 +189,7 @@ export function isWebSocketVisualEditableRequest(data: unknown): boolean {
 
 export function isVisualEditableRequest(data: unknown): boolean {
   const protocol = detectRequestProtocol(data);
-  return (protocol === undefined || protocol === 'http' || protocol === 'graphql' || protocol === 'websocket') && !isScriptDocument(data);
+  return (protocol === undefined || protocol === 'http' || protocol === 'graphql' || protocol === 'websocket' || protocol === 'grpc') && !isScriptDocument(data);
 }
 
 function withOptionalDisabled<T extends Record<string, unknown>>(
@@ -180,6 +215,11 @@ function getByOriginalIndex<T>(items: T[] | undefined, row: { originalIndex?: nu
   if (!items) return undefined;
   const index = row.originalIndex ?? fallbackIndex;
   return items[index];
+}
+
+function getByExplicitOriginalIndex<T>(items: T[] | undefined, row: { originalIndex?: number }): T | undefined {
+  if (!items || row.originalIndex === undefined) return undefined;
+  return items[row.originalIndex];
 }
 
 function mergeHeaders(previous: unknown[] | undefined, rows: KeyValueEditorRow[] | undefined): unknown[] | undefined {
@@ -259,6 +299,17 @@ function selectedWebSocketMessage(message: unknown): { message: unknown; index?:
   };
 }
 
+function selectedGrpcMessage(message: unknown): { message: unknown; index?: number } {
+  if (!Array.isArray(message)) return { message };
+  const selectedIndex = message.findIndex(variant => isObject(variant) && variant.selected === true);
+  const index = selectedIndex >= 0 ? selectedIndex : 0;
+  const variant = message[index];
+  return {
+    message: isObject(variant) && typeof variant.message === 'string' ? variant.message : undefined,
+    index,
+  };
+}
+
 function selectedFileVariant(body: unknown): { variant: unknown; index?: number } {
   if (!isObject(body) || !Array.isArray(body.data)) return { variant: undefined };
   const selectedIndex = body.data.findIndex(variant => isObject(variant) && variant.selected === true);
@@ -281,6 +332,79 @@ function formRowsFromBody(body: Record<string, unknown>): FormFieldEditorRow[] {
       originalIndex: index,
     };
   });
+}
+
+function descriptionToText(description: unknown): string | undefined {
+  if (typeof description === 'string') return description;
+  if (isObject(description) && typeof description.content === 'string') return description.content;
+  return undefined;
+}
+
+function mergeDescription(output: Record<string, unknown>, prior: unknown, description: string | undefined): void {
+  const priorDescription = isObject(prior) ? prior.description : undefined;
+  if (description === undefined) return;
+  if (description) {
+    if (description === descriptionToText(priorDescription)) {
+      output.description = cloneJson(priorDescription);
+    } else if (isObject(priorDescription) && typeof priorDescription.content === 'string') {
+      output.description = {
+        ...cloneJson(priorDescription),
+        content: description,
+      };
+    } else {
+      output.description = description;
+    }
+  } else if (hasOwn(prior, 'description')) {
+    delete output.description;
+  }
+}
+
+function createRuntimeEditorModel(runtime: unknown): RuntimeEditorModel {
+  const source = isObject(runtime) ? runtime : {};
+  return {
+    scripts: Array.isArray(source.scripts)
+      ? source.scripts.map((script, index) => {
+          const row = isObject(script) ? script : {};
+          return {
+            type: typeof row.type === 'string' ? row.type : 'before-request',
+            code: typeof row.code === 'string' ? row.code : '',
+            disabled: row.disabled === true,
+            originalIndex: index,
+          };
+        })
+      : [],
+    assertions: Array.isArray(source.assertions)
+      ? source.assertions.map((assertion, index) => {
+          const row = isObject(assertion) ? assertion : {};
+          return {
+            expression: typeof row.expression === 'string' ? row.expression : '',
+            operator: typeof row.operator === 'string' ? row.operator : 'equals',
+            value: typeof row.value === 'string' ? row.value : row.value === undefined ? undefined : displayValue(row.value),
+            disabled: row.disabled === true,
+            description: descriptionToText(row.description),
+            originalIndex: index,
+          };
+        })
+      : [],
+    actions: Array.isArray(source.actions)
+      ? source.actions.map((action, index) => {
+          const row = isObject(action) ? action : {};
+          const selector = isObject(row.selector) ? row.selector : {};
+          const variable = isObject(row.variable) ? row.variable : {};
+          return {
+            type: typeof row.type === 'string' ? row.type : 'set-variable',
+            phase: typeof row.phase === 'string' ? row.phase : 'after-response',
+            selectorMethod: typeof selector.method === 'string' ? selector.method : 'jsonq',
+            selectorExpression: typeof selector.expression === 'string' ? selector.expression : '',
+            variableScope: typeof variable.scope === 'string' ? variable.scope : 'runtime',
+            variableName: typeof variable.name === 'string' ? variable.name : '',
+            disabled: row.disabled === true,
+            description: descriptionToText(row.description),
+            originalIndex: index,
+          };
+        })
+      : [],
+  };
 }
 
 export function createRequestEditorModelFromRequest(request: unknown): RequestEditorModel {
@@ -327,6 +451,7 @@ export function createRequestEditorModelFromRequest(request: unknown): RequestEd
         bodyVariantIndex,
       },
       auth: runtime.auth,
+      runtime: createRuntimeEditorModel(runtime),
       settings: isObject(source.settings) ? cloneJson(source.settings) : {},
     };
   }
@@ -363,6 +488,34 @@ export function createRequestEditorModelFromRequest(request: unknown): RequestEd
           }
         : { kind: 'none', bodyVariantIndex: messageVariantIndex },
       auth: runtime.auth,
+      runtime: createRuntimeEditorModel(runtime),
+    };
+  }
+
+  if (protocol === 'grpc') {
+    const grpc = isObject(source.grpc) ? source.grpc : {};
+    const runtime = isObject(source.runtime) ? source.runtime : {};
+    const { message, index: messageIndex } = selectedGrpcMessage(grpc.message);
+
+    return {
+      protocol,
+      url: typeof grpc.url === 'string' ? grpc.url : '',
+      headers: Array.isArray(grpc.metadata)
+        ? grpc.metadata.map((metadata, index) => {
+            const row = isObject(metadata) ? metadata : {};
+            return {
+              name: typeof row.name === 'string' ? row.name : '',
+              value: typeof row.value === 'string' ? row.value : '',
+              disabled: row.disabled === true,
+              originalIndex: index,
+            };
+          })
+        : [],
+      body: typeof message === 'string'
+        ? { kind: 'raw', rawType: 'json', data: message, bodyVariantIndex: messageIndex }
+        : { kind: 'none', bodyVariantIndex: messageIndex },
+      auth: runtime.auth,
+      runtime: createRuntimeEditorModel(runtime),
     };
   }
 
@@ -432,6 +585,7 @@ export function createRequestEditorModelFromRequest(request: unknown): RequestEd
       : [],
     body: bodyModel,
     auth: runtime.auth,
+    runtime: createRuntimeEditorModel(runtime),
     settings: isObject(source.settings) ? cloneJson(source.settings) : {},
   };
 }
@@ -597,6 +751,124 @@ function buildWebSocketMessageFromEditor(originalMessage: unknown, model: Reques
   return variants;
 }
 
+function buildGrpcMessageFromEditor(originalMessage: unknown, model: RequestEditorBodyModel): unknown | undefined {
+  if (model.kind === 'none') return undefined;
+  if (model.kind !== 'raw') return selectedGrpcMessage(originalMessage).message;
+
+  if (!Array.isArray(originalMessage)) {
+    return originalMessage === undefined && model.data === '' ? undefined : model.data;
+  }
+
+  const messages = cloneJson(originalMessage);
+  const index = model.bodyVariantIndex ?? messages.findIndex(variant => isObject(variant) && variant.selected === true);
+  const resolvedIndex = index >= 0 ? index : 0;
+  const previousEntry = isObject(messages[resolvedIndex]) ? messages[resolvedIndex] as Record<string, unknown> : {};
+  messages[resolvedIndex] = {
+    ...previousEntry,
+    message: model.data,
+  };
+  return messages;
+}
+
+function mergeRuntimeScripts(previous: unknown[] | undefined, rows: RuntimeScriptEditorRow[] | undefined): unknown[] | undefined {
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
+  return rows
+    .filter(row => row.type && row.code !== undefined)
+    .map((row) => {
+      const prior = getByExplicitOriginalIndex(previous, row);
+      const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+      output.type = row.type;
+      output.code = row.code;
+      return withOptionalDisabled(output, prior, row.disabled);
+    });
+}
+
+function mergeRuntimeAssertions(previous: unknown[] | undefined, rows: RuntimeAssertionEditorRow[] | undefined): unknown[] | undefined {
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
+  const assertions: unknown[] = [];
+  for (const row of rows) {
+    const prior = getByExplicitOriginalIndex(previous, row);
+    if (!row.expression || !row.operator) {
+      if (isObject(prior)) assertions.push(cloneJson(prior));
+      continue;
+    }
+    const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+    output.expression = row.expression;
+    output.operator = row.operator;
+    if (row.value || hasOwn(prior, 'value')) output.value = row.value ?? '';
+    else delete output.value;
+    mergeDescription(output, prior, row.description);
+    assertions.push(withOptionalDisabled(output, prior, row.disabled));
+  }
+  return assertions;
+}
+
+function mergeRuntimeActions(previous: unknown[] | undefined, rows: RuntimeActionEditorRow[] | undefined): unknown[] | undefined {
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
+  const actions: unknown[] = [];
+  for (const row of rows) {
+    const prior = getByExplicitOriginalIndex(previous, row);
+    if (row.type !== 'set-variable' || !row.selectorExpression || !row.variableName) {
+      if (isObject(prior)) actions.push(cloneJson(prior));
+      continue;
+    }
+    const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+    output.type = 'set-variable';
+    if (row.phase || hasOwn(prior, 'phase')) output.phase = row.phase || 'after-response';
+    else delete output.phase;
+    output.selector = {
+      ...(isObject(output.selector) ? output.selector : {}),
+      method: row.selectorMethod || 'jsonq',
+      expression: row.selectorExpression,
+    };
+    output.variable = {
+      ...(isObject(output.variable) ? output.variable : {}),
+      scope: row.variableScope || 'runtime',
+      name: row.variableName,
+    };
+    mergeDescription(output, prior, row.description);
+    actions.push(withOptionalDisabled(output, prior, row.disabled));
+  }
+  return actions;
+}
+
+function mergeRuntime(
+  previous: unknown,
+  auth: unknown,
+  authProvided: boolean,
+  runtimeModel: RuntimeEditorModel | undefined,
+): Record<string, unknown> | undefined {
+  const runtime: Record<string, unknown> = isObject(previous) ? cloneJson(previous) : {};
+
+  if (authProvided) {
+    if (auth !== undefined) runtime.auth = cloneJson(auth);
+    else delete runtime.auth;
+  }
+
+  if (runtimeModel) {
+    if (hasOwn(runtimeModel, 'scripts')) {
+      const scripts = mergeRuntimeScripts(Array.isArray(runtime.scripts) ? runtime.scripts : undefined, runtimeModel.scripts);
+      if (scripts) runtime.scripts = scripts;
+      else delete runtime.scripts;
+    }
+    if (hasOwn(runtimeModel, 'assertions')) {
+      const assertions = mergeRuntimeAssertions(Array.isArray(runtime.assertions) ? runtime.assertions : undefined, runtimeModel.assertions);
+      if (assertions) runtime.assertions = assertions;
+      else delete runtime.assertions;
+    }
+    if (hasOwn(runtimeModel, 'actions')) {
+      const actions = mergeRuntimeActions(Array.isArray(runtime.actions) ? runtime.actions : undefined, runtimeModel.actions);
+      if (actions) runtime.actions = actions;
+      else delete runtime.actions;
+    }
+  }
+
+  return isEmptyObject(runtime) ? undefined : runtime;
+}
+
 function mergeSettings(previous: unknown, settings: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!settings) return isObject(previous) ? cloneJson(previous) : undefined;
   const output: Record<string, unknown> = isObject(previous) ? cloneJson(previous) : {};
@@ -614,7 +886,7 @@ function mergeSettings(previous: unknown, settings: Record<string, unknown> | un
 }
 
 export function applyRequestEditorModel(original: unknown, model: RequestEditorModel): unknown {
-  if (!isVisualEditableRequest(original) || (model.protocol && model.protocol !== 'http' && model.protocol !== 'graphql' && model.protocol !== 'websocket')) {
+  if (!isVisualEditableRequest(original) || (model.protocol && model.protocol !== 'http' && model.protocol !== 'graphql' && model.protocol !== 'websocket' && model.protocol !== 'grpc')) {
     return cloneJson(original);
   }
 
@@ -648,13 +920,9 @@ export function applyRequestEditorModel(original: unknown, model: RequestEditorM
       else graphql.body = body;
     }
 
-    if (model.auth !== undefined || isObject(request.runtime)) {
-      const runtime: Record<string, unknown> = isObject(request.runtime) ? cloneJson(request.runtime) : {};
-      if (model.auth !== undefined) runtime.auth = cloneJson(model.auth);
-      else delete runtime.auth;
-      if (isEmptyObject(runtime)) delete request.runtime;
-      else request.runtime = runtime;
-    }
+    const runtime = mergeRuntime(request.runtime, model.auth, hasOwn(model, 'auth'), model.runtime);
+    if (runtime) request.runtime = runtime;
+    else delete request.runtime;
 
     const settings = mergeSettings(request.settings, model.settings);
     if (settings) request.settings = settings;
@@ -685,13 +953,39 @@ export function applyRequestEditorModel(original: unknown, model: RequestEditorM
       else websocket.message = message;
     }
 
-    if (model.auth !== undefined || isObject(request.runtime)) {
-      const runtime: Record<string, unknown> = isObject(request.runtime) ? cloneJson(request.runtime) : {};
-      if (model.auth !== undefined) runtime.auth = cloneJson(model.auth);
-      else delete runtime.auth;
-      if (isEmptyObject(runtime)) delete request.runtime;
-      else request.runtime = runtime;
+    const runtime = mergeRuntime(request.runtime, model.auth, hasOwn(model, 'auth'), model.runtime);
+    if (runtime) request.runtime = runtime;
+    else delete request.runtime;
+
+    return request;
+  }
+
+  if (targetProtocol === 'grpc') {
+    const source = isObject(original) ? original : {};
+    const request: Record<string, unknown> = cloneJson(source);
+    if (!isObject(request.info)) request.info = { type: 'grpc' };
+    else (request.info as Record<string, unknown>).type = 'grpc';
+    if (!isObject(request.grpc)) request.grpc = {};
+    delete request.http;
+    delete request.graphql;
+    delete request.websocket;
+
+    const grpc = request.grpc as Record<string, unknown>;
+    if (model.url !== undefined) grpc.url = model.url;
+    if (model.headers !== undefined) {
+      const merged = mergeMetadata(Array.isArray(grpc.metadata) ? grpc.metadata : undefined, model.headers);
+      if (merged) grpc.metadata = merged;
+      else delete grpc.metadata;
     }
+    if (model.body !== undefined) {
+      const message = buildGrpcMessageFromEditor(grpc.message, model.body);
+      if (message === undefined) delete grpc.message;
+      else grpc.message = message;
+    }
+
+    const runtime = mergeRuntime(request.runtime, model.auth, hasOwn(model, 'auth'), model.runtime);
+    if (runtime) request.runtime = runtime;
+    else delete request.runtime;
 
     return request;
   }
@@ -720,13 +1014,9 @@ export function applyRequestEditorModel(original: unknown, model: RequestEditorM
     else http.body = body;
   }
 
-  if (model.auth !== undefined || isObject(request.runtime)) {
-    const runtime: Record<string, unknown> = isObject(request.runtime) ? cloneJson(request.runtime) : {};
-    if (model.auth !== undefined) runtime.auth = cloneJson(model.auth);
-    else delete runtime.auth;
-    if (isEmptyObject(runtime)) delete request.runtime;
-    else request.runtime = runtime;
-  }
+  const runtime = mergeRuntime(request.runtime, model.auth, hasOwn(model, 'auth'), model.runtime);
+  if (runtime) request.runtime = runtime;
+  else delete request.runtime;
 
   const settings = mergeSettings(request.settings, model.settings);
   if (settings) request.settings = settings;

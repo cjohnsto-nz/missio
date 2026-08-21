@@ -20,7 +20,6 @@ import type {
 } from '../models/types';
 import type { EnvironmentService } from './environmentService';
 import type { CliApprovalPrompt } from './httpClient';
-import { RequestCancelledError } from './requestCancelledError';
 
 const execAsync = promisify(exec);
 
@@ -217,7 +216,7 @@ export class GrpcClient implements vscode.Disposable {
       try {
         activeCall.call?.cancel?.();
       } catch {
-        activeCall.call?.destroy?.(new RequestCancelledError());
+        activeCall.call?.destroy?.(new Error('Request cancelled'));
       }
     }
     this._activeCalls.clear();
@@ -262,7 +261,7 @@ export class GrpcClient implements vscode.Disposable {
         (err: grpc.ServiceError | null, response: unknown) => {
           if (activeCall.cancelled || err?.code === grpc.status.CANCELLED) {
             finish();
-            reject(new RequestCancelledError());
+            reject(new Error('Request cancelled'));
             return;
           }
           if (err) {
@@ -337,7 +336,7 @@ export class GrpcClient implements vscode.Disposable {
         settled = true;
         if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
           finish();
-          reject(new RequestCancelledError());
+          reject(new Error('Request cancelled'));
           return;
         }
         args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });
@@ -425,7 +424,7 @@ export class GrpcClient implements vscode.Disposable {
         settled = true;
         if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
           finish();
-          reject(new RequestCancelledError());
+          reject(new Error('Request cancelled'));
           return;
         }
         args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });
@@ -526,7 +525,7 @@ export class GrpcClient implements vscode.Disposable {
         settled = true;
         if (activeCall.cancelled || (error as grpc.ServiceError | undefined)?.code === grpc.status.CANCELLED) {
           finish();
-          reject(new RequestCancelledError());
+          reject(new Error('Request cancelled'));
           return;
         }
         args.timing.push({ label: 'gRPC Stream', start: args.phaseStart - args.t0, end: Date.now() - args.t0 });

@@ -364,6 +364,16 @@ export class RuntimeExecutionService {
       };
     }
 
+    if (!isSupportedVariableMutationScope(action.variable.scope)) {
+      return {
+        type: action.type,
+        phase,
+        passed: false,
+        target: `${action.variable.scope}.${action.variable.name}`,
+        message: unsupportedVariableScopeMessage(action.variable.scope),
+      };
+    }
+
     const value = evaluateJsonSelector(action.selector.expression, state);
     if (value === undefined) {
       return {
@@ -444,7 +454,7 @@ function lifecycleScripts(
     ...(collectionScripts ?? []),
     ...(folderScripts ?? []),
     ...(requestScripts ?? []),
-  ].filter(script => script.type === type);
+  ].filter(script => !script.disabled && script.type === type);
 }
 
 function cloneJson<T>(value: T): T {
@@ -516,7 +526,8 @@ function makeVariablesApi(state: RuntimeState): Record<string, unknown> {
     },
     unset: (name: string, scope: ActionVariableScope = 'runtime') => {
       if (scope === 'request') state.variables.request.delete(String(name));
-      else state.variables.runtime.delete(String(name));
+      else if (scope === 'runtime') state.variables.runtime.delete(String(name));
+      else throw new Error(unsupportedVariableScopeMessage(scope));
     },
     toObject: () => Object.fromEntries(buildVisibleVariables(state.variables)),
   });
@@ -931,8 +942,17 @@ function setRuntimeVariable(
   source: RuntimeVariableMutation['source'],
 ): void {
   if (scope === 'request') state.variables.request.set(name, value);
-  else state.variables.runtime.set(name, value);
+  else if (scope === 'runtime') state.variables.runtime.set(name, value);
+  else throw new Error(unsupportedVariableScopeMessage(scope));
   state.result.variableMutations.push({ scope, name, value, source });
+}
+
+function isSupportedVariableMutationScope(scope: ActionVariableScope): boolean {
+  return scope === 'runtime' || scope === 'request';
+}
+
+function unsupportedVariableScopeMessage(scope: ActionVariableScope): string {
+  return `Unsupported variable scope: ${String(scope)}. Missio currently supports runtime and request set-variable scopes.`;
 }
 
 function evaluateJsonSelector(expression: string, state: RuntimeState): unknown {

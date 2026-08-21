@@ -164,6 +164,40 @@ describe('RuntimeExecutionService lifecycle', () => {
     expect(response.runtime?.tests[1].message).toMatch(/Code generation from strings disallowed/);
   });
 
+  it('skips disabled runtime scripts without deleting them from authored requests', async () => {
+    const service = new RuntimeExecutionService();
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        scripts: [
+          {
+            type: 'before-request',
+            disabled: true,
+            code: 'missio.request.setHeader("X-Disabled-Script", "ran");',
+          },
+          {
+            type: 'tests',
+            disabled: true,
+            code: 'test("disabled test", () => assert(false));',
+          },
+          {
+            type: 'tests',
+            code: 'test("enabled test", () => assert(response.status === 200));',
+          },
+        ],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    expect(prepared.request.runtime?.scripts).toEqual(request.runtime?.scripts);
+    expect(prepared.request.http?.headers?.find(header => header.name === 'X-Disabled-Script')).toBeUndefined();
+
+    const response = await service.completeHttpRequest(prepared, makeResponse({ ok: true }));
+
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.tests.map(test => test.name)).toEqual(['enabled test']);
+  });
+
   it('records assertion and action failure diagnostics without hiding the response', async () => {
     const service = new RuntimeExecutionService();
     const request: HttpRequest = {
@@ -188,6 +222,31 @@ describe('RuntimeExecutionService lifecycle', () => {
     expect(response.runtime?.success).toBe(false);
     expect(response.runtime?.assertions.map(assertion => assertion.passed)).toEqual([false, false]);
     expect(response.runtime?.actions[0]).toMatchObject({ passed: false, message: 'Selector did not resolve: $.missing' });
+  });
+
+  it('diagnoses unsupported set-variable action scopes instead of mutating runtime variables', async () => {
+    const service = new RuntimeExecutionService();
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        actions: [{
+          type: 'set-variable',
+          selector: { method: 'jsonq', expression: '$.token' },
+          variable: { scope: 'environment', name: 'token' },
+        }],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    const response = await service.completeHttpRequest(prepared, makeResponse({ token: 'abc123' }));
+
+    expect(response.runtime?.success).toBe(false);
+    expect(response.runtime?.actions[0]).toMatchObject({
+      passed: false,
+      target: 'environment.token',
+      message: 'Unsupported variable scope: environment. Missio currently supports runtime and request set-variable scopes.',
+    });
+    expect(response.runtime?.variableMutations).toEqual([]);
   });
 });
 

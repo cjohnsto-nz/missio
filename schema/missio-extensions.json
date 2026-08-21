@@ -24,6 +24,10 @@
     {
       "extension": "non-HTTP runtime actions and WebSocket assertions",
       "reason": "Missio runs the same scripts, assertions, tests, and set-variable actions across supported protocol executors. The upstream schema omits some runtime lifecycle fields from WebSocket and gRPC runtime objects, so Missio extends them for protocol parity."
+    },
+    {
+      "extension": "disabled runtime scripts",
+      "reason": "Missio's visual request editor can toggle runtime scripts without deleting them. The disabled flag keeps authored scripts present in YAML while letting the runtime skip them."
     }
   ],
   "definitions": {
@@ -187,6 +191,16 @@
               "$ref": "#/$defs/GrpcMessageSequence"
             }
           ]
+        }
+      }
+    },
+    {
+      "description": "Allow runtime scripts to be disabled without deleting them",
+      "target": "$defs/Script/properties",
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether the runtime script is disabled"
         }
       }
     },
