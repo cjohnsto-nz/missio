@@ -1,0 +1,34 @@
+info:
+  name: GraphQL Health
+  type: graphql
+  seq: 1
+  description: Run node examples/demo-api/server.js first, then send this health query to the local GraphQL fixture.
+graphql:
+  method: POST
+  url: "{{baseUrl}}/graphql"
+  headers:
+    - name: X-Demo-Token
+      value: local-demo
+  body:
+    query: |-
+      query Health {
+        health {
+          status
+          service
+        }
+      }
+    variables: "{}"
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+runtime:
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.data.health.status
+      operator: equals
+      value: ok
+

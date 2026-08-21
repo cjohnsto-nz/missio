@@ -12,6 +12,7 @@ import {
   isScriptFile,
   isWebSocketRequest,
 } from '../models/types';
+import { describeGraphQLOperation } from '../services/graphqlSupport';
 
 type TreeNode = CollectionNode | FolderNode | RequestNode | ScriptNode | ExampleNode;
 
@@ -144,6 +145,9 @@ class ScriptNode extends vscode.TreeItem {
 function describeRequest(request: OpenCollectionRequest): string {
   if (isHttpRequest(request)) {
     return request.http?.method?.toUpperCase() ?? 'HTTP';
+  }
+  if (isGraphQLRequest(request)) {
+    return describeGraphQLOperation(request);
   }
   const kind = getItemKind(request);
   const labels: Record<string, string> = {

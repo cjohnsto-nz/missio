@@ -3,10 +3,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollection } from '../models/types';
-import { getItemKind, isHttpRequest, isProtocolRequest } from '../models/types';
+import { getItemKind, isGraphQLRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { requestLog, type ResolvedRequest } from '../services/httpClient';
 import type { RequestExecutionService } from '../services/requestExecutionService';
-import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
+import { exportRequest, findTarget, EXPORT_TARGETS, getUnsupportedSnippetDiagnostic } from '../services/snippetExporter';
 import { resolveFileVariantToBuffer } from '../services/fileBodyHelper';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';
@@ -124,10 +124,25 @@ export class RequestEditorProvider extends BaseEditorProvider {
 
   protected async _applyDocumentEdit(document: vscode.TextDocument, msg: any): Promise<void> {
     const current = this._readDocumentRequest(document);
-    if (current && !isHttpRequest(current)) {
+    if (current && !this._canApplyRequestEdit(current, msg.request)) {
       return;
     }
     await super._applyDocumentEdit(document, msg);
+  }
+
+  private _canApplyRequestEdit(current: OpenCollectionRequest, next: unknown): boolean {
+    const currentProtocol = isGraphQLRequest(current)
+      ? 'graphql'
+      : isWebSocketRequest(current)
+        ? 'websocket'
+        : isHttpRequest(current)
+          ? 'http'
+          : undefined;
+    if (!currentProtocol) return false;
+    if (!isProtocolRequest(next)) return true;
+    if (currentProtocol === 'graphql') return isGraphQLRequest(next);
+    if (currentProtocol === 'websocket') return isWebSocketRequest(next);
+    return isHttpRequest(next);
   }
 
   protected _getHtml(webview: vscode.Webview): string {
@@ -171,6 +186,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
     RequestEditorProvider._panels.delete(key);
     RequestEditorProvider._folderDefaultsCache.delete(key);
     RequestEditorProvider._collectionCache.delete(key);
+    this._requestExecutionService.disconnectWebSocket(document.uri.fsPath);
   }
 
   protected async _getFolderDefaults(filePath: string, collection: MissioCollection): Promise<RequestDefaults | undefined> {
@@ -195,8 +211,8 @@ export class RequestEditorProvider extends BaseEditorProvider {
     switch (msg.type) {
       case 'saveDocument': {
         const current = this._readDocumentRequest(ctx.document);
-        if (current && !isHttpRequest(current)) {
-          webview.postMessage({ type: 'error', message: 'Protocol request files are read-only in the HTTP request editor.' });
+        if (current && !this._canApplyRequestEdit(current, msg.request)) {
+          webview.postMessage({ type: 'error', message: 'This protocol request file is read-only in the request editor.' });
           return true;
         }
         await ctx.applyEdit(msg.request);
@@ -216,7 +232,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
           return true;
         }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
-        await this._sendRequest(webview, request, collection, folderDefaults);
+        await this._sendRequest(webview, request, collection, folderDefaults, filePath);
         return true;
       }
       case 'cancelRequest': {
@@ -287,8 +303,8 @@ export class RequestEditorProvider extends BaseEditorProvider {
         }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
         const request = this._readDocumentRequest(ctx.document) ?? msg.request;
-        if (!isHttpRequest(request)) {
-          await this._sendRequest(webview, request, collection, folderDefaults);
+        if (!isHttpRequest(request) && !isGraphQLRequest(request)) {
+          await this._sendRequest(webview, request, collection, folderDefaults, filePath);
           return true;
         }
         // Clear the existing OAuth2 token before retrying
@@ -309,7 +325,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
             await this._oauth2Service.clearToken(collection.id, envName, url, auth.credentialsId);
           }
         }
-        await this._sendRequest(webview, request, collection, folderDefaults);
+        await this._sendRequest(webview, request, collection, folderDefaults, filePath);
         return true;
       }
       case 'saveExample': {
@@ -410,7 +426,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
   }
 
 
-  private async _sendRequest(webview: vscode.Webview, requestData: OpenCollectionRequest, collection: MissioCollection, folderDefaults?: RequestDefaults): Promise<void> {
+  private async _sendRequest(webview: vscode.Webview, requestData: OpenCollectionRequest, collection: MissioCollection, folderDefaults?: RequestDefaults, requestId?: string): Promise<void> {
     const _rlog = (msg: string) => {
       const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
       requestLog.appendLine(`[${ts}] ${msg}`);
@@ -464,7 +480,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         hint: _hintForCode(errCode),
       }, null, 2);
 
-      return {
+      const response: any = {
         status: 0,
         statusText,
         headers,
@@ -472,15 +488,37 @@ export class RequestEditorProvider extends BaseEditorProvider {
         duration: durationMs,
         size: Buffer.byteLength(body, 'utf-8'),
       };
+      if (e?.runtime) {
+        response.runtime = e.runtime;
+      }
+      return response;
     };
 
-    if (!isHttpRequest(requestData)) {
+    if (!isHttpRequest(requestData) && !isGraphQLRequest(requestData)) {
       const _t0 = Date.now();
       webview.postMessage({ type: 'sending', message: `Preparing ${describeProtocol(requestData)} request...` });
       try {
+        const unresolved = await detectUnresolvedVars(requestData, collection, this._environmentService, folderDefaults);
+        let extraVariables: Map<string, string> | undefined = new Map();
+        if (unresolved.length > 0) {
+          webview.postMessage({ type: 'promptUnresolvedVars', variables: unresolved });
+          extraVariables = await new Promise<Map<string, string> | undefined>(resolve => {
+            this._unresolvedVarsResolver = resolve;
+          });
+        }
+        if (extraVariables === undefined) {
+          webview.postMessage({ type: 'cancelled' });
+          return;
+        }
+        const cliApprovalPrompt = async (commandTemplate: string, interpolatedCommand: string): Promise<boolean> => {
+          webview.postMessage({ type: 'promptCliApproval', commandTemplate, interpolatedCommand });
+          return new Promise<boolean>(resolve => {
+            this._cliApprovalResolver = resolve;
+          });
+        };
         const response = await this._requestExecutionService.send(requestData, collection, folderDefaults, (msg) => {
           webview.postMessage({ type: 'sending', message: msg });
-        });
+        }, extraVariables.size > 0 ? extraVariables : undefined, undefined, cliApprovalPrompt, { requestId: requestId ?? (requestData as any)._filePath ?? collection.filePath });
         const timing = (response as any).timing ?? [];
         webview.postMessage({ type: 'response', response, timing, usedOAuth2: false });
       } catch (e: any) {
@@ -782,6 +820,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
         <option value="OPTIONS">OPTIONS</option>
       </select>
     </div>
+    <div class="protocol-chip" id="protocolChip" style="display:none;">WS</div>
     <div class="url-wrap" id="urlWrap"><div class="url-input" id="url" contenteditable="true" spellcheck="false" data-placeholder="{{baseUrl}}/api/endpoint"></div></div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
@@ -834,6 +873,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
                 <option value="html">HTML</option>
                 <option value="yaml">YAML</option>
                 <option value="text">Text</option>
+                <option value="binary">Binary</option>
               </select>
               <button class="btn btn-secondary body-format-btn" id="bodyFormatBtn" type="button" title="Format request body">Format</button>
             </div>
@@ -844,6 +884,10 @@ export class RequestEditorProvider extends BaseEditorProvider {
               <pre class="code-highlight" id="bodyHighlight"></pre>
               <textarea class="code-input" id="bodyData" spellcheck="false"></textarea>
             </div>
+          </div>
+          <div id="graphqlVariablesEditor" style="display:none;">
+            <label class="binary-label">Variables JSON</label>
+            <textarea class="code-input" id="graphqlVariablesData" spellcheck="false" placeholder="{ }"></textarea>
           </div>
           <div id="bodyFormEditor" style="display:none;">
             <table class="kv-table" id="bodyFormTable">
@@ -942,6 +986,7 @@ export class RequestEditorProvider extends BaseEditorProvider {
       <div class="tabs" id="respTabs" style="display:none;">
         <div class="tab active" data-tab="resp-body">Body</div>
         <div class="tab" data-tab="resp-headers">Headers</div>
+        <div class="tab" data-tab="resp-runtime" id="respRuntimeTab" style="display:none;">Runtime</div>
         <div class="tab" data-tab="resp-preview" id="respPreviewTab" style="display:none;">Preview</div>
       </div>
       <div class="resp-search-bar" id="respSearchBar" style="display:none;">
@@ -969,6 +1014,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
         </div>
         <div class="tab-panel" id="panel-resp-headers">
           <table class="resp-headers-table" id="respHeadersTable"><tbody id="respHeadersBody"></tbody></table>
+        </div>
+        <div class="tab-panel" id="panel-resp-runtime">
+          <div class="runtime-results" id="runtimeResults"></div>
         </div>
         <div class="tab-panel" id="panel-resp-preview" style="height:100%;overflow:auto;position:relative;">
           <iframe id="respPreviewFrame" sandbox="allow-same-origin" style="border:none;width:100%;height:100%;background:#fff;display:none;"></iframe>

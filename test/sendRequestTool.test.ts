@@ -159,3 +159,95 @@ describe('SendRequestTool responseOutputPath behavior', () => {
     expect(parsed.warnings?.[0]).toContain('Failed to write responseOutputPath');
   });
 });
+
+describe('SendRequestTool runtime output', () => {
+  it('includes runtime test and assertion results in successful responses', async () => {
+    const collection = makeCollection();
+    const tool = new SendRequestTool(
+      {
+        loadRequestFile: async () => ({ http: { method: 'GET', url: 'https://example.com' } }),
+        getCollection: () => collection,
+        getCollections: () => [collection],
+      } as any,
+      {
+        resolveVariables: async () => new Map<string, string>(),
+      } as any,
+      {
+        send: async () => ({
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '{"ok":true}',
+          duration: 1,
+          size: 11,
+          runtime: {
+            success: false,
+            summary: { passed: 1, failed: 1, skipped: 0 },
+            logs: [],
+            tests: [{ name: 'fails visibly', passed: false, message: 'nope' }],
+            assertions: [{ expression: 'res.status', operator: 'equals', expected: '201', actual: 200, passed: false }],
+            actions: [],
+            variableMutations: [],
+            errors: [],
+          },
+        }),
+      } as any,
+    );
+
+    const output = await tool.call(
+      {
+        input: {
+          requestFilePath: '/tmp/request.yml',
+          collectionId: 'collection-1',
+        },
+      } as any,
+      {} as any,
+    );
+
+    const parsed = JSON.parse(output);
+    expect(parsed.runtime.summary.failed).toBe(1);
+    expect(parsed.runtime.tests[0].message).toBe('nope');
+  });
+
+  it('returns runtime diagnostics when before-request scripts abort execution', async () => {
+    const collection = makeCollection();
+    const runtime = {
+      success: false,
+      summary: { passed: 0, failed: 1, skipped: 0 },
+      logs: [],
+      tests: [],
+      assertions: [],
+      actions: [],
+      variableMutations: [],
+      errors: [{ phase: 'before-request', message: 'require is not defined' }],
+    };
+    const error = Object.assign(new Error('require is not defined'), { runtime });
+    const tool = new SendRequestTool(
+      {
+        loadRequestFile: async () => ({ http: { method: 'GET', url: 'https://example.com' } }),
+        getCollection: () => collection,
+        getCollections: () => [collection],
+      } as any,
+      {
+        resolveVariables: async () => new Map<string, string>(),
+      } as any,
+      {
+        send: async () => { throw error; },
+      } as any,
+    );
+
+    const output = await tool.call(
+      {
+        input: {
+          requestFilePath: '/tmp/request.yml',
+          collectionId: 'collection-1',
+        },
+      } as any,
+      {} as any,
+    );
+
+    const parsed = JSON.parse(output);
+    expect(parsed.success).toBe(false);
+    expect(parsed.runtime.errors[0].message).toContain('require');
+  });
+});

@@ -121,21 +121,54 @@ describe('schema-safe editor round trips', () => {
     validateSubschema('HttpRequest', updated);
   });
 
-  it('leaves GraphQL, WebSocket, and gRPC request files untouched and without http keys', () => {
-    const fixtures = [
-      {
-        defName: 'GraphQLRequest',
-        data: {
-          info: { name: 'GraphQL users', type: 'graphql' },
-          graphql: {
-            method: 'POST',
-            url: 'https://api.example.com/graphql',
+  it('edits GraphQL requests schema-natively while preserving body variants', () => {
+    const request = {
+      info: { name: 'GraphQL users', type: 'graphql' },
+      graphql: {
+        method: 'POST',
+        url: 'https://api.example.com/graphql',
+        headers: [{ name: 'X-Trace', value: '{{traceId}}', description: 'keep' }],
+        body: [
+          {
+            title: 'Users',
+            selected: true,
             body: { query: 'query Users { users { id } }', variables: '{"limit":10}' },
           },
-          runtime: { scripts: [{ type: 'tests', code: 'assert(true);' }] },
-          settings: { timeout: 9000 },
-        },
+          {
+            title: 'Create',
+            body: {
+              query: 'mutation Create($name: String!) { createUser(name: $name) { id } }',
+              variables: '{"name":"Ada"}',
+            },
+          },
+        ],
       },
+      runtime: { scripts: [{ type: 'tests', code: 'assert(true);' }] },
+      settings: { timeout: 9000 },
+    };
+
+    const model = createRequestEditorModelFromRequest(request);
+    model.body = {
+      kind: 'graphql',
+      query: 'query Users { users { id name } }',
+      variables: '{"limit":20}',
+      bodyVariantIndex: 0,
+    };
+
+    const updated = applyRequestEditorModel(request, model) as any;
+
+    expect(updated.http).toBeUndefined();
+    expect(updated.graphql.body[0].body).toEqual({
+      query: 'query Users { users { id name } }',
+      variables: '{"limit":20}',
+    });
+    expect(updated.graphql.body[1]).toEqual(request.graphql.body[1]);
+    expect(yamlRoundTrip(updated)).toEqual(updated);
+    validateSubschema('GraphQLRequest', updated);
+  });
+
+  it('leaves WebSocket and gRPC request files untouched and without http keys', () => {
+    const fixtures = [
       {
         defName: 'WebSocketRequest',
         data: {

@@ -23,6 +23,7 @@ export interface FormFieldEditorRow extends KeyValueEditorRow {
 export type RequestEditorBodyModel =
   | { kind: 'none'; bodyVariantIndex?: number }
   | { kind: 'raw'; rawType: string; data: string; bodyVariantIndex?: number }
+  | { kind: 'graphql'; query: string; variables: string; bodyVariantIndex?: number }
   | { kind: 'form-urlencoded' | 'multipart-form'; fields: FormFieldEditorRow[]; bodyVariantIndex?: number }
   | { kind: 'file'; filePath: string; contentType: string; bodyVariantIndex?: number; fileVariantIndex?: number };
 
@@ -39,8 +40,23 @@ export interface RequestEditorModel {
 
 export interface RequestDefaultsEditorModel {
   headers?: KeyValueEditorRow[];
+  metadata?: KeyValueEditorRow[];
   auth?: unknown;
   variables?: unknown[];
+}
+
+export interface ProtoFileEditorRow {
+  path: string;
+  originalIndex?: number;
+}
+
+export interface ProtoImportPathEditorRow extends ProtoFileEditorRow {
+  disabled?: boolean;
+}
+
+export interface ProtobufEditorModel {
+  protoFiles?: ProtoFileEditorRow[];
+  importPaths?: ProtoImportPathEditorRow[];
 }
 
 export interface CollectionEditorModel {
@@ -50,6 +66,7 @@ export interface CollectionEditorModel {
     forceAuthInherit?: boolean;
     secretProviders?: unknown[];
     environments?: unknown[];
+    protobuf?: ProtobufEditorModel;
   };
 }
 
@@ -66,6 +83,8 @@ const REQUEST_SETTINGS_DEFAULTS: Record<string, unknown> = {
   followRedirects: true,
   maxRedirects: 5,
 };
+
+const WEBSOCKET_MESSAGE_TYPES = new Set(['text', 'json', 'xml', 'binary']);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -127,6 +146,15 @@ export function isHttpVisualEditableRequest(data: unknown): boolean {
   const protocol = detectRequestProtocol(data);
   if (protocol && protocol !== 'http') return false;
   return !isScriptDocument(data);
+}
+
+export function isWebSocketVisualEditableRequest(data: unknown): boolean {
+  return detectRequestProtocol(data) === 'websocket' && !isScriptDocument(data);
+}
+
+export function isVisualEditableRequest(data: unknown): boolean {
+  const protocol = detectRequestProtocol(data);
+  return (protocol === undefined || protocol === 'http' || protocol === 'graphql' || protocol === 'websocket') && !isScriptDocument(data);
 }
 
 function withOptionalDisabled<T extends Record<string, unknown>>(
@@ -220,6 +248,17 @@ function selectedBodyVariant(body: unknown): { body: unknown; index?: number } {
   };
 }
 
+function selectedWebSocketMessage(message: unknown): { message: unknown; index?: number } {
+  if (!Array.isArray(message)) return { message };
+  const selectedIndex = message.findIndex(variant => isObject(variant) && variant.selected === true);
+  const index = selectedIndex >= 0 ? selectedIndex : 0;
+  const variant = message[index];
+  return {
+    message: isObject(variant) ? variant.message : undefined,
+    index,
+  };
+}
+
 function selectedFileVariant(body: unknown): { variant: unknown; index?: number } {
   if (!isObject(body) || !Array.isArray(body.data)) return { variant: undefined };
   const selectedIndex = body.data.findIndex(variant => isObject(variant) && variant.selected === true);
@@ -246,11 +285,91 @@ function formRowsFromBody(body: Record<string, unknown>): FormFieldEditorRow[] {
 
 export function createRequestEditorModelFromRequest(request: unknown): RequestEditorModel {
   const protocol = detectRequestProtocol(request) ?? 'http';
+  const source = isObject(request) ? request : {};
+
+  if (protocol === 'graphql') {
+    const graphql = isObject(source.graphql) ? source.graphql : {};
+    const { body, index: bodyVariantIndex } = selectedBodyVariant(graphql.body);
+    const graphQLBody = isObject(body) ? body : {};
+    const runtime = isObject(source.runtime) ? source.runtime : {};
+
+    return {
+      protocol,
+      method: typeof graphql.method === 'string' ? graphql.method : 'POST',
+      url: typeof graphql.url === 'string' ? graphql.url : '',
+      params: Array.isArray(graphql.params)
+        ? graphql.params.map((param, index) => {
+            const row = isObject(param) ? param : {};
+            return {
+              name: typeof row.name === 'string' ? row.name : '',
+              value: typeof row.value === 'string' ? row.value : '',
+              type: typeof row.type === 'string' ? row.type : 'query',
+              disabled: row.disabled === true,
+              originalIndex: index,
+            };
+          })
+        : [],
+      headers: Array.isArray(graphql.headers)
+        ? graphql.headers.map((header, index) => {
+            const row = isObject(header) ? header : {};
+            return {
+              name: typeof row.name === 'string' ? row.name : '',
+              value: typeof row.value === 'string' ? row.value : '',
+              disabled: row.disabled === true,
+              originalIndex: index,
+            };
+          })
+        : [],
+      body: {
+        kind: 'graphql',
+        query: typeof graphQLBody.query === 'string' ? graphQLBody.query : '',
+        variables: typeof graphQLBody.variables === 'string' ? graphQLBody.variables : '',
+        bodyVariantIndex,
+      },
+      auth: runtime.auth,
+      settings: isObject(source.settings) ? cloneJson(source.settings) : {},
+    };
+  }
+
+  if (protocol === 'websocket') {
+    const websocket = isObject(source.websocket) ? source.websocket : {};
+    const runtime = isObject(source.runtime) ? source.runtime : {};
+    const { message, index: messageVariantIndex } = selectedWebSocketMessage(websocket.message);
+    const messageObject = isObject(message) ? message : {};
+    const messageType = typeof messageObject.type === 'string' && WEBSOCKET_MESSAGE_TYPES.has(messageObject.type)
+      ? messageObject.type
+      : 'text';
+
+    return {
+      protocol,
+      url: typeof websocket.url === 'string' ? websocket.url : '',
+      headers: Array.isArray(websocket.headers)
+        ? websocket.headers.map((header, index) => {
+            const row = isObject(header) ? header : {};
+            return {
+              name: typeof row.name === 'string' ? row.name : '',
+              value: typeof row.value === 'string' ? row.value : '',
+              disabled: row.disabled === true,
+              originalIndex: index,
+            };
+          })
+        : [],
+      body: isObject(message)
+        ? {
+            kind: 'raw',
+            rawType: messageType,
+            data: typeof messageObject.data === 'string' ? messageObject.data : '',
+            bodyVariantIndex: messageVariantIndex,
+          }
+        : { kind: 'none', bodyVariantIndex: messageVariantIndex },
+      auth: runtime.auth,
+    };
+  }
+
   if (!isHttpVisualEditableRequest(request)) {
     return { protocol };
   }
 
-  const source = isObject(request) ? request : {};
   const http = isObject(source.http) ? source.http : {};
   const { body, index: bodyVariantIndex } = selectedBodyVariant(http.body);
   let bodyModel: RequestEditorBodyModel = { kind: 'none', bodyVariantIndex };
@@ -358,6 +477,7 @@ function mergeFormBodyData(
 
 function buildBodyFromEditor(originalBody: unknown, model: RequestEditorBodyModel): unknown | undefined {
   if (model.kind === 'none') return undefined;
+  if (model.kind === 'graphql') return undefined;
 
   const previousSelected = selectedExistingBody(originalBody, model.bodyVariantIndex);
   let nextBody: Record<string, unknown>;
@@ -404,6 +524,79 @@ function buildBodyFromEditor(originalBody: unknown, model: RequestEditorBodyMode
   return variants;
 }
 
+function mergeMetadata(previous: unknown[] | undefined, rows: KeyValueEditorRow[] | undefined): unknown[] | undefined {
+  return mergeHeaders(previous, rows);
+}
+
+function createKeyValueRows(sourceRows: unknown, disabledDefault = false): KeyValueEditorRow[] {
+  return Array.isArray(sourceRows)
+    ? sourceRows.map((entry, index) => {
+        const row = isObject(entry) ? entry : {};
+        return {
+          name: typeof row.name === 'string' ? row.name : '',
+          value: typeof row.value === 'string' ? row.value : '',
+          disabled: row.disabled === true || disabledDefault,
+          originalIndex: index,
+        };
+      })
+    : [];
+}
+
+function buildGraphQLBodyFromEditor(originalBody: unknown, model: RequestEditorBodyModel): unknown | undefined {
+  if (model.kind !== 'graphql') return originalBody;
+
+  const previousSelected = selectedExistingBody(originalBody, model.bodyVariantIndex);
+  const nextBody: Record<string, unknown> = isObject(previousSelected) ? cloneJson(previousSelected) : {};
+
+  if (model.query || hasOwn(previousSelected, 'query')) {
+    nextBody.query = model.query;
+  } else {
+    delete nextBody.query;
+  }
+
+  if (model.variables || hasOwn(previousSelected, 'variables')) {
+    nextBody.variables = model.variables;
+  } else {
+    delete nextBody.variables;
+  }
+
+  if (!Array.isArray(originalBody)) {
+    return isEmptyObject(nextBody) ? undefined : nextBody;
+  }
+
+  const variants = cloneJson(originalBody);
+  const index = model.bodyVariantIndex ?? variants.findIndex(variant => isObject(variant) && variant.selected === true);
+  const resolvedIndex = index >= 0 ? index : 0;
+  const previousVariant = isObject(variants[resolvedIndex]) ? variants[resolvedIndex] as Record<string, unknown> : {};
+  variants[resolvedIndex] = {
+    ...previousVariant,
+    body: nextBody,
+  };
+  return variants;
+}
+
+function buildWebSocketMessageFromEditor(originalMessage: unknown, model: RequestEditorBodyModel): unknown | undefined {
+  if (model.kind === 'none') return undefined;
+  if (model.kind !== 'raw') return selectedWebSocketMessage(originalMessage).message;
+
+  const { message: previousSelected } = selectedWebSocketMessage(originalMessage);
+  const nextMessage: Record<string, unknown> = isObject(previousSelected) ? cloneJson(previousSelected) : {};
+  nextMessage.type = WEBSOCKET_MESSAGE_TYPES.has(model.rawType) ? model.rawType : 'text';
+  nextMessage.data = model.data;
+
+  if (!Array.isArray(originalMessage)) return nextMessage;
+
+  const variants = cloneJson(originalMessage);
+  const index = model.bodyVariantIndex ?? variants.findIndex(variant => isObject(variant) && variant.selected === true);
+  const resolvedIndex = index >= 0 ? index : 0;
+  const previousVariant = isObject(variants[resolvedIndex]) ? variants[resolvedIndex] as Record<string, unknown> : {};
+  variants[resolvedIndex] = {
+    ...previousVariant,
+    message: nextMessage,
+  };
+  return variants;
+}
+
 function mergeSettings(previous: unknown, settings: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!settings) return isObject(previous) ? cloneJson(previous) : undefined;
   const output: Record<string, unknown> = isObject(previous) ? cloneJson(previous) : {};
@@ -421,8 +614,86 @@ function mergeSettings(previous: unknown, settings: Record<string, unknown> | un
 }
 
 export function applyRequestEditorModel(original: unknown, model: RequestEditorModel): unknown {
-  if (!isHttpVisualEditableRequest(original) || (model.protocol && model.protocol !== 'http')) {
+  if (!isVisualEditableRequest(original) || (model.protocol && model.protocol !== 'http' && model.protocol !== 'graphql' && model.protocol !== 'websocket')) {
     return cloneJson(original);
+  }
+
+  const originalProtocol = detectRequestProtocol(original) ?? 'http';
+  const targetProtocol = model.protocol ?? originalProtocol;
+
+  if (targetProtocol === 'graphql') {
+    const source = isObject(original) ? original : {};
+    const request: Record<string, unknown> = cloneJson(source);
+    if (!isObject(request.info)) request.info = { type: 'graphql' };
+    else (request.info as Record<string, unknown>).type = 'graphql';
+    if (!isObject(request.graphql)) request.graphql = {};
+    delete request.http;
+
+    const graphql = request.graphql as Record<string, unknown>;
+    if (model.method !== undefined) graphql.method = model.method;
+    if (model.url !== undefined) graphql.url = model.url;
+    if (model.params !== undefined) {
+      const merged = mergeParams(Array.isArray(graphql.params) ? graphql.params : undefined, model.params);
+      if (merged) graphql.params = merged;
+      else delete graphql.params;
+    }
+    if (model.headers !== undefined) {
+      const merged = mergeHeaders(Array.isArray(graphql.headers) ? graphql.headers : undefined, model.headers);
+      if (merged) graphql.headers = merged;
+      else delete graphql.headers;
+    }
+    if (model.body !== undefined) {
+      const body = buildGraphQLBodyFromEditor(graphql.body, model.body);
+      if (body === undefined) delete graphql.body;
+      else graphql.body = body;
+    }
+
+    if (model.auth !== undefined || isObject(request.runtime)) {
+      const runtime: Record<string, unknown> = isObject(request.runtime) ? cloneJson(request.runtime) : {};
+      if (model.auth !== undefined) runtime.auth = cloneJson(model.auth);
+      else delete runtime.auth;
+      if (isEmptyObject(runtime)) delete request.runtime;
+      else request.runtime = runtime;
+    }
+
+    const settings = mergeSettings(request.settings, model.settings);
+    if (settings) request.settings = settings;
+    else delete request.settings;
+
+    return request;
+  }
+
+  if (targetProtocol === 'websocket') {
+    const source = isObject(original) ? original : {};
+    const request: Record<string, unknown> = cloneJson(source);
+    if (!isObject(request.info)) request.info = { type: 'websocket' };
+    else (request.info as Record<string, unknown>).type = 'websocket';
+    if (!isObject(request.websocket)) request.websocket = {};
+    delete request.http;
+    delete request.graphql;
+
+    const websocket = request.websocket as Record<string, unknown>;
+    if (model.url !== undefined) websocket.url = model.url;
+    if (model.headers !== undefined) {
+      const merged = mergeHeaders(Array.isArray(websocket.headers) ? websocket.headers : undefined, model.headers);
+      if (merged) websocket.headers = merged;
+      else delete websocket.headers;
+    }
+    if (model.body !== undefined) {
+      const message = buildWebSocketMessageFromEditor(websocket.message, model.body);
+      if (message === undefined) delete websocket.message;
+      else websocket.message = message;
+    }
+
+    if (model.auth !== undefined || isObject(request.runtime)) {
+      const runtime: Record<string, unknown> = isObject(request.runtime) ? cloneJson(request.runtime) : {};
+      if (model.auth !== undefined) runtime.auth = cloneJson(model.auth);
+      else delete runtime.auth;
+      if (isEmptyObject(runtime)) delete request.runtime;
+      else request.runtime = runtime;
+    }
+
+    return request;
   }
 
   const source = isObject(original) ? original : {};
@@ -467,17 +738,8 @@ export function applyRequestEditorModel(original: unknown, model: RequestEditorM
 export function createRequestDefaultsEditorModel(defaults: unknown): RequestDefaultsEditorModel {
   const source = isObject(defaults) ? defaults : {};
   return {
-    headers: Array.isArray(source.headers)
-      ? source.headers.map((header, index) => {
-          const row = isObject(header) ? header : {};
-          return {
-            name: typeof row.name === 'string' ? row.name : '',
-            value: typeof row.value === 'string' ? row.value : '',
-            disabled: row.disabled === true,
-            originalIndex: index,
-          };
-        })
-      : [],
+    headers: createKeyValueRows(source.headers),
+    metadata: createKeyValueRows(source.metadata),
     auth: source.auth,
     variables: Array.isArray(source.variables) ? cloneJson(source.variables) : [],
   };
@@ -495,6 +757,12 @@ export function applyRequestDefaultsEditorModel(
     else delete defaults.headers;
   }
 
+  if (hasOwn(model, 'metadata')) {
+    const metadata = mergeMetadata(Array.isArray(defaults.metadata) ? defaults.metadata : undefined, model.metadata);
+    if (metadata) defaults.metadata = metadata;
+    else delete defaults.metadata;
+  }
+
   if (hasOwn(model, 'auth')) {
     if (model.auth !== undefined) defaults.auth = cloneJson(model.auth);
     else delete defaults.auth;
@@ -510,6 +778,67 @@ export function applyRequestDefaultsEditorModel(
   return isEmptyObject(defaults) ? undefined : defaults;
 }
 
+function createProtobufEditorModel(source: unknown): ProtobufEditorModel {
+  const protobuf = isObject(source) ? source : {};
+  return {
+    protoFiles: Array.isArray(protobuf.protoFiles)
+      ? protobuf.protoFiles.map((entry, index) => {
+          const row = isObject(entry) ? entry : {};
+          return {
+            path: typeof row.path === 'string' ? row.path : '',
+            originalIndex: index,
+          };
+        })
+      : [],
+    importPaths: Array.isArray(protobuf.importPaths)
+      ? protobuf.importPaths.map((entry, index) => {
+          const row = isObject(entry) ? entry : {};
+          return {
+            path: typeof row.path === 'string' ? row.path : '',
+            disabled: row.disabled === true,
+            originalIndex: index,
+          };
+        })
+      : [],
+  };
+}
+
+function applyProtobufEditorModel(original: unknown, model: ProtobufEditorModel): Record<string, unknown> | undefined {
+  const protobuf: Record<string, unknown> = isObject(original) ? cloneJson(original) : {};
+
+  if (hasOwn(model, 'protoFiles')) {
+    const previous = Array.isArray(protobuf.protoFiles) ? protobuf.protoFiles : undefined;
+    const protoFiles = (model.protoFiles ?? [])
+      .filter(row => row.path)
+      .map((row, index) => {
+        const prior = getByOriginalIndex(previous, row, index);
+        const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+        output.type = 'file';
+        output.path = row.path;
+        return output;
+      });
+    if (protoFiles.length > 0) protobuf.protoFiles = protoFiles;
+    else delete protobuf.protoFiles;
+  }
+
+  if (hasOwn(model, 'importPaths')) {
+    const previous = Array.isArray(protobuf.importPaths) ? protobuf.importPaths : undefined;
+    const importPaths = (model.importPaths ?? [])
+      .filter(row => row.path)
+      .map((row, index) => {
+        const prior = getByOriginalIndex(previous, row, index);
+        const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+        output.path = row.path;
+        return withOptionalDisabled(output, prior, row.disabled);
+      });
+    if (importPaths.length > 0) protobuf.importPaths = importPaths;
+    else delete protobuf.importPaths;
+  }
+
+  omitUndefined(protobuf);
+  return isEmptyObject(protobuf) ? undefined : protobuf;
+}
+
 export function createCollectionEditorModelFromCollection(collection: unknown): CollectionEditorModel {
   const source = isObject(collection) ? collection : {};
   const config = isObject(source.config) ? source.config : {};
@@ -520,6 +849,7 @@ export function createCollectionEditorModelFromCollection(collection: unknown): 
       forceAuthInherit: config.forceAuthInherit === true,
       secretProviders: Array.isArray(config.secretProviders) ? cloneJson(config.secretProviders) : [],
       environments: Array.isArray(config.environments) ? cloneJson(config.environments) : [],
+      protobuf: createProtobufEditorModel(config.protobuf),
     },
   };
 }
@@ -558,6 +888,11 @@ export function applyCollectionEditorModel(original: unknown, model: CollectionE
       } else {
         delete config.environments;
       }
+    }
+    if (hasOwn(model.config, 'protobuf')) {
+      const protobuf = applyProtobufEditorModel(config.protobuf, model.config.protobuf ?? {});
+      if (protobuf) config.protobuf = protobuf;
+      else delete config.protobuf;
     }
     if (isEmptyObject(config)) delete collection.config;
     else collection.config = config;

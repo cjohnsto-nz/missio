@@ -1,0 +1,41 @@
+info:
+  name: GraphQL Body Variants
+  type: graphql
+  seq: 4
+  description: Run node examples/demo-api/server.js first. The selected body variant is sent while the alternate mutation body remains in the file.
+graphql:
+  method: POST
+  url: "{{baseUrl}}/graphql"
+  body:
+    - title: Users query
+      selected: true
+      body:
+        query: |-
+          query Users {
+            users {
+              id
+              name
+            }
+          }
+        variables: "{}"
+    - title: Mutation alternate
+      body:
+        query: |-
+          mutation CreateDemoNote($title: String!) {
+            createDemoNote(title: $title) {
+              id
+              title
+              saved
+            }
+          }
+        variables: |-
+          {
+            "title": "Alternate body"
+          }
+settings:
+  timeout: 5000
+runtime:
+  assertions:
+    - expression: res.body.extensions.operation
+      operator: equals
+      value: query
