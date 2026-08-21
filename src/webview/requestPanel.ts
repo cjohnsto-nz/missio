@@ -71,7 +71,7 @@ import {
 import {
   showResponse, showLoading, hideLoading, clearResponse,
   getLastResponse, getLastResponseBody, setLoadingText,
-  renderPreview,
+  renderPreview, initPreviewMediaControls,
 } from './response';
 import { initResponseSearch, openSearch, closeSearch, isSearchOpen } from './responseSearch';
 import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
@@ -2148,6 +2148,7 @@ document.addEventListener('keydown', (e: KeyboardEvent) => {
 // Ctrl+A inside the response body selects only the response text
 // Ctrl+F inside the response body opens the search bar
 initResponseSearch();
+initPreviewMediaControls();
 
 function getSelectedResponseText(selection: Selection): string {
   if (selection.rangeCount === 0) {
