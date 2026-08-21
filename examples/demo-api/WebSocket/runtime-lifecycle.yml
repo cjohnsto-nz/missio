@@ -19,14 +19,15 @@ runtime:
   scripts:
     - type: before-request
       code: |-
-        missio.variables.set("runtimeSocketUser", "{{runtimeSocketUserName}}");
+        missio.variables.set("runtimeSocketUser", missio.variables.get("runtimeSocketUserName"));
     - type: before-request
       code: |-
+        const socketMessageId = missio.variables.get("socketMessageId");
         missio.request.headers.set("X-Demo-Client", "missio-demo");
-        missio.request.headers.set("X-Runtime-Header", "scripted-{{socketMessageId}}");
+        missio.request.headers.set("X-Runtime-Header", `scripted-${socketMessageId}`);
         missio.request.body = {
-          user: "{{runtimeSocketUser}}",
-          count: Number("{{runtimeSocketCount}}")
+          user: missio.variables.get("runtimeSocketUser"),
+          count: Number(missio.variables.get("runtimeSocketCount"))
         };
     - type: after-response
       code: |-

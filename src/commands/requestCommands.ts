@@ -155,9 +155,11 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
   }
 
   async function disconnectWebSocketFromContext(filePathOrNode?: any): Promise<void> {
-    const resolved = await resolveRequestContext(filePathOrNode);
-    const filePath = resolved?.filePath
-      ?? (typeof filePathOrNode === 'string' ? filePathOrNode : filePathOrNode?.resourceUri?.fsPath ?? filePathOrNode?.request?._filePath);
+    const directFilePath = typeof filePathOrNode === 'string'
+      ? filePathOrNode
+      : filePathOrNode?.resourceUri?.fsPath ?? filePathOrNode?.request?._filePath;
+    const resolved = directFilePath ? undefined : await resolveRequestContext(filePathOrNode);
+    const filePath = directFilePath ?? resolved?.filePath;
     if (!filePath) {
       vscode.window.showWarningMessage('No WebSocket request selected.');
       return;
@@ -200,6 +202,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
     if (!pick) return;
     if (pick.action === 'disconnectAll') {
       requestExecutionService.disconnectAllWebSocketSessions();
+      vscode.window.showInformationMessage('Disconnected all WebSocket sessions.');
       return;
     }
     if (pick.action === 'focus' && pick.session?.requestFilePath) {

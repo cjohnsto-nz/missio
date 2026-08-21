@@ -49,7 +49,7 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## User And Agent Surfaces
 
 ```text
-/goal Complete OC-070 request creation, import/export, snippet, and Copilot protocol surface polish using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until protocol-specific new request templates, protocol-preserving get/dry-run/list/send tooling, explicit unsupported import/export/snippet diagnostics, baseline tree/CodeLens/command regressions, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
+/goal Complete OC-070 request creation, Postman script/event mapping, import/export, snippet, and Copilot protocol surface polish using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until protocol-specific new request templates, protocol-preserving get/dry-run/list/send tooling, explicit unsupported import/export/snippet diagnostics, baseline tree/CodeLens/command regressions, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
 ```
 
 ## Request Type UX

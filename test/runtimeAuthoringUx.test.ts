@@ -251,6 +251,30 @@ describe('OC-110 runtime authoring model', () => {
     expect(updated.runtime.scripts[0].code).toContain('grpcEdited');
     validateSubschema('grpc', updated);
   });
+
+  it('edits one gRPC streaming message without dropping its sequence siblings or descriptions', () => {
+    const request = requestForProtocol('grpc');
+    request.grpc.methodType = 'client-streaming';
+    request.grpc.message = [
+      { description: 'First streamed user', message: '{"name":"Ada"}' },
+      { description: 'Second streamed user', message: '{"name":"Grace"}' },
+    ];
+    const model = createRequestEditorModelFromRequest(request) as RequestEditorModel;
+    model.body = {
+      kind: 'raw',
+      rawType: 'json',
+      data: '{"name":"Katherine"}',
+      bodyVariantIndex: 1,
+    };
+
+    const updated = applyRequestEditorModel(request, model) as any;
+
+    expect(updated.grpc.message).toEqual([
+      { description: 'First streamed user', message: '{"name":"Ada"}' },
+      { description: 'Second streamed user', message: '{"name":"Katherine"}' },
+    ]);
+    validateSubschema('grpc', updated);
+  });
 });
 
 describe('OC-110 runtime authoring UI shell', () => {

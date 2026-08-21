@@ -70,4 +70,3 @@ There is no WebSocket dependency, editor, connection manager, response/message U
 ## Dependency Choice
 
 Prefer the established `ws` package unless VS Code/Electron APIs provide a better fit. Add types and tests with a local in-process server.
-

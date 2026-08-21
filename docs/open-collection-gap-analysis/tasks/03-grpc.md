@@ -32,7 +32,7 @@ Missio has no protobuf config model, no gRPC metadata/defaults handling, no prot
 | `protoFiles` | Path, disabled, add/remove. |
 | `importPaths` | Path, disabled, add/remove. |
 
-4. Choose gRPC dependencies, likely `@grpc/grpc-js` and `@grpc/proto-loader`.
+4. Choose gRPC dependencies, likely `@grpc/grpc-js` and `@grpc/proto-loader`, subject to the project dependency budget. Record the package necessity, transitive and packaging impact, and approval in `AGENT_PROGRESS.md` before adding them.
 5. Implement unary execution first:
 
 | Step | Behavior |
@@ -86,4 +86,3 @@ Missio has no protobuf config model, no gRPC metadata/defaults handling, no prot
 ## Coordination Notes
 
 Keep the unary implementation small and well-tested. Streaming support is larger and should be split into separate subtasks after unary lands.
-

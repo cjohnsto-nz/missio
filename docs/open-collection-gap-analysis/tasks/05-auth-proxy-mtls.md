@@ -85,4 +85,3 @@ Close schema-native auth and transport gaps for HTTP-compatible protocols while 
 | Proxy with basic auth. | Proxy receives authenticated request. |
 | mTLS fixture. | Server verifies client certificate. |
 | OAuth2 query token placement. | Resource URL contains token param. |
-

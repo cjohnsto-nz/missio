@@ -4,18 +4,22 @@
 
 Add schema-native gRPC client-streaming, server-streaming, and bidirectional-streaming execution with editor support, response streaming UI, local demo fixtures, and automated coverage.
 
-## Current Gap
+## Completion Status
 
-OC-030 implemented protobuf configuration, metadata defaults, unary execution, demo fixtures, and explicit diagnostics for streaming methods. OpenCollection gRPC request schema supports method types beyond unary, so Missio needs streaming support to close the remaining gRPC protocol gap.
+OC-090 is complete on PR #38 (`feature/oc-090-grpc-streaming`, commits `2ac3bc4` and `06b8d83`). Missio executes unary, server-streaming, client-streaming, and bidirectional-streaming requests with schema-native message sequences, response summaries, cancellation/error handling, local fixtures, and automated coverage. The original gap and implementation plan below are retained as historical acceptance scope.
+
+## Original Gap (Closed)
+
+OC-030 had implemented protobuf configuration, metadata defaults, unary execution, demo fixtures, and explicit diagnostics for streaming methods. OpenCollection gRPC request schema supported method types beyond unary, so OC-090 closed the remaining gRPC protocol gap.
 
 | Surface | Gap |
 | --- | --- |
-| Method resolution | Proto loader resolves unary execution only. |
-| Request payloads | Streaming requests need message lists, selected variants, or repeatable payload controls. |
-| Execution | Client-streaming, server-streaming, and bidirectional-streaming calls are not executed. |
-| Response UI | Streamed messages, metadata, status, cancellation, and errors need incremental display. |
-| Runtime | Streaming lifecycle should coordinate with OC-080 once non-HTTP runtime support exists. |
-| Demo coverage | Local gRPC server currently proves unary and unsupported-streaming diagnostics, not real streaming. |
+| Method resolution | Closed: proto loading resolves unary and all three streaming method types. |
+| Request payloads | Closed: schema-native selected variants and ordered message sequences are preserved. |
+| Execution | Closed: client-streaming, server-streaming, and bidirectional-streaming calls execute. |
+| Response UI | Closed: streamed events, metadata, status, cancellation, and errors are surfaced. |
+| Runtime | Verified with OC-080 after non-HTTP runtime support landed. |
+| Demo coverage | Closed: local fixtures execute unary, server/client/bidirectional streams, and deterministic stream errors. |
 
 ## Implementation Plan
 

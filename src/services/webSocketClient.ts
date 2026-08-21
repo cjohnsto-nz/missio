@@ -6,6 +6,7 @@ import type {
   HttpResponse,
   MissioCollection,
   RequestDefaults,
+  SecretProvider,
   Variable,
   VariableTypedValue,
   VariableValueVariant,
@@ -21,7 +22,12 @@ export interface ResolvedWebSocketRequest {
   headers: Record<string, string>;
   message?: WebSocketMessage;
   variables: Map<string, string>;
+  secretProviders: SecretProvider[];
 }
+
+export const MAX_WEBSOCKET_SESSION_EVENTS = 500;
+const MAX_RETAINED_CLOSED_SESSIONS = 20;
+const CLOSED_SESSION_RETENTION_MS = 5 * 60 * 1000;
 
 export interface WebSocketExchangeEvent {
   timestamp: string;
@@ -63,11 +69,14 @@ interface ActiveWebSocketSession {
   socket?: WebSocket;
   resolved?: ResolvedWebSocketRequest;
   events: WebSocketExchangeEvent[];
+  inboundCount: number;
+  outboundCount: number;
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
   lastError?: string;
   closeWaiters: Array<(response: HttpResponse) => void>;
+  evictionTimer?: NodeJS.Timeout;
 }
 
 interface OneShotWebSocket {
@@ -108,6 +117,15 @@ export class WebSocketClient implements vscode.Disposable {
   getSession(requestId: string): WebSocketSessionSnapshot | undefined {
     const session = this._sessions.get(requestId);
     return session ? this._snapshot(session) : undefined;
+  }
+
+  clearSessionEvents(requestId: string): WebSocketSessionSnapshot | undefined {
+    const session = this._sessions.get(requestId);
+    if (!session) return undefined;
+    session.events = [];
+    this._touch(session);
+    this._emit(session);
+    return this._snapshot(session);
   }
 
   async buildResolvedRequest(
@@ -158,7 +176,7 @@ export class WebSocketClient implements vscode.Disposable {
       }
     }
 
-    return { url, headers, message, variables };
+    return { url, headers, message, variables, secretProviders: providers };
   }
 
   async connect(
@@ -178,6 +196,7 @@ export class WebSocketClient implements vscode.Disposable {
         { code: 'MISSIO_WEBSOCKET_ALREADY_CONNECTED' },
       );
     }
+    if (existing?.evictionTimer) clearTimeout(existing.evictionTimer);
 
     const now = new Date().toISOString();
     const session: ActiveWebSocketSession = {
@@ -186,6 +205,8 @@ export class WebSocketClient implements vscode.Disposable {
       requestName: options?.requestName ?? request.info?.name,
       state: 'connecting',
       events: [],
+      inboundCount: 0,
+      outboundCount: 0,
       createdAt: now,
       updatedAt: now,
       closeWaiters: [],
@@ -311,6 +332,13 @@ export class WebSocketClient implements vscode.Disposable {
         { code: 'MISSIO_WEBSOCKET_MESSAGE_REQUIRED' },
       );
     }
+    if (message && this._secretService && session.resolved?.secretProviders.length) {
+      selectedMessage.data = await this._secretService.resolveSecretReferences(
+        selectedMessage.data,
+        session.resolved.secretProviders,
+        session.resolved.variables,
+      );
+    }
 
     onProgress?.('Sending WebSocket message...');
     const payload = this._messagePayload(selectedMessage);
@@ -376,6 +404,7 @@ export class WebSocketClient implements vscode.Disposable {
 
     onProgress?.('Resolving WebSocket request...');
     const resolved = await this.buildResolvedRequest(request, collection, folderDefaults, extraVariables, environmentName);
+    const payload = resolved.message ? this._messagePayload(resolved.message) : undefined;
     const timeoutMs = vscode.workspace.getConfiguration('missio').get<number>('timeout', 30000);
 
     onProgress?.('Connecting WebSocket...');
@@ -417,14 +446,13 @@ export class WebSocketClient implements vscode.Disposable {
 
       socket.on('open', () => {
         event({ direction: 'event', type: 'open' });
-        if (!resolved.message) {
+        if (!resolved.message || payload === undefined) {
           onProgress?.('Disconnecting WebSocket...');
           socket.close(1000, 'Missio disconnect');
           return;
         }
 
         onProgress?.('Sending WebSocket message...');
-        const payload = this._messagePayload(resolved.message);
         socket.send(payload);
         event({
           direction: 'outbound',
@@ -490,6 +518,10 @@ export class WebSocketClient implements vscode.Disposable {
 
   dispose(): void {
     this.cancelAll();
+    for (const session of this._sessions.values()) {
+      if (session.evictionTimer) clearTimeout(session.evictionTimer);
+    }
+    this._sessions.clear();
     this._onDidChangeSession.dispose();
   }
 
@@ -620,10 +652,17 @@ export class WebSocketClient implements vscode.Disposable {
 
   private _messagePayload(message: WebSocketMessage): string | Buffer {
     if (message.type !== 'binary') return message.data;
-    const normalized = message.data.trim();
-    return /^[A-Za-z0-9+/=\r\n]+$/.test(normalized)
-      ? Buffer.from(normalized, 'base64')
-      : Buffer.from(message.data, 'utf-8');
+    const normalized = message.data.replace(/\s/g, '');
+    const isBase64 = normalized.length > 0
+      && normalized.length % 4 === 0
+      && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(normalized);
+    if (!isBase64) {
+      throw Object.assign(
+        new Error('Binary WebSocket message data must be valid base64.'),
+        { code: 'MISSIO_INVALID_WEBSOCKET_BINARY_DATA' },
+      );
+    }
+    return Buffer.from(normalized, 'base64');
   }
 
   private _buildResponse(
@@ -671,8 +710,8 @@ export class WebSocketClient implements vscode.Disposable {
       state: session.state,
       url: session.resolved?.url,
       events: session.events.map(event => ({ ...event })),
-      inboundCount: session.events.filter(event => event.direction === 'inbound').length,
-      outboundCount: session.events.filter(event => event.direction === 'outbound').length,
+      inboundCount: session.inboundCount,
+      outboundCount: session.outboundCount,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       closedAt: session.closedAt,
@@ -682,8 +721,45 @@ export class WebSocketClient implements vscode.Disposable {
 
   private _recordEvent(session: ActiveWebSocketSession, entry: Omit<WebSocketExchangeEvent, 'timestamp'>): void {
     session.events.push({ timestamp: new Date().toISOString(), ...entry });
+    if (entry.direction === 'inbound') session.inboundCount++;
+    if (entry.direction === 'outbound') session.outboundCount++;
+    if (session.events.length > MAX_WEBSOCKET_SESSION_EVENTS) {
+      session.events.splice(0, session.events.length - MAX_WEBSOCKET_SESSION_EVENTS);
+    }
     this._touch(session);
     this._emit(session);
+    if (session.state === 'closed' || session.state === 'error') {
+      this._scheduleSessionEviction(session);
+    }
+  }
+
+  private _scheduleSessionEviction(session: ActiveWebSocketSession): void {
+    if (session.evictionTimer) clearTimeout(session.evictionTimer);
+    session.evictionTimer = setTimeout(() => {
+      const current = this._sessions.get(session.requestId);
+      if (current === session && (current.state === 'closed' || current.state === 'error')) {
+        this._evictSession(current);
+      }
+    }, CLOSED_SESSION_RETENTION_MS);
+    session.evictionTimer.unref?.();
+
+    const closedSessions = [...this._sessions.values()]
+      .filter(candidate => candidate.state === 'closed' || candidate.state === 'error')
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+    while (closedSessions.length > MAX_RETAINED_CLOSED_SESSIONS) {
+      const oldest = closedSessions.shift();
+      if (!oldest) break;
+      this._evictSession(oldest);
+    }
+  }
+
+  private _evictSession(session: ActiveWebSocketSession): void {
+    if (session.evictionTimer) clearTimeout(session.evictionTimer);
+    if (session.socket) {
+      session.socket.terminate();
+      session.socket = undefined;
+    }
+    this._sessions.delete(session.requestId);
   }
 
   private _touch(session: ActiveWebSocketSession): void {

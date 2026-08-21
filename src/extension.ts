@@ -247,7 +247,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   function updateWebSocketStatusBar(activeFilePath?: string) {
     const sessions = requestExecutionService.listWebSocketSessions({ includeClosed: false });
-    const activeSession = activeFilePath ? requestExecutionService.getWebSocketSession(activeFilePath) : undefined;
+    const selectedSession = activeFilePath ? requestExecutionService.getWebSocketSession(activeFilePath) : undefined;
+    const activeSession = selectedSession
+      && (selectedSession.state === 'connecting' || selectedSession.state === 'connected' || selectedSession.state === 'disconnecting')
+      ? selectedSession
+      : undefined;
     if (sessions.length === 0 && !activeSession) {
       webSocketStatusBarItem.hide();
       return;

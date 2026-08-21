@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
@@ -14,6 +15,7 @@ import { WebSocketSessionTool } from '../src/copilot/tools/webSocketSessionTool'
 import { RequestEditorProvider } from '../src/panels/requestPanel';
 import { registerRequestCommands } from '../src/commands/requestCommands';
 import { RequestExecutionService } from '../src/services/requestExecutionService';
+import { EnvironmentService } from '../src/services/environmentService';
 import { RuntimeExecutionError, RuntimeExecutionService } from '../src/services/runtimeExecutionService';
 import { WebSocketClient } from '../src/services/webSocketClient';
 import { detectUnresolvedVars } from '../src/services/unresolvedVars';
@@ -27,49 +29,74 @@ const demoRoot = path.resolve(__dirname, '..', 'examples', 'demo-api');
 const schemaPath = path.resolve(__dirname, '..', 'schema', 'opencollectionschema.json');
 const originalApplyEdit = workspace.applyEdit;
 
+const TEST_WSS_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCOkGFW8mojHqN2
+djMmfrhXAucWteHVUQd85pLDFkNC6VRvxtYaMj4H0wDBX6tOw5RGz4WtngulHudC
+bATlu0lk++xXcwPTuEIfPjfa+LLaqE8zdm5OnmlPSPra0TgugdecDsD13FQu9eSy
+PduXD3uU74onnyvjorUZNb6O+kUMPgHoA38EDM7jlQ2WqxOuiOVXPmBLK+XDRuQk
+qN+4uIyyckE6uRH45yQt1Mn8D1tqk7I+yhJmsKznrjqVs6BJ2QimNgjyEpVr/D3s
+rd2BnPTAdM1gpaAT64S7EIgh7tAgp2uxFlsCBfgMV+S5TGAVfXEitiJykr8DtI4N
+/Ni+dbghAgMBAAECggEAFazF395DXMuPtrcJ19R0WmZKlB1bFH+ZT9gOgDKmT0oC
+WGw2qQzyeWYPO1c8SGFb7dgnTto0kwo7xtF9fSAYbI4QxMrrzgi5pN5kx5oAN1ZX
+lE9xPeq/wBosaZBdplR/X26uz7KL6gfgmWjmNfVYqLAypQuCNL3MIuUU79AFJ3Mb
+57oylaKbF1Zu3GGTB5FFnXQmw7E1VQRrOYi3wKH/nAvdcKU56Paiu6EPRTDyNn+E
+Op7C/JAzVdQHIlKvAs+BfFazeNgLdVBGEkUEWYU4dbmaZkSiA5OM3f7Ido0Rxhao
+333eODUUi7ah1KDdvt3fathTUaEBPn1v8ExT+/NdsQKBgQC/oRfyf5M0Ud991hGb
+rJEGCXgi7lzNsNh7sL/wlae9ZAcabYRN6mSknkv+PxAa65RsicbEBDP/gCbF0XZn
+v9rvj9/YL0Bp+6KT/mYjhO8ZDJurc3/+G/9ZsL6MhCIEdlQT5n4MhOpCb6v+Dckn
+vPmIwqKS4Ib640pZ13QsPcWaZwKBgQC+c/trOWwfTEzinYsy6rwHn1QOgOHFl+Jt
+2XK3MgZsfelq7MpvoFOKSxhKf6NJwnj8EaJ0oeq/IalywOdfp+/OLAQvVXxzprjy
+hhhIQhx9l6Ld5VyBLfB5GxSrN0yHwYpZ/z7aTikM1+Nbb4dFGJombg9KqhX4JCYB
+TBvVS5KUNwKBgQCsUnsscJi5dd6aVESlTztiyGUmVF9UAPHL2Rfhi1K6NxdEJrPR
+NTSn7Em+KoubCboBGKyLXJQ98MntHf1yMs74mtLanzM3mzeKCj1jN4mjZvkd5tF0
+e0zXJN9VkQTeKmJVOvKi42udrrplzZPUjlV/LDfyCMKZHoef3uXzWuE1hQKBgGxe
+fIIvo2lPtjQAZxNq4+EGdQLnrRAM86eD4rWA/oy/PJE9+ZZ4yPBY+JJzfEtdIBB2
+TFVHSNbG5a9JOp6AZYCQJTV11CHOjVBaoviCvcls/hx7BR7wL/QJR8KA7cgVhY7e
+ITqA3PTU5ybBGFxlulkBqSvYCjYvA30bfH7qyJYTAoGBAIfUU88/mCVoRc18ZCeQ
+pGje5MKSL19Koz8mU72ExD1q0spCOcyC9dmLM4OJ1ySnjUtqtU94H7ysw8fkhFIi
+SRcv0YeZelIERjJP/sWiYPRooqRo28rPqLF175X90/vXpTQTRIft0wG+lAxMIAxa
+Kx90GEeOLK9xm5XnJe8lyeMb
+-----END PRIVATE KEY-----`;
+
+const TEST_WSS_CERT = `-----BEGIN CERTIFICATE-----
+MIIDJzCCAg+gAwIBAgIUXnCFUJhzBzuc58UKxWfqBmPsKzgwDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MDcyMTAzMTUxN1oYDzIxMjYw
+NjI3MDMxNTE3WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQCOkGFW8mojHqN2djMmfrhXAucWteHVUQd85pLDFkNC
+6VRvxtYaMj4H0wDBX6tOw5RGz4WtngulHudCbATlu0lk++xXcwPTuEIfPjfa+LLa
+qE8zdm5OnmlPSPra0TgugdecDsD13FQu9eSyPduXD3uU74onnyvjorUZNb6O+kUM
+PgHoA38EDM7jlQ2WqxOuiOVXPmBLK+XDRuQkqN+4uIyyckE6uRH45yQt1Mn8D1tq
+k7I+yhJmsKznrjqVs6BJ2QimNgjyEpVr/D3srd2BnPTAdM1gpaAT64S7EIgh7tAg
+p2uxFlsCBfgMV+S5TGAVfXEitiJykr8DtI4N/Ni+dbghAgMBAAGjbzBtMB0GA1Ud
+DgQWBBQfl8PC473O8fVg7hDFpWn4+T46bTAfBgNVHSMEGDAWgBQfl8PC473O8fVg
+7hDFpWn4+T46bTAPBgNVHRMBAf8EBTADAQH/MBoGA1UdEQQTMBGCCWxvY2FsaG9z
+dIcEfwAAATANBgkqhkiG9w0BAQsFAAOCAQEAEg6LF/f84rFeAmMj3OcvwuPmW6ha
+mC7fxNLTtwSscPFCYLAKNqh49ylHrTYhTgyjJQ/ZI9gYzN2Y9R8nLIaEsSmCmjTA
+pPq3nQJ1XCuyph8lpoJANuhGoQbsRYqXe0bDJHipyNXrldmloXjaOmu5RL2BzhBJ
+SpimjuMSJXiKdju4XElcuH7izo6OOPNF2iVi4YJ6RMf7xV+4xGP7zGi+7zZT0b5X
+91m93to1tqR9TAjoxQLWLff8KF6yi5UtxYf8FORAL8NGjcNs8He2JEyycSnbX4eX
+zr6QeXuyE6l9wzyYalq09tF3XEiLrxH43jTgc5ixTckTjCDZ2rxl2jHKtw==
+-----END CERTIFICATE-----`;
+
 interface Fixture {
-  server: http.Server;
+  server: http.Server | https.Server;
   wss: WebSocketServer;
   baseUrl: string;
 }
 
 const fixtures: Fixture[] = [];
 
-function interpolate(template: string, vars: Map<string, string>): string {
-  return template.replace(/\{\{\s*([\w.$-]+)\s*\}\}/g, (match, name) => vars.get(name) ?? match);
-}
-
-function isJsonLiteral(value: string): boolean {
-  try {
-    JSON.parse(value);
-    return /^(?:-?\d|true$|false$|null$|\[|\{)/.test(value.trim());
-  } catch {
-    return false;
-  }
-}
-
-function interpolateJson(template: string, vars: Map<string, string>): string {
-  const phase1 = template.replace(/"(\{\{\s*[\w.$-]+\s*\}\})"/g, (match, placeholder) => {
-    const nameMatch = placeholder.match(/\{\{\s*([\w.$-]+)\s*\}\}/);
-    if (!nameMatch) return match;
-    const value = vars.get(nameMatch[1]);
-    if (value === undefined) return match;
-    return isJsonLiteral(value) ? value : `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-  });
-  return interpolate(phase1, vars);
-}
-
 function makeEnvService(vars: Record<string, string> = {}) {
   const map = new Map(Object.entries(vars));
-  return {
-    resolveVariables: vi.fn().mockResolvedValue(new Map(map)),
-    resolveVariablesWithSource: vi.fn().mockResolvedValue(
-      new Map([...map].map(([key, value]) => [key, { value, source: 'environment' }])),
-    ),
-    interpolate,
-    interpolateJson,
-    getActiveEnvironmentName: () => undefined,
-  } as any;
+  const service = new EnvironmentService({
+    globalState: { get: vi.fn().mockReturnValue(undefined) },
+    workspaceState: { get: vi.fn((_key: string, defaultValue: unknown) => defaultValue) },
+  } as any, {} as any);
+  vi.spyOn(service, 'resolveVariables').mockResolvedValue(new Map(map));
+  vi.spyOn(service, 'resolveVariablesWithSource').mockResolvedValue(
+    new Map([...map].map(([key, value]) => [key, { value, source: 'environment' }])),
+  );
+  return service;
 }
 
 function makeCollection(rootDir = process.cwd()): MissioCollection {
@@ -186,6 +213,21 @@ async function startFixture(): Promise<Fixture> {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('fixture server did not bind to a port');
   const fixture = { server, wss, baseUrl: `ws://127.0.0.1:${address.port}` };
+  fixtures.push(fixture);
+  return fixture;
+}
+
+async function startSecureFixture(): Promise<Fixture> {
+  const server = https.createServer({ key: TEST_WSS_KEY, cert: TEST_WSS_CERT });
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', ws => {
+    ws.on('message', (data, isBinary) => ws.send(data, { binary: isBinary }));
+  });
+
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('secure fixture server did not bind to a port');
+  const fixture = { server, wss, baseUrl: `wss://127.0.0.1:${address.port}` };
   fixtures.push(fixture);
   return fixture;
 }
@@ -359,6 +401,22 @@ describe('WebSocket execution lifecycle', () => {
     });
   });
 
+  it('rejects malformed binary payloads instead of decoding them lossily', async () => {
+    const client = new WebSocketClient(makeEnvService({ tenant: 'nz' }));
+
+    await expect(client.send({
+      info: { name: 'Invalid binary', type: 'websocket' },
+      websocket: {
+        url: 'ws://127.0.0.1:1/ws/echo',
+        message: { type: 'binary', data: 'ABC' },
+      },
+    }, makeCollection())).rejects.toMatchObject({
+      code: 'MISSIO_INVALID_WEBSOCKET_BINARY_DATA',
+      message: 'Binary WebSocket message data must be valid base64.',
+    });
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
   it('handles server close and explicit cancellation without leaking active sockets', async () => {
     const fixture = await startFixture();
     const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' });
@@ -421,14 +479,14 @@ describe('WebSocket execution lifecycle', () => {
         scripts: [
           {
             type: 'before-request',
-            code: 'missio.variables.set("runtimeUser", "{{runtimeUserName}}");',
+            code: 'missio.variables.set("runtimeUser", missio.variables.get("runtimeUserName"));',
           },
           {
             type: 'before-request',
             code: [
               'missio.request.headers.set("X-Demo-Client", "missio-demo");',
-              'missio.request.headers.set("X-Runtime-Header", "{{runtimeHeader}}");',
-              'missio.request.body = { user: "{{runtimeUser}}", count: Number("{{runtimeCount}}") };',
+              'missio.request.headers.set("X-Runtime-Header", missio.variables.get("runtimeHeader"));',
+              'missio.request.body = { user: missio.variables.get("runtimeUser"), count: Number(missio.variables.get("runtimeCount")) };',
             ].join('\n'),
           },
           {
@@ -583,6 +641,42 @@ describe('WebSocket execution lifecycle', () => {
       code: 'MISSIO_INVALID_WEBSOCKET_URL',
     });
     expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('surfaces server-side upgrade rejection and clears active sockets', async () => {
+    const fixture = await startFixture();
+    const client = new WebSocketClient(makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' }));
+
+    await expect(client.send({
+      info: { name: 'Rejected upgrade', type: 'websocket' },
+      websocket: { url: '{{wsBaseUrl}}/ws/reject' },
+    }, makeCollection())).rejects.toThrow(/401/);
+    expect(client.activeConnectionCount).toBe(0);
+  });
+
+  it('verifies wss certificates by default and honors rejectUnauthorized=false', async () => {
+    const fixture = await startSecureFixture();
+    const request: WebSocketRequest = {
+      info: { name: 'Secure echo', type: 'websocket' },
+      websocket: {
+        url: '{{wsBaseUrl}}',
+        message: { type: 'text', data: 'secure hello' },
+      },
+    };
+
+    const strictClient = new WebSocketClient(makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' }));
+    await expect(strictClient.send(request, makeCollection())).rejects.toThrow(/self-signed certificate/i);
+    expect(strictClient.activeConnectionCount).toBe(0);
+
+    vi.spyOn(workspace, 'getConfiguration').mockImplementation(() => ({
+      get: (key: string, defaultValue: unknown) => key === 'rejectUnauthorized' ? false : defaultValue,
+    }) as any);
+    const relaxedClient = new WebSocketClient(makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' }));
+    const response = await relaxedClient.send(request, makeCollection());
+    const inbound = JSON.parse(response.body).events.find((event: any) => event.direction === 'inbound');
+
+    expect(inbound).toMatchObject({ type: 'text', data: 'secure hello' });
+    expect(relaxedClient.activeConnectionCount).toBe(0);
   });
 });
 
@@ -1058,7 +1152,7 @@ websocket:
       {} as any,
     ));
     expect(status.session.events.find((event: any) => event.direction === 'inbound')).toMatchObject({
-      data: 'hello Ada',
+      data: '[redacted]',
     });
 
     const disconnected = JSON.parse(await sessionTool.call(

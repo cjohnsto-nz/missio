@@ -31,4 +31,3 @@ runtime:
     - expression: res.body.data.health.status
       operator: equals
       value: ok
-

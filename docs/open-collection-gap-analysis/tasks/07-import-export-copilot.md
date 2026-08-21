@@ -38,7 +38,7 @@ Finish the user-facing and agent-facing protocol surface after OC-000 through OC
 
 | Area | Work |
 | --- | --- |
-| Postman importer | Preserve scripts/events where mappable after OC-040; record unsupported mappings explicitly. |
+| Postman importer | OC-070 owns preserving mappable scripts/events after the OC-040 runtime contract lands; record unsupported mappings explicitly and cover collection, folder, and request event scopes with importer tests. |
 | OpenAPI importer | Keep HTTP semantics by default; preserve source metadata and avoid inventing GraphQL/WebSocket/gRPC requests unless source metadata truly supports it. |
 | Exporters | Add protocol-aware unsupported messages where export is not implemented and prevent silent data loss. |
 | Snippet exporter | Keep HTTP snippets working; add clear non-HTTP diagnostics or implement protocol-specific snippets if the scope remains small. |
@@ -61,7 +61,7 @@ Finish the user-facing and agent-facing protocol surface after OC-000 through OC
 | --- | --- |
 | OC-050 | If OC-050 changes auth representation or transport settings, OC-070 should update starter templates, import/export preservation, and Copilot redaction tests to match. |
 | OC-080 | If OC-080 changes runtime result shapes for WebSocket/gRPC, OC-070 should update Copilot `send_request` assertions and docs accordingly. |
-| OC-090 | If OC-090 lands first, OC-070 should include gRPC streaming method summaries in list/get/dry-run tests. |
+| OC-090 | OC-090 landed before OC-070, so list/get/dry-run coverage includes gRPC streaming method summaries. |
 | OC-100 | If OC-100 lands first, OC-070 should reuse its request type templates/conversion helpers instead of creating separate protocol starter logic. |
 
 ## Acceptance Criteria

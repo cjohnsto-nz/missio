@@ -41,7 +41,7 @@ OC-040 delivered the runtime engine and verified it through HTTP and GraphQL-ove
 | --- | --- |
 | Request mutation | Allow scripts/actions to mutate URL, metadata, message JSON, and runtime variables before unary execution. |
 | Response shape | Expose response message, response metadata, status/code, elapsed time, and errors to tests/assertions. |
-| Diagnostics | Preserve existing missing-proto, invalid-method, connection, and unsupported-streaming diagnostics. |
+| Diagnostics | Preserve missing-proto, invalid-method, connection, and streaming status/partial-history diagnostics from OC-090. |
 
 5. Extend Copilot send-request output, response provider output, and request execution result types to surface runtime results for non-HTTP protocols.
 6. Add demo fixtures:
@@ -77,5 +77,5 @@ OC-040 delivered the runtime engine and verified it through HTTP and GraphQL-ove
 
 | Area | Reason |
 | --- | --- |
-| gRPC streaming runtime lifecycle | Covered by OC-090 after streaming execution exists. |
+| gRPC streaming runtime lifecycle | Streaming execution is owned by completed task OC-090; OC-080 remains scoped to unary gRPC runtime lifecycle. |
 | Persistent interactive WebSocket session scripting | This task covers request-style exchange execution, not a long-running session debugger. |
