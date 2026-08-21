@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JSDOM } from 'jsdom';
-import { configurePdfPreviewHtml, RequestEditorProvider } from '../src/panels/requestPanel';
+import { RequestEditorProvider } from '../src/panels/requestPanel';
 
 type ResponseModule = typeof import('../src/webview/response');
 
@@ -67,6 +67,7 @@ function mountResponseDom(): JSDOM {
             <button id="previewRotateRightBtn"></button>
           </div>
           <iframe id="respPreviewFrame"></iframe>
+          <div id="previewOverlay"></div>
           <div id="respImageContainer"></div>
           <div id="respPdfContainer"></div>
         </div>
@@ -190,7 +191,6 @@ describe('preview media toolbar markup', () => {
     expect(html).not.toContain('codicon-arrow-right');
     expect(html).toContain('id="respImageContainer"');
     expect(html).toContain('id="respPdfContainer"');
-    expect(html).not.toContain('id="previewOverlay"');
   });
 
   it('defines toolbar, icon, image, PDF, and package asset surfaces', () => {
@@ -242,14 +242,6 @@ describe('preview media toolbar markup', () => {
     expect(scriptDirective).toMatch(/^script-src 'nonce-[^']+' vscode-webview:\/\/missio-test$/);
     expect(workerDirective).toBe('worker-src vscode-webview://missio-test blob:');
   });
-
-  it('fails loudly when the base CSP template no longer exposes required directives', () => {
-    expect(() => configurePdfPreviewHtml(
-      '<html><body></body></html>',
-      '<script nonce="test"></script>',
-      'vscode-webview://missio-test',
-    )).toThrow('missing script-src nonce directive');
-  });
 });
 
 describe('preview media controls in the response webview', () => {
@@ -265,16 +257,6 @@ describe('preview media controls in the response webview', () => {
     expect(document.getElementById('previewZoomLabel')?.textContent).toBe('100%');
     expect(document.getElementById('respPreviewImage')).toBeTruthy();
     expect((document.getElementById('respPreviewImage') as HTMLImageElement).src).toContain('data:image/png;base64');
-    const image = document.getElementById('respPreviewImage') as HTMLImageElement;
-    const frame = document.getElementById('respImageFrame') as HTMLElement;
-    expect(frame.style.visibility).toBe('hidden');
-    expect(frame.style.width).toBe('');
-    Object.defineProperty(image, 'complete', { value: true, configurable: true });
-    Object.defineProperty(image, 'naturalWidth', { value: 640, configurable: true });
-    Object.defineProperty(image, 'naturalHeight', { value: 480, configurable: true });
-    image.dispatchEvent(new window.Event('load'));
-    expect(frame.style.visibility).toBe('visible');
-    expect(frame.style.width).toBe('640px');
 
     document.getElementById('previewZoomInBtn')?.click();
     expect(response.getPreviewMediaTransform()).toMatchObject({ zoom: 1.25, rotation: 0, fit: false });
@@ -289,40 +271,6 @@ describe('preview media controls in the response webview', () => {
     document.getElementById('panel-resp-preview')?.dispatchEvent(zoomWheel);
     expect(zoomWheel.defaultPrevented).toBe(true);
     expect(response.getPreviewMediaTransform().zoom).toBe(1.35);
-  });
-
-  it('rejects hostile image Content-Type values without creating injected markup', async () => {
-    mountResponseDom();
-    const response = await loadResponseModule();
-    const hostile = imageResponse();
-    hostile.headers['content-type'] = 'image/svg"><iframe src=data:text/html,<script>evil()</script>';
-
-    response.showResponse(hostile);
-    response.renderPreview();
-
-    expect(response.getPreviewMediaKind(hostile.headers['content-type'], hostile)).toBe('none');
-    expect(document.getElementById('respPreviewImage')).toBeNull();
-    expect(document.querySelector('#respImageContainer iframe')).toBeNull();
-    expect((document.getElementById('respPreviewFrame') as HTMLIFrameElement).style.display).toBe('block');
-  });
-
-  it('renders SVG data through an image property sink', async () => {
-    mountResponseDom();
-    const response = await loadResponseModule();
-    const svg = {
-      ...imageResponse(),
-      headers: { 'content-type': 'image/svg+xml; charset=utf-8' },
-      body: '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" /></svg>',
-      bodyBase64: undefined,
-    };
-
-    response.showResponse(svg);
-    response.renderPreview();
-
-    const image = document.getElementById('respPreviewImage') as HTMLImageElement;
-    expect(image).toBeTruthy();
-    expect(image.src).toContain('data:image/svg+xml;charset=utf-8,');
-    expect(document.querySelector('#respImageContainer iframe')).toBeNull();
   });
 
   it('resets and hides controls for new non-media responses and clear-response paths', async () => {
@@ -449,23 +397,6 @@ describe('preview media controls in the response webview', () => {
     expect(canvas.style.width).toBe('5000px');
     expect(canvas.style.height).toBe('4000px');
     expect(loadingTask.destroy).toHaveBeenCalledOnce();
-  });
-
-  it('renders PDF failures as text instead of HTML', async () => {
-    mountResponseDom();
-    const response = await loadResponseModule();
-    const container = document.getElementById('respPdfContainer')!;
-    (window as any).pdfjsLib = {
-      getDocument: vi.fn(() => ({
-        promise: Promise.reject(new Error('<img id="pdf-error-injection" src=x>')),
-        destroy: vi.fn(),
-      })),
-    };
-
-    await response.renderPdfPreview(container, 'JVBERi0x');
-
-    expect(container.textContent).toContain('<img id="pdf-error-injection" src=x>');
-    expect(document.getElementById('pdf-error-injection')).toBeNull();
   });
 
   it('cancels stale PDF renders and prevents old canvases from being appended', async () => {

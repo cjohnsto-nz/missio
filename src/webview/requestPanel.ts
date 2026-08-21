@@ -93,6 +93,40 @@ let _selectedFileVariantIndex: number | undefined;
 type PanelProtocol = 'http' | 'graphql' | 'websocket' | 'grpc';
 let _currentProtocol: PanelProtocol = 'http';
 
+function detectPanelProtocol(req: any): PanelProtocol {
+  const detectedProtocol = detectRequestProtocol(req);
+  return detectedProtocol === 'graphql' || detectedProtocol === 'websocket' || detectedProtocol === 'grpc'
+    ? detectedProtocol
+    : 'http';
+}
+
+function setEditorHydrationState(
+  state: 'pending' | 'ready' | 'invalid',
+  protocol: PanelProtocol | 'pending' = 'pending',
+  message?: string,
+): void {
+  const shell = $('requestEditorShell');
+  const startup = $('requestStartupShell');
+  const title = $('requestStartupTitle');
+  const detail = $('requestStartupDetail');
+
+  shell.classList.toggle('is-hydrating', state === 'pending');
+  shell.classList.toggle('is-ready', state === 'ready');
+  shell.classList.toggle('is-invalid-yaml', state === 'invalid');
+  shell.dataset.hydrationState = state;
+  shell.dataset.protocol = protocol;
+  shell.setAttribute('aria-busy', state === 'pending' ? 'true' : 'false');
+
+  startup.style.display = state === 'ready' ? 'none' : 'flex';
+  if (state === 'invalid') {
+    title.textContent = 'Request YAML could not be loaded';
+    detail.textContent = message || 'Fix the YAML source and the editor will reload.';
+  } else {
+    title.textContent = 'Loading request';
+    detail.textContent = protocol === 'pending' ? 'Preparing editor...' : 'Preparing ' + protocol + ' editor...';
+  }
+}
+
 function scheduleDocumentUpdate(): void {
   if (updateDocumentTimer) clearTimeout(updateDocumentTimer);
   setUpdateDocumentTimer(setTimeout(() => {
@@ -1425,6 +1459,7 @@ function setSendingState(sending: boolean): void {
 
 // ── Save ────────────────────────────────────────
 function saveRequest(): void {
+  if ($('requestEditorShell').dataset.hydrationState !== 'ready') return;
   if (updateDocumentTimer) {
     clearTimeout(updateDocumentTimer);
     setUpdateDocumentTimer(null);
@@ -1435,14 +1470,10 @@ function saveRequest(): void {
 }
 
 // ── Load request into UI ────────────────────────
-function loadRequest(req: any): void {
+function loadRequest(req: any): PanelProtocol {
   setCurrentRequest(req);
   $('exampleIndicator').style.display = 'none';
-  const detectedProtocol = detectRequestProtocol(req);
-  const protocol: PanelProtocol =
-    detectedProtocol === 'graphql' || detectedProtocol === 'websocket' || detectedProtocol === 'grpc'
-      ? detectedProtocol
-      : 'http';
+  const protocol = detectPanelProtocol(req);
   setProtocolUi(protocol);
   const details = protocol === 'websocket'
     ? (req.websocket || {})
@@ -1574,6 +1605,7 @@ function loadRequest(req: any): void {
   $input('settingMaxRedirects').value = settings.maxRedirects !== undefined && settings.maxRedirects !== 'inherit' ? settings.maxRedirects : '5';
 
   updateBadges();
+  return protocol;
 }
 
 // ── CLI Approval Modal ───────────────────────────
@@ -1765,9 +1797,18 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'requestLoaded':
       if (ignoreNextLoad) {
         setIgnoreNextLoad(false);
-        break;
+        if ($('requestEditorShell').dataset.hydrationState === 'ready') break;
       }
-      loadRequest(msg.request);
+      try {
+        const protocol = loadRequest(msg.request);
+        setEditorHydrationState('ready', protocol);
+      } catch (error) {
+        console.error('Failed to render request editor state', error);
+        setEditorHydrationState('invalid', 'pending', 'Unable to render this request.');
+      }
+      break;
+    case 'requestLoadError':
+      setEditorHydrationState('invalid', 'pending', msg.message);
       break;
     case 'response':
       $('exampleIndicator').style.display = 'none';
