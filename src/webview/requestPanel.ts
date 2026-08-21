@@ -118,6 +118,9 @@ let _webSocketSession: WebSocketSessionSnapshot = {
   outboundCount: 0,
 };
 let _webSocketVisibleEvents: WebSocketSessionEvent[] = [];
+let _webSocketCopyResetTimer: ReturnType<typeof setTimeout> | undefined;
+let _primaryRequestActionPending = false;
+let _webSocketMessageActionPending = false;
 
 function detectPanelProtocol(req: any): PanelProtocol {
   const detectedProtocol = detectRequestProtocol(req);
@@ -195,11 +198,19 @@ function updateWebSocketControls(): void {
   const sendMessageBtn = $('wsSendBtn') as HTMLButtonElement;
   const unavailableMessage = requestActionUnavailableMessage();
   const actionsReady = unavailableMessage === undefined;
+  const primaryUnavailableMessage = unavailableMessage
+    ?? (_primaryRequestActionPending ? 'Waiting for request action' : undefined);
+  const messageUnavailableMessage = unavailableMessage
+    ?? (_webSocketMessageActionPending ? 'Waiting for WebSocket message status' : undefined);
   sendMessageBtn.style.display = isWebSocket ? '' : 'none';
   connectBtn.classList.toggle('ws-lifecycle-action', isWebSocket);
   if (!isWebSocket) {
     connectBtn.classList.remove('ws-disconnect-state');
-    setActionDisabled(connectBtn, !actionsReady, unavailableMessage ?? (_currentProtocol === 'grpc' ? 'Invoke gRPC request' : 'Send request'));
+    setActionDisabled(
+      connectBtn,
+      !actionsReady || _primaryRequestActionPending,
+      primaryUnavailableMessage ?? (_currentProtocol === 'grpc' ? 'Invoke gRPC request' : 'Send request'),
+    );
     setActionDisabled(sendMessageBtn, true, unavailableMessage ?? 'Connect WebSocket before sending a message');
     return;
   }
@@ -211,19 +222,35 @@ function updateWebSocketControls(): void {
   const canDisconnect = connecting || connected || disconnecting;
   connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';
   connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);
-  const connectTitle = unavailableMessage ?? (connecting
+  const connectTitle = primaryUnavailableMessage ?? (connecting
     ? 'Disconnect WebSocket while connecting'
     : connected
       ? 'Disconnect WebSocket'
       : disconnecting
         ? 'Disconnecting WebSocket'
         : 'Connect WebSocket');
-  setActionDisabled(connectBtn, !actionsReady || disconnecting, connectTitle);
+  setActionDisabled(connectBtn, !actionsReady || _primaryRequestActionPending || disconnecting, connectTitle);
   setActionDisabled(
     sendMessageBtn,
-    !actionsReady || !connected,
-    unavailableMessage ?? (connected ? 'Send WebSocket message' : 'Connect WebSocket before sending a message'),
+    !actionsReady || _webSocketMessageActionPending || !connected,
+    messageUnavailableMessage ?? (connected ? 'Send WebSocket message' : 'Connect WebSocket before sending a message'),
   );
+}
+
+function setPrimaryRequestActionPending(pending: boolean): void {
+  _primaryRequestActionPending = pending;
+  updateWebSocketControls();
+}
+
+function setWebSocketMessageActionPending(pending: boolean): void {
+  _webSocketMessageActionPending = pending;
+  updateWebSocketControls();
+}
+
+function clearRequestActionPending(): void {
+  _primaryRequestActionPending = false;
+  _webSocketMessageActionPending = false;
+  updateWebSocketControls();
 }
 
 function syncRuntimeTabForProtocol(): void {
@@ -250,6 +277,7 @@ function syncResponseLayoutForProtocol(): void {
     const hasResponse = !!response;
     const binaryOverlay = document.getElementById('respBinaryOverlay');
     const isBinary = !!response?.bodyBase64;
+    $('responseBar').style.display = hasResponse ? 'flex' : 'none';
     $('respTabs').style.display = hasResponse ? 'flex' : 'none';
     $('respEmpty').style.display = hasResponse ? 'none' : 'block';
     $('respBodyWrap').style.display = hasResponse && !isBinary ? 'block' : 'none';
@@ -278,20 +306,66 @@ function formatWebSocketEventTime(timestamp: string): string {
 }
 
 function setWebSocketSession(session: WebSocketSessionSnapshot): void {
+  const previousEvents = _webSocketSession.events;
+  const nextEvents = Array.isArray(session.events) ? session.events : [];
+  const visibleTracksPrevious = _webSocketVisibleEvents.length === previousEvents.length
+    && _webSocketVisibleEvents.every((event, index) => webSocketEventsEqual(event, previousEvents[index]));
+  const canAppend = previousEvents.length <= nextEvents.length
+    && previousEvents.every((event, index) => webSocketEventsEqual(event, nextEvents[index]));
+  const appendedEvents = canAppend ? nextEvents.slice(previousEvents.length) : undefined;
   _webSocketSession = {
     requestId: session.requestId,
     state: session.state || 'disconnected',
     url: session.url,
-    events: Array.isArray(session.events) ? session.events : [],
+    events: nextEvents,
     inboundCount: session.inboundCount ?? 0,
     outboundCount: session.outboundCount ?? 0,
     lastError: session.lastError,
   };
-  _webSocketVisibleEvents = _webSocketSession.events.slice();
-  renderWebSocketSession();
+  if (appendedEvents && visibleTracksPrevious) {
+    _webSocketVisibleEvents.push(...appendedEvents);
+    renderWebSocketSession(appendedEvents);
+  } else {
+    _webSocketVisibleEvents = nextEvents.slice();
+    renderWebSocketSession();
+  }
 }
 
-function renderWebSocketSession(): void {
+function webSocketEventsEqual(left: WebSocketSessionEvent, right: WebSocketSessionEvent | undefined): boolean {
+  return !!right
+    && left.timestamp === right.timestamp
+    && left.direction === right.direction
+    && left.type === right.type
+    && left.data === right.data
+    && left.closeCode === right.closeCode
+    && left.reason === right.reason;
+}
+
+function renderWebSocketHistoryRow(event: WebSocketSessionEvent): string {
+  const label = event.direction === 'outbound'
+    ? 'Sent'
+    : event.direction === 'inbound'
+      ? 'Received'
+      : event.direction === 'error'
+        ? 'Error'
+        : event.type === 'close'
+          ? 'Closed'
+          : 'Event';
+  const detail = event.type === 'close'
+    ? [event.closeCode ? String(event.closeCode) : '', event.reason || ''].filter(Boolean).join(' ')
+    : event.data ?? event.reason ?? '';
+  const time = event.timestamp ? formatWebSocketEventTime(event.timestamp) : '';
+  return [
+    '<div class="websocket-history-row websocket-history-' + event.direction + '">',
+    '<span class="websocket-history-time">' + escHtml(time) + '</span>',
+    '<span class="websocket-history-label">' + escHtml(label) + '</span>',
+    '<span class="websocket-history-type">' + escHtml(event.type) + '</span>',
+    '<code class="websocket-history-data">' + escHtml(detail) + '</code>',
+    '</div>',
+  ].join('');
+}
+
+function renderWebSocketSession(appendedEvents?: WebSocketSessionEvent[]): void {
   const panel = $('webSocketSessionPanel');
   panel.style.display = _currentProtocol === 'websocket' ? 'flex' : 'none';
   const badge = $('webSocketStateBadge');
@@ -307,32 +381,15 @@ function renderWebSocketSession(): void {
     _webSocketSession.lastError ? `Error: ${_webSocketSession.lastError}` : '',
   ].filter(Boolean).join(' · ');
 
-  if (_webSocketVisibleEvents.length === 0) {
-    history.innerHTML = '<div class="websocket-history-empty">No messages</div>';
-  } else {
-    history.innerHTML = _webSocketVisibleEvents.map((event) => {
-      const label = event.direction === 'outbound'
-        ? 'Sent'
-        : event.direction === 'inbound'
-          ? 'Received'
-          : event.direction === 'error'
-            ? 'Error'
-            : event.type === 'close'
-              ? 'Closed'
-              : 'Event';
-      const detail = event.type === 'close'
-        ? [event.closeCode ? String(event.closeCode) : '', event.reason || ''].filter(Boolean).join(' ')
-        : event.data ?? event.reason ?? '';
-      const time = event.timestamp ? formatWebSocketEventTime(event.timestamp) : '';
-      return [
-        '<div class="websocket-history-row websocket-history-' + event.direction + '">',
-        '<span class="websocket-history-time">' + escHtml(time) + '</span>',
-        '<span class="websocket-history-label">' + escHtml(label) + '</span>',
-        '<span class="websocket-history-type">' + escHtml(event.type) + '</span>',
-        '<code class="websocket-history-data">' + escHtml(detail) + '</code>',
-        '</div>',
-      ].join('');
-    }).join('');
+  if (appendedEvents === undefined) {
+    history.innerHTML = _webSocketVisibleEvents.length === 0
+      ? '<div class="websocket-history-empty">No messages</div>'
+      : _webSocketVisibleEvents.map(renderWebSocketHistoryRow).join('');
+  } else if (appendedEvents.length > 0) {
+    history.querySelector('.websocket-history-empty')?.remove();
+    history.insertAdjacentHTML('beforeend', appendedEvents.map(renderWebSocketHistoryRow).join(''));
+  }
+  if (_webSocketVisibleEvents.length > 0 && (appendedEvents === undefined || appendedEvents.length > 0)) {
     history.scrollTop = history.scrollHeight;
   }
   updateWebSocketControls();
@@ -363,7 +420,6 @@ function renderWebSocketResponse(response: any): void {
   const session = parseWebSocketResponseSession(response);
   if (session) setWebSocketSession(session);
   else renderWebSocketSession();
-  switchTab($('respTabs'), 'resp-body', respPanelIds);
   syncResponseLayoutForProtocol();
 }
 
@@ -1105,6 +1161,49 @@ function setRequestTabVisible(tabId: string, visible: boolean): void {
   if (panel) panel.style.display = visible ? '' : 'none';
 }
 
+function isGrpcStreamingMessageSequence(details: any): boolean {
+  return (details?.methodType === 'client-streaming' || details?.methodType === 'bidi-streaming')
+    && Array.isArray(details?.message);
+}
+
+function configureGrpcMessageSelector(messages: any[] | undefined, selectedIndex = 0): void {
+  const selector = $('grpcMessageSelect') as HTMLSelectElement;
+  selector.replaceChildren();
+
+  if (!messages?.length) {
+    selector.style.display = 'none';
+    selector.disabled = true;
+    return;
+  }
+
+  messages.forEach((entry, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    const description = typeof entry?.description === 'string' ? entry.description.trim() : '';
+    option.textContent = description
+      ? `Message ${index + 1} of ${messages.length}: ${description}`
+      : `Message ${index + 1} of ${messages.length}`;
+    selector.appendChild(option);
+  });
+
+  const boundedIndex = Math.min(Math.max(selectedIndex, 0), messages.length - 1);
+  selector.value = String(boundedIndex);
+  selector.style.display = '';
+  selector.disabled = false;
+}
+
+function showGrpcMessageAt(index: number): void {
+  const messages = currentRequest?.grpc?.message;
+  if (!Array.isArray(messages) || messages.length === 0) return;
+
+  const boundedIndex = Math.min(Math.max(index, 0), messages.length - 1);
+  _selectedBodyVariantIndex = boundedIndex;
+  ($('grpcMessageSelect') as HTMLSelectElement).value = String(boundedIndex);
+  const entry = messages[boundedIndex];
+  ($('bodyData') as HTMLTextAreaElement).value = typeof entry?.message === 'string' ? entry.message : '';
+  syncHighlight();
+}
+
 function setProtocolUi(protocol: PanelProtocol): void {
   _currentProtocol = protocol;
   const isGraphQL = protocol === 'graphql';
@@ -1140,6 +1239,7 @@ function setProtocolUi(protocol: PanelProtocol): void {
   }
 
   $('bodyTypePills').style.display = (isGraphQL || isWebSocket || isGrpc) ? 'none' : 'flex';
+  configureGrpcMessageSelector(undefined);
   const bodyData = $('bodyData') as HTMLTextAreaElement;
   bodyData.placeholder = isGraphQL
     ? 'query Example { viewer { id name } }'
@@ -1722,48 +1822,76 @@ function setSendingState(sending: boolean): void {
 
 // ── Save ────────────────────────────────────────
 function activatePrimaryRequestAction(): void {
-  if (!requestActionsReady()) return;
-  if (_currentProtocol === 'websocket') {
-    if (_webSocketSession.state === 'connecting' || _webSocketSession.state === 'connected') {
-      disconnectWebSocket();
-    } else if (_webSocketSession.state !== 'disconnecting') {
-      connectWebSocket();
+  if (!requestActionsReady() || _primaryRequestActionPending) return;
+  if (_currentProtocol === 'websocket' && _webSocketSession.state === 'disconnecting') return;
+  setPrimaryRequestActionPending(true);
+  try {
+    if (_currentProtocol === 'websocket') {
+      if (_webSocketSession.state === 'connecting' || _webSocketSession.state === 'connected') {
+        disconnectWebSocket();
+      } else if (_webSocketSession.state !== 'disconnecting') {
+        connectWebSocket();
+      }
+      return;
     }
-    return;
-  }
-  if (isSending) {
-    cancelRequest();
-  } else {
-    sendRequest();
+    if (isSending) {
+      cancelRequest();
+    } else {
+      sendRequest();
+    }
+  } catch (error) {
+    setPrimaryRequestActionPending(false);
+    throw error;
   }
 }
 
 function activateWebSocketSendMessageAction(): void {
-  if (!requestActionsReady() || !webSocketCanSend()) return;
-  sendWebSocketMessage();
+  if (!requestActionsReady() || !webSocketCanSend() || _webSocketMessageActionPending) return;
+  setWebSocketMessageActionPending(true);
+  try {
+    sendWebSocketMessage();
+  } catch (error) {
+    setWebSocketMessageActionPending(false);
+    throw error;
+  }
 }
 
 function bindFirstActivationButton(button: HTMLButtonElement, action: () => void): void {
   let suppressNextClick = false;
+  let suppressionResetTimer: ReturnType<typeof setTimeout> | undefined;
 
   button.addEventListener('mousedown', (event: MouseEvent) => {
     if (event.button !== 0 || button.disabled) return;
+    if (suppressionResetTimer) clearTimeout(suppressionResetTimer);
     suppressNextClick = true;
+    button.focus({ preventScroll: true });
     event.preventDefault();
-    event.stopPropagation();
     action();
+  }, true);
+
+  document.addEventListener('mouseup', (event: MouseEvent) => {
+    if (!suppressNextClick) return;
+    const target = event.target;
+    if (!(target instanceof Node) || !button.contains(target)) {
+      suppressNextClick = false;
+      return;
+    }
+    suppressionResetTimer = setTimeout(() => {
+      suppressNextClick = false;
+      suppressionResetTimer = undefined;
+    }, 0);
   }, true);
 
   button.addEventListener('click', (event: MouseEvent) => {
     if (suppressNextClick) {
+      if (suppressionResetTimer) clearTimeout(suppressionResetTimer);
+      suppressionResetTimer = undefined;
       suppressNextClick = false;
       event.preventDefault();
-      event.stopPropagation();
       return;
     }
     if (button.disabled) return;
     event.preventDefault();
-    event.stopPropagation();
     action();
   }, true);
 
@@ -1771,7 +1899,6 @@ function bindFirstActivationButton(button: HTMLButtonElement, action: () => void
     if (event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
     if (button.disabled) return;
     event.preventDefault();
-    event.stopPropagation();
     action();
   }, true);
 }
@@ -1835,9 +1962,13 @@ function loadRequest(req: any): PanelProtocol {
   ($('graphqlVariablesData') as HTMLTextAreaElement).value = '';
   const requestBody = (protocol === 'websocket' || protocol === 'grpc') ? details.message : details.body;
   if (requestBody) {
+    const grpcMessageSequence = protocol === 'grpc' && isGrpcStreamingMessageSequence(details);
     _selectedBodyVariantIndex = Array.isArray(requestBody)
-      ? Math.max(0, requestBody.findIndex((v: any) => v.selected))
+      ? (grpcMessageSequence ? 0 : Math.max(0, requestBody.findIndex((v: any) => v.selected)))
       : undefined;
+    if (grpcMessageSequence) {
+      configureGrpcMessageSelector(requestBody, _selectedBodyVariantIndex);
+    }
     const body = Array.isArray(requestBody)
       ? (protocol === 'websocket' || protocol === 'grpc'
           ? requestBody[_selectedBodyVariantIndex ?? 0]?.message
@@ -2125,6 +2256,7 @@ window.addEventListener('message', (event: MessageEvent) => {
         break;
       }
       try {
+        clearRequestActionPending();
         const protocol = loadRequest(msg.request);
         setEditorHydrationState('ready', protocol);
       } catch (error) {
@@ -2136,6 +2268,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       setEditorHydrationState('invalid', 'pending', msg.message);
       break;
     case 'response':
+      clearRequestActionPending();
       $('exampleIndicator').style.display = 'none';
       closeSearch();
       showResponse(msg.response, msg.preRequestMs, msg.timing, msg.usedOAuth2);
@@ -2146,11 +2279,13 @@ window.addEventListener('message', (event: MessageEvent) => {
       tokenStatusCtrl.requestStatus();
       break;
     case 'webSocketSession':
+      clearRequestActionPending();
       hideLoading();
       setSendingState(false);
       setWebSocketSession(msg.session as WebSocketSessionSnapshot);
       break;
     case 'webSocketConnecting':
+      setPrimaryRequestActionPending(false);
       showLoading();
       setLoadingText('Connecting WebSocket...');
       setWebSocketSession({
@@ -2162,6 +2297,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       if (msg.message) setLoadingText(msg.message);
       break;
     case 'webSocketError':
+      clearRequestActionPending();
       hideLoading();
       setSendingState(false);
       setWebSocketSession({
@@ -2171,6 +2307,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       });
       break;
     case 'sending':
+      setPrimaryRequestActionPending(false);
       if (!isSending) showLoading();
       setSendingState(true);
       if (msg.message) setLoadingText(msg.message);
@@ -2185,6 +2322,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     }
     case 'cancelled': {
+      clearRequestActionPending();
       hideLoading();
       setSendingState(false);
       $('responseBar').style.display = 'flex';
@@ -2195,6 +2333,7 @@ window.addEventListener('message', (event: MessageEvent) => {
       break;
     }
     case 'error':
+      clearRequestActionPending();
       hideLoading();
       setSendingState(false);
       break;
@@ -2329,25 +2468,32 @@ $('varToggleBtn').addEventListener('click', () => {
 $('wsClearHistoryBtn').addEventListener('click', () => {
   _webSocketVisibleEvents = [];
   renderWebSocketSession();
+  vscode.postMessage({ type: 'webSocketClearHistory' });
 });
 $('wsCopyHistoryBtn').addEventListener('click', () => {
   const text = JSON.stringify(_webSocketVisibleEvents, null, 2);
   navigator.clipboard.writeText(text).then(() => {
     const btn = $('wsCopyHistoryBtn');
-    const original = btn.textContent;
+    if (_webSocketCopyResetTimer) clearTimeout(_webSocketCopyResetTimer);
     btn.textContent = 'Copied';
-    setTimeout(() => { btn.textContent = original; }, 1200);
+    _webSocketCopyResetTimer = setTimeout(() => {
+      btn.textContent = 'Copy';
+      _webSocketCopyResetTimer = undefined;
+    }, 1200);
+  }).catch(error => {
+    console.error('Failed to copy WebSocket history', error);
+    $('wsCopyHistoryBtn').textContent = 'Copy';
   });
 });
 document.addEventListener('keydown', (e: KeyboardEvent) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault();
     if (_currentProtocol === 'websocket') {
-      if (webSocketCanSend()) sendWebSocketMessage();
-      else connectWebSocket();
+      if (webSocketCanSend()) activateWebSocketSendMessageAction();
+      else activatePrimaryRequestAction();
       return;
     }
-    sendRequest();
+    activatePrimaryRequestAction();
   }
 });
 $('showRawBtn').addEventListener('click', () => {
@@ -2533,6 +2679,18 @@ $('bodyLangMode').addEventListener('change', () => {
   updateBodyFormatterState();
   syncHighlight();
   syncAutoContentType();
+  scheduleDocumentUpdate();
+});
+$('grpcMessageSelect').addEventListener('change', () => {
+  if (_currentProtocol !== 'grpc') return;
+  const selector = $('grpcMessageSelect') as HTMLSelectElement;
+  const nextIndex = Number.parseInt(selector.value, 10);
+  if (!Number.isFinite(nextIndex)) return;
+
+  // Capture edits to the current sequence entry before replacing the textarea
+  // with the newly selected message.
+  setCurrentRequest(buildRequest());
+  showGrpcMessageAt(nextIndex);
   scheduleDocumentUpdate();
 });
 

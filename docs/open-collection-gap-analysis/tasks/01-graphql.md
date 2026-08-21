@@ -80,4 +80,3 @@ Missio has no GraphQL types, editor, executor, validation selection, tree render
 ## Out Of Scope
 
 GraphQL schema introspection, autocomplete, persisted queries, and GraphQL subscriptions should be separate follow-up tasks after basic request support lands.
-

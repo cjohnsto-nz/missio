@@ -6,4 +6,3 @@ request:
   headers:
     - name: X-Demo-Folder
       value: runtime
-

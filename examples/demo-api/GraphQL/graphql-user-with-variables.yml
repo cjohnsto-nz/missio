@@ -29,4 +29,3 @@ runtime:
     - expression: res.body.extensions.echoedVariables.id
       operator: equals
       value: "{{userId}}"
-

@@ -1060,7 +1060,7 @@
       {
         "name": "missio_websocket_session",
         "displayName": "Manage WebSocket Session",
-        "modelDescription": "Manage first-class WebSocket request lifecycle operations for an OpenCollection WebSocket request file. operation must be one of connect, send-message, disconnect, status, list-messages, or disconnect-all. Connect opens a persistent session without sending a message. Send-message sends the provided message or the selected request message over an existing connected session. Status and list-messages report current lifecycle state and recent sent, received, close, and error events. WebSocket URLs are redacted for sensitive query names.",
+        "modelDescription": "Manage first-class WebSocket request lifecycle operations for an OpenCollection WebSocket request file. operation must be one of connect, send-message, disconnect, status, list-messages, or disconnect-all. Connect opens a persistent session without sending a message. Send-message sends the provided message or the selected request message over an existing connected session. Status and list-messages report current lifecycle state and recent sent, received, close, and error events. Message payloads, close reasons, URL credentials, and all URL query values are redacted from model-visible results.",
         "userDescription": "Connect, send messages, inspect, and disconnect WebSocket sessions.",
         "toolReferenceName": "missio_websocket_session",
         "canBeReferencedInPrompt": true,
@@ -1245,6 +1245,7 @@
     "@types/vscode": "^1.85.0",
     "@types/ws": "^8.18.1",
     "@vscode/codicons": "^0.0.44",
+    "@vscode/vsce": "3.9.2",
     "ajv": "^8.17.1",
     "esbuild": "^0.20.0",
     "esbuild-plugin-copy": "^2.1.0",

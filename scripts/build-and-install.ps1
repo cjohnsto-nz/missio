@@ -62,8 +62,13 @@ try {
     $CodeCommand = $code.Source
   }
 
+  $vsceCommand = Join-Path $repoRoot 'node_modules\.bin\vsce.cmd'
+  if (-not (Test-Path -LiteralPath $vsceCommand)) {
+    throw 'The local @vscode/vsce binary was not found. Run without -SkipNpmCi to install dependencies before packaging.'
+  }
+
   Invoke-Checked 'Package VSIX (runs npm run vscode:prepublish)' {
-    npx @vscode/vsce package --out $resolvedOutputPath
+    & $vsceCommand package --out $resolvedOutputPath
   }
 
   Invoke-Checked 'Install VSIX into VS Code' {

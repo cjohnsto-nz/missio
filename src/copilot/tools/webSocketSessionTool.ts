@@ -4,6 +4,7 @@ import { ToolBase } from './toolBase';
 import type { CollectionService } from '../../services/collectionService';
 import type { EnvironmentService } from '../../services/environmentService';
 import type { RequestExecutionService } from '../../services/requestExecutionService';
+import type { WebSocketExchangeEvent, WebSocketSessionSnapshot } from '../../services/webSocketClient';
 import { readFolderFile } from '../../services/yamlParser';
 import { detectUnresolvedVars } from '../../services/unresolvedVars';
 import type { MissioCollection, RequestDefaults, WebSocketMessage, WebSocketRequest } from '../../models/types';
@@ -47,24 +48,29 @@ export class WebSocketSessionTool extends ToolBase<WebSocketSessionParams> {
 
     if (input.operation === 'status' || input.operation === 'list-messages') {
       const session = this._requestExecutionService.getWebSocketSession(requestFilePath);
+      const redactedSession = session ? redactSession(session) : undefined;
       return JSON.stringify({
         success: !!session,
         operation: input.operation,
-        session: session ? redactSession(session) : undefined,
-        messages: input.operation === 'list-messages' ? session?.events ?? [] : undefined,
+        session: redactedSession,
+        messages: input.operation === 'list-messages' ? redactedSession?.events ?? [] : undefined,
         message: session ? undefined : 'No WebSocket session exists for this request.',
       });
     }
 
     if (input.operation === 'disconnect') {
-      const response = await this._requestExecutionService.disconnectWebSocketSession(requestFilePath);
-      const session = this._requestExecutionService.getWebSocketSession(requestFilePath);
-      return JSON.stringify({
-        success: true,
-        operation: input.operation,
-        session: session ? redactSession(session) : undefined,
-        response: response ? summarizeResponse(response) : undefined,
-      });
+      try {
+        const response = await this._requestExecutionService.disconnectWebSocketSession(requestFilePath);
+        const session = this._requestExecutionService.getWebSocketSession(requestFilePath);
+        return JSON.stringify({
+          success: true,
+          operation: input.operation,
+          session: session ? redactSession(session) : undefined,
+          response: response ? summarizeResponse(response) : undefined,
+        });
+      } catch (error: any) {
+        return JSON.stringify({ success: false, operation: input.operation, message: redactDiagnostic(error?.message ?? String(error)), code: error?.code });
+      }
     }
 
     if (input.operation === 'send-message') {
@@ -72,7 +78,7 @@ export class WebSocketSessionTool extends ToolBase<WebSocketSessionParams> {
         const session = await this._requestExecutionService.sendWebSocketMessage(requestFilePath, input.message);
         return JSON.stringify({ success: true, operation: input.operation, session: redactSession(session) });
       } catch (error: any) {
-        return JSON.stringify({ success: false, operation: input.operation, message: error?.message ?? String(error), code: error?.code });
+        return JSON.stringify({ success: false, operation: input.operation, message: redactDiagnostic(error?.message ?? String(error)), code: error?.code });
       }
     }
 
@@ -107,7 +113,7 @@ export class WebSocketSessionTool extends ToolBase<WebSocketSessionParams> {
       );
       return JSON.stringify({ success: true, operation: input.operation, session: redactSession(session) });
     } catch (error: any) {
-      return JSON.stringify({ success: false, operation: input.operation, message: error?.message ?? String(error), code: error?.code });
+      return JSON.stringify({ success: false, operation: input.operation, message: redactDiagnostic(error?.message ?? String(error)), code: error?.code });
     }
   }
 
@@ -175,31 +181,48 @@ export class WebSocketSessionTool extends ToolBase<WebSocketSessionParams> {
   }
 }
 
-function redactSession<T extends { url?: string }>(session: T): T {
-  const cloned = JSON.parse(JSON.stringify(session));
-  if (typeof cloned.url === 'string') {
-    try {
-      const parsed = new URL(cloned.url);
-      for (const [name] of parsed.searchParams.entries()) {
-        const lower = name.toLowerCase();
-        if (lower.includes('token') || lower.includes('key') || lower.includes('secret') || lower.includes('password')) {
-          parsed.searchParams.set(name, '[redacted]');
-        }
-      }
-      cloned.url = parsed.toString();
-    } catch {
-      // Leave non-parseable URLs as-is.
-    }
-  }
+function redactSession(session: WebSocketSessionSnapshot): WebSocketSessionSnapshot {
+  const cloned = JSON.parse(JSON.stringify(session)) as WebSocketSessionSnapshot;
+  if (cloned.url) cloned.url = redactUrl(cloned.url);
+  cloned.events = cloned.events.map(redactEvent);
+  if (cloned.lastError) cloned.lastError = redactDiagnostic(cloned.lastError);
   return cloned;
+}
+
+function redactEvent(event: WebSocketExchangeEvent): WebSocketExchangeEvent {
+  const redacted = { ...event };
+  if (redacted.data !== undefined) {
+    redacted.data = redacted.direction === 'inbound' || redacted.direction === 'outbound'
+      ? '[redacted]'
+      : redactDiagnostic(redacted.data);
+  }
+  if (redacted.reason !== undefined) redacted.reason = '[redacted]';
+  return redacted;
+}
+
+function redactUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    if (parsed.username) parsed.username = '[redacted]';
+    if (parsed.password) parsed.password = '[redacted]';
+    for (const [name] of parsed.searchParams.entries()) {
+      parsed.searchParams.set(name, '[redacted]');
+    }
+    return parsed.toString();
+  } catch {
+    return value;
+  }
+}
+
+function redactDiagnostic(value: string): string {
+  return value.replace(/wss?:\/\/[^\s"']+/gi, match => redactUrl(match));
 }
 
 function summarizeResponse(response: import('../../models/types').HttpResponse): Record<string, unknown> {
   return {
     status: response.status,
     statusText: response.statusText,
-    headers: response.headers,
-    body: response.body.length > 10_000 ? response.body.slice(0, 10_000) + '\n... (truncated)' : response.body,
-    runtime: response.runtime,
+    duration: response.duration,
+    size: response.size,
   };
 }

@@ -66,4 +66,3 @@ Editors clone documents before editing known fields, which helps preserve unknow
 ## Coordination Notes
 
 This track can start immediately with tests. Many failing tests will document gaps before implementation tracks fix them.
-

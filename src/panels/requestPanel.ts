@@ -293,6 +293,11 @@ window.missioPdfJsReady = import('${pdfJsUri}')
         await this._disconnectWebSocket(webview, ctx);
         return true;
       }
+      case 'webSocketClearHistory': {
+        const session = this._requestExecutionService.clearWebSocketSessionHistory(ctx.document.uri.fsPath);
+        if (session) webview.postMessage({ type: 'webSocketSession', session });
+        return true;
+      }
       case 'cancelRequest': {
         this._resolvePendingPromptsOnClose();
         this._requestExecutionService.cancelAll();
@@ -1030,6 +1035,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
               <button class="pill" data-body-type="file">Binary</button>
             </div>
             <div class="body-toolbar-actions">
+              <select class="lang-select grpc-message-select" id="grpcMessageSelect" aria-label="gRPC streaming request message" title="Select a streaming request message" style="display:none;" disabled></select>
               <select class="lang-select" id="bodyLangMode">
                 <option value="json">JSON</option>
                 <option value="xml">XML</option>

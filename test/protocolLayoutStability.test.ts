@@ -161,6 +161,20 @@ function dispatchMouseActivationSequence(element: HTMLElement): void {
   element.dispatchEvent(new view.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
 }
 
+function dispatchMouseUp(element: HTMLElement): void {
+  const view = element.ownerDocument.defaultView!;
+  element.dispatchEvent(new view.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+}
+
+function dispatchGlobalSendShortcut(dom: JSDOM): void {
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    ctrlKey: true,
+    key: 'Enter',
+  }));
+}
+
 function dispatchKeyboardActivation(element: HTMLElement, key: 'Enter' | ' '): void {
   const view = element.ownerDocument.defaultView!;
   element.dispatchEvent(new view.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key }));
@@ -412,6 +426,41 @@ describe('OC-130 request editor first paint', () => {
     expect(runtimeTab.style.display).toBe('');
     expect(runtimeResults.textContent).toContain('Assertions');
     expect(runtimeResults.textContent).toContain('Expected hello equals ok');
+
+    runtimeTab.click();
+    expect(runtimeTab.className).toContain('active');
+    expect((document.getElementById('panel-resp-runtime') as HTMLElement).className).toContain('active');
+
+    dispatchPanelMessage(dom, {
+      type: 'response',
+      response: {
+        status: 101,
+        statusText: 'WebSocket Session',
+        headers: { 'content-type': 'application/json', 'x-missio-protocol': 'websocket' },
+        body: JSON.stringify({
+          protocol: 'websocket',
+          state: 'closed',
+          messageCount: 1,
+          events: [{ timestamp: '2026-06-15T01:02:04.000Z', direction: 'inbound', type: 'text', data: 'again' }],
+        }),
+        runtime: {
+          success: true,
+          summary: { passed: 1, failed: 0, skipped: 0 },
+          tests: [],
+          assertions: [{ expression: 'res.status', operator: 'equals', expected: 101, actual: 101, passed: true }],
+          actions: [],
+          variableMutations: [],
+          logs: [],
+          errors: [],
+        },
+        duration: 14,
+        size: 0,
+      },
+    });
+
+    expect(runtimeTab.className).toContain('active');
+    expect((document.getElementById('panel-resp-runtime') as HTMLElement).className).toContain('active');
+    expect((document.getElementById('panel-resp-body') as HTMLElement).className).not.toContain('active');
   });
 
   it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('restores normal response layout when switching from WebSocket to %s', async (protocol) => {
@@ -442,6 +491,7 @@ describe('OC-130 request editor first paint', () => {
 
     expect(document.getElementById('responseSection')?.className).not.toContain('websocket-response-tabs');
     expect(document.querySelector<HTMLElement>('#respTabs [data-tab="resp-body"]')?.textContent).toBe('Body');
+    expect((document.getElementById('responseBar') as HTMLElement).style.display).toBe('flex');
     expect((document.getElementById('respTabs') as HTMLElement).style.display).toBe('flex');
     expect((document.getElementById('respEmpty') as HTMLElement).style.display).toBe('none');
     expect((document.getElementById('respBodyWrap') as HTMLElement).style.display).toBe('block');
@@ -506,6 +556,51 @@ describe('OC-130 request editor first paint', () => {
   });
 });
 
+describe('gRPC streaming message authoring', () => {
+  it.each(['client-streaming', 'bidi-streaming'])('selects, edits, and saves every message in a %s sequence', async (methodType) => {
+    const { dom, messages } = await loadRequestPanel();
+    const request = requestForProtocol('grpc');
+    request.grpc.methodType = methodType;
+    request.grpc.message = [
+      { description: 'First streamed user', message: '{"name":"Ada"}' },
+      { description: 'Second streamed user', message: '{"name":"Grace"}' },
+    ];
+
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request, filePath: `${methodType}.yml` });
+
+    const selector = document.getElementById('grpcMessageSelect') as HTMLSelectElement;
+    const body = document.getElementById('bodyData') as HTMLTextAreaElement;
+    expect(selector.style.display).toBe('');
+    expect(selector.disabled).toBe(false);
+    expect(Array.from(selector.options).map(option => option.textContent)).toEqual([
+      'Message 1 of 2: First streamed user',
+      'Message 2 of 2: Second streamed user',
+    ]);
+    expect(body.value).toBe('{"name":"Ada"}');
+
+    body.value = '{"name":"Augusta"}';
+    selector.value = '1';
+    selector.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    expect(body.value).toBe('{"name":"Grace"}');
+
+    body.value = '{"name":"Katherine"}';
+    const beforeSave = messages.length;
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
+      key: 's',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    const saved = messagesOfType(messages, 'saveDocument', beforeSave);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].request.grpc.message).toEqual([
+      { description: 'First streamed user', message: '{"name":"Augusta"}' },
+      { description: 'Second streamed user', message: '{"name":"Katherine"}' },
+    ]);
+  });
+});
+
 describe('OC-170 request action first-click reliability', () => {
   it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('fires %s Send on the first mouse-down after hydration', async (protocol) => {
     const { dom, messages } = await loadRequestPanel();
@@ -532,6 +627,9 @@ describe('OC-170 request action first-click reliability', () => {
     const sent = messagesOfType(messages, 'sendRequest', beforeAction);
 
     expect(sent).toHaveLength(1);
+    expect(document.activeElement).toBe(sendBtn);
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.title).toBe('Waiting for request action');
     expect(sent[0].request.info.type).toBe(protocol);
     if (protocol === 'graphql') {
       expect(sent[0].request.graphql.body.query).toBe('query EditedFirstClick { health { status } }');
@@ -593,6 +691,84 @@ describe('OC-170 request action first-click reliability', () => {
     expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
   });
 
+  it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('prevents duplicate %s Send before host acknowledgement', async (protocol) => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
+    const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+
+    const beforeAction = messages.length;
+    dispatchMouseDown(sendBtn);
+    dispatchMouseDown(sendBtn);
+    dispatchGlobalSendShortcut(dom);
+
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+    expect(sendBtn.disabled).toBe(true);
+
+    dispatchPanelMessage(dom, { type: 'sending' });
+    expect(sendBtn.disabled).toBe(false);
+    expect(sendBtn.textContent).toBe('Cancel');
+  });
+
+  it('prevents duplicate WebSocket lifecycle and message actions before host acknowledgement', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+    const lifecycleBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+    const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
+
+    let beforeAction = messages.length;
+    dispatchMouseDown(lifecycleBtn);
+    dispatchMouseDown(lifecycleBtn);
+    expect(messagesOfType(messages, 'webSocketConnect', beforeAction)).toHaveLength(1);
+
+    dispatchPanelMessage(dom, {
+      type: 'webSocketSession',
+      session: { requestId: 'websocket.yml', state: 'connected', events: [], inboundCount: 0, outboundCount: 0 },
+    });
+
+    beforeAction = messages.length;
+    dispatchMouseDown(sendMessageBtn);
+    dispatchMouseDown(sendMessageBtn);
+    dispatchGlobalSendShortcut(dom);
+    expect(messagesOfType(messages, 'webSocketSendMessage', beforeAction)).toHaveLength(1);
+
+    beforeAction = messages.length;
+    dispatchMouseDown(lifecycleBtn);
+    dispatchMouseDown(lifecycleBtn);
+    expect(messagesOfType(messages, 'webSocketDisconnect', beforeAction)).toHaveLength(1);
+  });
+
+  it('preserves button focus and event propagation for mouse activation', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('http'), filePath: 'http.yml' });
+    const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+    const mouseDown = vi.fn();
+    const click = vi.fn();
+    document.addEventListener('mousedown', mouseDown);
+    document.addEventListener('click', click);
+
+    const beforeAction = messages.length;
+    dispatchMouseActivationSequence(sendBtn);
+
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+    expect(document.activeElement).toBe(sendBtn);
+    expect(mouseDown).toHaveBeenCalledTimes(1);
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears abandoned click suppression when mouse-up occurs outside the button', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('http'), filePath: 'http.yml' });
+    const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+
+    dispatchMouseDown(sendBtn);
+    dispatchMouseUp(document.body);
+    dispatchPanelMessage(dom, { type: 'error' });
+
+    const beforeAction = messages.length;
+    sendBtn.click();
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+  });
+
   it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('supports keyboard activation for %s Send', async (protocol) => {
     const { dom, messages } = await loadRequestPanel();
     dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
@@ -602,6 +778,8 @@ describe('OC-170 request action first-click reliability', () => {
     dispatchKeyboardActivation(sendBtn, 'Enter');
     expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
 
+    dispatchPanelMessage(dom, { type: 'sending' });
+    dispatchPanelMessage(dom, { type: 'cancelled' });
     beforeAction = messages.length;
     dispatchKeyboardActivation(sendBtn, ' ');
     expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);

@@ -505,14 +505,15 @@ describe('gRPC execution', () => {
         scripts: [
           {
             type: 'before-request' as const,
-            code: 'missio.variables.set("grpcRuntimeName", "{{grpcRuntimeNameSeeded}}");',
+            code: 'missio.variables.set("grpcRuntimeName", missio.variables.get("grpcRuntimeNameSeeded"));',
           },
           {
             type: 'before-request' as const,
             code: [
-              'missio.variables.set("grpcRuntimeTrace", "runtime-{{grpcRequestId}}");',
-              'missio.request.metadata.set("x-demo-request", "script-{{grpcRequestId}}");',
-              'missio.request.body = { name: "{{grpcRuntimeName}}", userId: Number("{{grpcRuntimeUserId}}"), trace: { requestId: "{{grpcRuntimeTrace}}" } };',
+              'const grpcRequestId = missio.variables.get("grpcRequestId");',
+              'missio.variables.set("grpcRuntimeTrace", `runtime-${grpcRequestId}`);',
+              'missio.request.metadata.set("x-demo-request", `script-${grpcRequestId}`);',
+              'missio.request.body = { name: missio.variables.get("grpcRuntimeName"), userId: Number(missio.variables.get("grpcRuntimeUserId")), trace: { requestId: missio.variables.get("grpcRuntimeTrace") } };',
             ].join('\n'),
           },
           {

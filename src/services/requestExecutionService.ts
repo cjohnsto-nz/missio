@@ -83,6 +83,7 @@ interface WebSocketRequestClient {
   ): Promise<WebSocketSessionSnapshot>;
   disconnectSession(requestId: string, reason?: string): Promise<HttpResponse | undefined>;
   disconnectAllSessions(): void;
+  clearSessionEvents(requestId: string): WebSocketSessionSnapshot | undefined;
   listSessions(options?: { includeClosed?: boolean }): WebSocketSessionSnapshot[];
   getSession(requestId: string): WebSocketSessionSnapshot | undefined;
 }
@@ -108,7 +109,13 @@ export class RequestExecutionService {
     private readonly _webSocketClient?: WebSocketRequestClient,
     private readonly _grpcClient?: GrpcRequestClient,
     private readonly _runtimeExecutionService = new RuntimeExecutionService(),
-  ) {}
+  ) {
+    this._webSocketClient?.onDidChangeSession?.(session => {
+      if (session.state === 'closed' || session.state === 'error') {
+        this._webSocketRuntimeSessions.delete(session.requestId);
+      }
+    });
+  }
 
   async buildResolvedRequest(
     request: OpenCollectionRequest,
@@ -120,7 +127,13 @@ export class RequestExecutionService {
     options?: { includeAuth?: boolean; includeBody?: boolean },
   ): Promise<ResolvedRequest> {
     if (isHttpRequest(request)) {
-      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(request, extraVariables);
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(
+        request,
+        collection,
+        folderDefaults,
+        extraVariables,
+        environmentName,
+      );
       return this._httpClient.buildResolvedRequest(
         request,
         collection,
@@ -133,7 +146,13 @@ export class RequestExecutionService {
     }
     if (isGraphQLRequest(request)) {
       const httpRequest = buildGraphQLHttpRequest(request);
-      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(httpRequest, extraVariables);
+      const runtimeVariables = await this._runtimeExecutionService.buildRequestVariableOverrides(
+        httpRequest,
+        collection,
+        folderDefaults,
+        extraVariables,
+        environmentName,
+      );
       return this._httpClient.buildResolvedRequest(
         httpRequest,
         collection,
@@ -157,6 +176,10 @@ export class RequestExecutionService {
 
   getWebSocketSession(requestId: string): WebSocketSessionSnapshot | undefined {
     return this._webSocketClient?.getSession(requestId);
+  }
+
+  clearWebSocketSessionHistory(requestId: string): WebSocketSessionSnapshot | undefined {
+    return this._webSocketClient?.clearSessionEvents(requestId);
   }
 
   async connectWebSocket(

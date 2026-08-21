@@ -31,4 +31,3 @@ runtime:
     - expression: res.body.extensions.operation
       operator: equals
       value: mutation
-

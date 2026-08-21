@@ -2,7 +2,7 @@ info:
   name: mTLS Secure
   type: http
   seq: 4
-  description: Run `node examples/demo-api/mtls-server.js` and set `missio.rejectUnauthorized` to false for this self-signed local fixture.
+  description: Run `node examples/demo-api/mtls-server.js` in a dedicated local-only workspace. Because `missio.rejectUnauthorized` is global, set it to false only for this self-signed fixture and restore it to true before sending requests to external hosts.
 http:
   method: GET
   url: "{{mtlsBaseUrl}}/secure"
