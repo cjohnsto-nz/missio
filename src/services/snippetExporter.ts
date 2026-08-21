@@ -1,5 +1,7 @@
 import { HTTPSnippet, type HarRequest } from 'httpsnippet';
 import type { ResolvedRequest } from './httpClient';
+import type { OpenCollectionRequest, RequestProtocol } from '../models/types';
+import { getItemKind } from '../models/types';
 
 /** A single export target (target + client combination). */
 export interface ExportTarget {
@@ -11,6 +13,23 @@ export interface ExportTarget {
   ext: string;
   /** highlight.js language identifier */
   lang: string;
+}
+
+export interface UnsupportedSnippetDiagnostic {
+  code: 'MISSIO_UNSUPPORTED_SNIPPET_EXPORT';
+  protocol: RequestProtocol | 'unknown';
+  protocolName: string;
+  supportedProtocols: RequestProtocol[];
+  message: string;
+}
+
+export class UnsupportedSnippetExportError extends Error {
+  readonly code = 'MISSIO_UNSUPPORTED_SNIPPET_EXPORT';
+
+  constructor(public readonly diagnostic: UnsupportedSnippetDiagnostic) {
+    super(diagnostic.message);
+    this.name = 'UnsupportedSnippetExportError';
+  }
 }
 
 /**
@@ -78,6 +97,35 @@ export const EXPORT_TARGETS: ExportTarget[] = [
 /** Look up an export target by composite ID. */
 export function findTarget(id: string): ExportTarget | undefined {
   return EXPORT_TARGETS.find(t => t.id === id);
+}
+
+export function getUnsupportedSnippetDiagnostic(request: OpenCollectionRequest | unknown): UnsupportedSnippetDiagnostic {
+  const kind = getItemKind(request);
+  const protocol = kind === 'graphql' || kind === 'websocket' || kind === 'grpc' || kind === 'http'
+    ? kind
+    : 'unknown';
+  const protocolName = protocolLabel(protocol);
+  return {
+    code: 'MISSIO_UNSUPPORTED_SNIPPET_EXPORT',
+    protocol,
+    protocolName,
+    supportedProtocols: ['http'],
+    message: `${protocolName} snippet export is not implemented. Missio can export HTTP snippets; use dry run or send_request to inspect the resolved ${protocolName} request without losing protocol-specific fields.`,
+  };
+}
+
+export function throwUnsupportedSnippetExport(request: OpenCollectionRequest | unknown): never {
+  throw new UnsupportedSnippetExportError(getUnsupportedSnippetDiagnostic(request));
+}
+
+function protocolLabel(protocol: RequestProtocol | 'unknown'): string {
+  switch (protocol) {
+    case 'http': return 'HTTP';
+    case 'graphql': return 'GraphQL';
+    case 'websocket': return 'WebSocket';
+    case 'grpc': return 'gRPC';
+    default: return 'OpenCollection';
+  }
 }
 
 // httpsnippet's internal prepare() uses Node's legacy url.parse(), which

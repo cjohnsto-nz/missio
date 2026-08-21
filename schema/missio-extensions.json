@@ -20,6 +20,10 @@
     {
       "extension": "gRPC streaming message sequences",
       "reason": "The upstream schema defines GrpcRequestMessage but does not wire ordered request-message arrays into GrpcRequestDetails.message. Missio supports client-streaming and bidirectional-streaming by accepting ordered GrpcRequestMessage arrays while preserving the upstream unary string and message-variant shapes."
+    },
+    {
+      "extension": "non-HTTP runtime actions and WebSocket assertions",
+      "reason": "Missio runs the same scripts, assertions, tests, and set-variable actions across supported protocol executors. The upstream schema omits some runtime lifecycle fields from WebSocket and gRPC runtime objects, so Missio extends them for protocol parity."
     }
   ],
   "definitions": {
@@ -183,6 +187,39 @@
               "$ref": "#/$defs/GrpcMessageSequence"
             }
           ]
+        }
+      }
+    },
+    {
+      "description": "Allow runtime actions on gRPC requests",
+      "target": "$defs/GrpcRequestRuntime/properties",
+      "properties": {
+        "actions": {
+          "type": "array",
+          "description": "Array of runtime actions",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        }
+      }
+    },
+    {
+      "description": "Allow assertions and runtime actions on WebSocket requests",
+      "target": "$defs/WebSocketRequestRuntime/properties",
+      "properties": {
+        "assertions": {
+          "type": "array",
+          "description": "Array of assertions for response validation",
+          "items": {
+            "$ref": "#/$defs/Assertion"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "description": "Array of runtime actions",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
         }
       }
     }

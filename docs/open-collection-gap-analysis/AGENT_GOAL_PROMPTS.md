@@ -64,6 +64,12 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 /goal Complete OC-080 runtime lifecycle support for WebSocket and unary gRPC using $missio-agent-coordination, $missio-runtime-implementer, and $missio-demo-server-fixtures without stopping until before/after scripts, assertions, tests, actions, runtime variable mutation, response UI/tool output, local demo WebSocket and gRPC runtime fixtures, AGENT_PROGRESS updates, and complete automated unit, integration, security, failure-path, and cleanup tests are implemented and passing.
 ```
 
+## Runtime Authoring UX
+
+```text
+/goal Complete OC-110 runtime authoring UX using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until the visual request editor can create, edit, disable, reorder, and remove runtime scripts, tests, assertions, and set-variable actions; preserves schema-valid YAML for HTTP, GraphQL, WebSocket, and gRPC requests; includes user-verifiable demo guidance; updates AGENT_PROGRESS; and complete automated editor, model, validation, round-trip, and regression tests are implemented and passing.
+```
+
 ## gRPC Streaming
 
 ```text
@@ -73,5 +79,5 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## Final Integration
 
 ```text
-/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-100 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-110 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
 ```

@@ -1,0 +1,51 @@
+info:
+  name: WebSocket runtime lifecycle
+  type: websocket
+  seq: 6
+websocket:
+  url: "{{wsBaseUrl}}/ws/auth"
+  message:
+    type: json
+    data: '{"user":"before-runtime","count":0}'
+runtime:
+  auth:
+    type: bearer
+    token: "{{demoToken}}"
+  variables:
+    - name: runtimeSocketCount
+      value: "7"
+  scripts:
+    - type: before-request
+      code: |-
+        missio.variables.set("runtimeSocketUser", "Ada Runtime");
+        missio.request.headers.set("X-Demo-Client", "missio-demo");
+        missio.request.headers.set("X-Runtime-Header", "scripted-websocket");
+        missio.request.body = {
+          user: missio.variables.get("runtimeSocketUser"),
+          count: Number(missio.variables.get("runtimeSocketCount"))
+        };
+    - type: after-response
+      code: |-
+        const inbound = response.json().events.find(event => event.direction === "inbound");
+        const payload = JSON.parse(inbound.data);
+        const message = payload.message.value || payload.message;
+        console.log("runtime websocket user", message.user);
+    - type: tests
+      code: |-
+        const inbound = response.json().events.find(event => event.direction === "inbound");
+        const payload = JSON.parse(inbound.data);
+        const message = payload.message.value || payload.message;
+        test("runtime websocket message echoed", () => assert(message.user === "Ada Runtime"));
+  assertions:
+    - expression: res.body.messageCount
+      operator: equals
+      value: "1"
+  actions:
+    - type: set-variable
+      selector:
+        method: jsonq
+        expression: $.messageCount
+      variable:
+        scope: runtime
+        name: runtimeSocketMessages
+docs: Run `node examples/demo-api/server.js`, select the LOCAL environment, then send this request to see WebSocket before/after scripts, assertions, tests, and set-variable actions.

@@ -6,7 +6,7 @@ import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollect
 import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { requestLog, type ResolvedRequest } from '../services/httpClient';
 import type { RequestExecutionService } from '../services/requestExecutionService';
-import { exportRequest, findTarget, EXPORT_TARGETS } from '../services/snippetExporter';
+import { exportRequest, findTarget, EXPORT_TARGETS, getUnsupportedSnippetDiagnostic } from '../services/snippetExporter';
 import { resolveFileVariantToBuffer } from '../services/fileBodyHelper';
 import type { CollectionService } from '../services/collectionService';
 import type { EnvironmentService } from '../services/environmentService';

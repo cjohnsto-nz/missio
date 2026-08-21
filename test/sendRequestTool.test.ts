@@ -305,6 +305,58 @@ describe('SendRequestTool runtime output', () => {
     expect(parsed.stream.receivedMessageCount).toBe(2);
   });
 
+  it('includes WebSocket runtime output in successful non-HTTP responses', async () => {
+    const collection = makeCollection();
+    const tool = new SendRequestTool(
+      {
+        loadRequestFile: async () => ({
+          info: { name: 'Runtime socket', type: 'websocket' },
+          websocket: { url: 'ws://127.0.0.1/socket' },
+        }),
+        getCollection: () => collection,
+        getCollections: () => [collection],
+      } as any,
+      {
+        resolveVariables: async () => new Map<string, string>(),
+      } as any,
+      {
+        send: async () => ({
+          status: 101,
+          statusText: 'WebSocket Exchange',
+          headers: { 'x-missio-protocol': 'websocket' },
+          body: '{"protocol":"websocket","messageCount":1}',
+          duration: 3,
+          size: 41,
+          runtime: {
+            success: true,
+            summary: { passed: 2, failed: 0, skipped: 0 },
+            logs: [{ phase: 'after-response', level: 'log', message: 'socket ok' }],
+            tests: [{ name: 'socket echoed', passed: true }],
+            assertions: [{ expression: 'res.body.messageCount', operator: 'equals', expected: '1', actual: 1, passed: true }],
+            actions: [],
+            variableMutations: [{ scope: 'runtime', name: 'socketToken', value: 'ok', source: 'script' }],
+            errors: [],
+          },
+        }),
+      } as any,
+    );
+
+    const output = await tool.call(
+      {
+        input: {
+          requestFilePath: '/tmp/socket.yml',
+          collectionId: 'collection-1',
+        },
+      } as any,
+      {} as any,
+    );
+
+    const parsed = JSON.parse(output);
+    expect(parsed.protocol).toBe('websocket');
+    expect(parsed.runtime.summary.passed).toBe(2);
+    expect(parsed.runtime.logs[0].message).toBe('socket ok');
+  });
+
   it('returns runtime diagnostics when before-request scripts abort execution', async () => {
     const collection = makeCollection();
     const runtime = {
