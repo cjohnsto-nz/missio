@@ -62,6 +62,7 @@ Finish the user-facing and agent-facing protocol surface after OC-000 through OC
 | OC-050 | If OC-050 changes auth representation or transport settings, OC-070 should update starter templates, import/export preservation, and Copilot redaction tests to match. |
 | OC-080 | If OC-080 changes runtime result shapes for WebSocket/gRPC, OC-070 should update Copilot `send_request` assertions and docs accordingly. |
 | OC-090 | If OC-090 lands first, OC-070 should include gRPC streaming method summaries in list/get/dry-run tests. |
+| OC-100 | If OC-100 lands first, OC-070 should reuse its request type templates/conversion helpers instead of creating separate protocol starter logic. |
 
 ## Acceptance Criteria
 

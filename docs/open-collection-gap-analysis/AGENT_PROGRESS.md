@@ -66,7 +66,8 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-060 | Schema round-trip and validation | Done | Codex | feature/oc-060-schema-roundtrip-validation (sc), stacked on feature/oc-000-foundation-dispatch (fo); implementation commit `166c297` | Add golden no-op editor/serializer round-trip tests for schema-valid HTTP, GraphQL, WebSocket, gRPC, folder, environment, and collection fixtures; add validation tests proving protocol-aware request subschema selection, workspace validation in collection reports, protocol-labelled diagnostics, unknown-field preservation, and non-HTTP files not gaining `http` keys. Run targeted validation/editor/service tests plus existing touched HTTP/import-export/editor regressions. | `npx vitest run test/schemaRoundTrip.test.ts test/validationService.test.ts` passed (8 tests); `npm test` passed (15 files, 341 tests); `npm run compile` passed; `npm run build` passed. | 2026-06-14 22:30 NZT | OC-060 complete and committed; no OC-060-owned unassigned changes remain after implementation commit. |
 | OC-070 | Request creation, import/export, snippet, and Copilot surface polish | Unclaimed | - | - | - | - | - | Start after OC-050 if auth/transport templates matter; otherwise can begin with baseline audit and request creation. |
 | OC-080 | Runtime lifecycle for WebSocket and unary gRPC | Unclaimed | - | - | - | - | - | Start after OC-040 and protocol executors; coordinate with OC-070 if Copilot runtime output changes. |
-| OC-090 | gRPC streaming | Unclaimed | - | - | - | - | - | Start after OC-030; coordinate with OC-080 for runtime parity and with OC-070 for tooling summaries. |
+| OC-090 | gRPC streaming | In Progress | Codex | feature/oc-090-grpc-streaming (am), stacked on applied OC-030 unary/protobuf work | Add fixture-backed tests for schema-native client-streaming, server-streaming, and bidi-streaming message sequences; gRPC method discovery for request/response streaming; metadata/auth/default preservation; validation diagnostics for invalid streaming payloads/methods/proto symbols; cancellation/timeout cleanup and partial-error retention; response provider/UI and Copilot tool streaming summaries; demo collection validation; regression coverage for unary gRPC and shared protocol dispatch. Run focused gRPC/round-trip/validation/tool/provider tests, demo fixture smoke tests, compile, full test, build, and demo collection validation. | Pending | 2026-06-14 23:55 NZT | Inspect current gRPC client/model/editor/tooling/test fixtures, then add streaming fixtures and failing coverage before implementation. |
+| OC-100 | Request type UX | Unclaimed | - | - | - | - | - | Start after OC-050 if auth/template fields are changing; can otherwise run as a focused editor/command UX task after OC-090 files settle. |
 
 ## Dependency Map
 
@@ -82,6 +83,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-070 | OC-000 type guards, protocol executors; OC-050 if auth/template surfaces change | User/agent surface completeness |
 | OC-080 | OC-040 runtime engine, OC-020 WebSocket executor, OC-030 gRPC unary executor | Runtime parity for supported protocols |
 | OC-090 | OC-030 gRPC unary/protobuf support | Full gRPC protocol compatibility |
+| OC-100 | OC-000 type guards, OC-010/OC-020/OC-030 protocol editor foundations; OC-050 if auth/template fields change | Request creation and conversion UX completeness |
 
 ## Shared Decisions
 
@@ -96,6 +98,13 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 ## Task Logs
 
 ### Supervisor Reports
+
+- 2026-06-15 00:02 NZT - Codex: Added OC-100 as a focused request type UX task.
+  GitButler: planning update is on `supervisor/add-request-type-ux-task`, stacked on `supervisor/add-oc080-oc090-tasks`; existing OC-050 and OC-090 implementation changes remain uncommitted and were not edited.
+  Coverage: documentation-only planning change; no runtime behavior changed.
+  Changed: `docs/open-collection-gap-analysis/README.md`, `AGENT_GOAL_PROMPTS.md`, `AGENT_PROGRESS.md`, `tasks/07-import-export-copilot.md`, and `tasks/10-request-type-ux.md`.
+  Verified: `rg "OC-100|request type UX|Request Type UX" docs/open-collection-gap-analysis` confirmed the task board, prompts, README, OC-070 dependency note, and task page references are present; GitButler commit pending.
+  Next: launch OC-100 as a focused editor/schema UX task once current OC-050/OC-090 file churn is low enough, or keep it queued behind OC-070 if import/export scope needs to share request templates.
 
 - 2026-06-14 23:49 NZT - Codex: Added follow-up task definitions for the residual OpenCollection gaps and refreshed OC-070.
   GitButler: planning update is on `supervisor/add-oc080-oc090-tasks`, stacked on `supervisor/oc-010-040-audit`; OC-050 is already claimed on `feature/oc-050-auth-transport` and was left untouched.
@@ -263,5 +272,14 @@ No updates yet.
 No updates yet.
 
 ### OC-090 gRPC Streaming
+
+- 2026-06-14 23:55 NZT - Codex: Claimed OC-090 and recorded the coverage plan before implementation.
+  GitButler: feature/oc-090-grpc-streaming (am); `but status -fv` shows parallel unassigned OC-050-auth-looking edits in `src/models/types.ts`, `src/services/oauth2Service.ts`, and `src/services/oauth2TokenHelper.ts`, which must be preserved unless a specific dependency emerges.
+  Coverage: planned automated tests for schema-native client-streaming, server-streaming, and bidirectional-streaming message sequences; method discovery and validation; metadata/auth/default inheritance; streaming execution against local gRPC fixtures; cancellation, timeout, cleanup, and partial-error diagnostics; response UI/provider and Copilot tool streaming summaries; demo request validation/smoke coverage; unary gRPC and shared protocol regressions.
+  Changed: `docs/open-collection-gap-analysis/AGENT_PROGRESS.md`.
+  Verified: `but status -fv`, OC-090 task page, OC-030 task page, demo server, and demo collection review completed; implementation tests not run yet.
+  Next: inspect gRPC client, request execution, models, panel/tool output, validation, demo proto/server, and current tests before adding streaming fixtures and implementation.
+
+### OC-100 Request Type UX
 
 No updates yet.
