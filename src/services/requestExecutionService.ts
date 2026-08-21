@@ -23,7 +23,7 @@ export interface UnsupportedProtocolDiagnostic {
   code: 'MISSIO_UNSUPPORTED_PROTOCOL';
   protocol: Exclude<RequestProtocol, 'http'> | 'unknown';
   protocolName: string;
-  taskId?: 'OC-010' | 'OC-020' | 'OC-030' | 'OC-080';
+  taskId?: 'OC-010' | 'OC-020' | 'OC-030';
   message: string;
 }
 
@@ -224,17 +224,7 @@ export class RequestExecutionService {
 
     if (isGrpcRequest(request) && this._grpcClient) {
       const grpcMethodType = request.grpc?.methodType ?? 'unary';
-      const hasRuntimeWork = this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults);
-      if (grpcMethodType !== 'unary' && hasRuntimeWork) {
-        throw new UnsupportedProtocolError({
-          code: 'MISSIO_UNSUPPORTED_PROTOCOL',
-          protocol: 'grpc',
-          protocolName: 'gRPC',
-          taskId: 'OC-080',
-          message: `Missio does not execute runtime scripts, assertions, tests, or actions for ${grpcMethodType} gRPC requests. The streaming request was not sent.`,
-        });
-      }
-      if (grpcMethodType === 'unary' && hasRuntimeWork) {
+      if (grpcMethodType === 'unary' && this._runtimeExecutionService.hasRuntimeWork(request, collection, folderDefaults)) {
         const prepared = await this._runtimeExecutionService.prepareGrpcRequest(
           request,
           collection,
@@ -325,8 +315,7 @@ export function getUnsupportedProtocolDiagnostic(request: OpenCollectionRequest)
 }
 
 function isCancellationError(error: unknown): boolean {
-  return error instanceof Error
-    && (error as Error & { code?: unknown }).code === 'MISSIO_REQUEST_CANCELLED';
+  return error instanceof Error && /request cancelled/i.test(error.message);
 }
 
 function buildProtocolErrorResponse(protocol: 'websocket' | 'grpc', error: unknown, duration: number): HttpResponse {
