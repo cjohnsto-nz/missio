@@ -1,0 +1,8 @@
+info:
+  name: gRPC
+  type: folder
+request:
+  metadata:
+    - name: x-demo-folder
+      value: folder-{{grpcRequestId}}
+docs: Run `node examples/demo-api/grpc-server.js` before sending these local gRPC requests.

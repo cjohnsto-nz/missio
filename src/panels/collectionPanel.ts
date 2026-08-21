@@ -191,6 +191,7 @@ export class CollectionEditorProvider extends BaseEditorProvider {
       <div class="tab" data-tab="headers">Headers <span class="badge" id="headersBadge">0</span></div>
       <div class="tab" data-tab="variables">Variables <span class="badge" id="variablesBadge">0</span></div>
       <div class="tab" data-tab="environments">Environments <span class="badge" id="envBadge">0</span></div>
+      <div class="tab" data-tab="protobuf">Protobuf <span class="badge" id="protobufBadge">0</span></div>
       <div class="tab" data-tab="secrets">Secrets <span class="badge" id="secretsBadge">0</span></div>
     </div>
     <div class="tab-content">
@@ -271,6 +272,28 @@ export class CollectionEditorProvider extends BaseEditorProvider {
           <button class="env-toolbar-btn env-toolbar-delete" id="removeEnvBtn" title="Remove Environment"><span class="codicon codicon-trash"></span></button>
         </div>
         <div id="envDetail"></div>
+      </div>
+
+      <!-- Protobuf -->
+      <div class="tab-panel" id="panel-protobuf">
+        <div class="auth-section">
+          <div class="form-title">Proto Files</div>
+          <table class="kv-table" id="protoFilesTable">
+            <colgroup><col><col style="width:32px"></colgroup>
+            <thead><tr><th>Path</th><th></th></tr></thead>
+            <tbody id="protoFilesBody"></tbody>
+          </table>
+          <button class="add-row-btn" id="addProtoFileBtn">+ Add Proto File</button>
+        </div>
+        <div class="auth-section" style="margin-top:16px;">
+          <div class="form-title">Import Paths</div>
+          <table class="kv-table" id="protoImportPathsTable">
+            <colgroup><col style="width:32px"><col><col style="width:32px"></colgroup>
+            <thead><tr><th></th><th>Path</th><th></th></tr></thead>
+            <tbody id="protoImportPathsBody"></tbody>
+          </table>
+          <button class="add-row-btn" id="addProtoImportPathBtn">+ Add Import Path</button>
+        </div>
       </div>
 
     </div>

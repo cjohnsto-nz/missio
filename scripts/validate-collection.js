@@ -42,6 +42,9 @@ const ajv = new Ajv({ allErrors: true, strict: false });
 
 const validateCollection = ajv.compile(schema);
 const validateHttpRequest = ajv.compile(buildSubSchema('HttpRequest'));
+const validateGraphQLRequest = ajv.compile(buildSubSchema('GraphQLRequest'));
+const validateGrpcRequest = ajv.compile(buildSubSchema('GrpcRequest'));
+const validateWebSocketRequest = ajv.compile(buildSubSchema('WebSocketRequest'));
 const validateFolder = ajv.compile(buildSubSchema('Folder'));
 
 // ── File classification (mirrors yamlParser.ts logic) ───────────────
@@ -68,6 +71,14 @@ function isRequestFile(name) {
     && !isCollectionFile(lower)
     && !isWorkspaceFile(lower)
     && !isFolderFile(lower);
+}
+
+function requestValidationRoute(data) {
+  const infoType = data && typeof data === 'object' ? data.info?.type : undefined;
+  if (data?.graphql || infoType === 'graphql') return { validator: validateGraphQLRequest, label: 'GraphQLRequest' };
+  if (data?.grpc || infoType === 'grpc') return { validator: validateGrpcRequest, label: 'GrpcRequest' };
+  if (data?.websocket || infoType === 'websocket') return { validator: validateWebSocketRequest, label: 'WebSocketRequest' };
+  return { validator: validateHttpRequest, label: 'HttpRequest' };
 }
 
 // ── Validation ──────────────────────────────────────────────────────
@@ -151,7 +162,8 @@ function scanDirectory(dir) {
       // Workspace files have their own schema shape; skip for now
       console.log(`  - ${path.relative(process.cwd(), fullPath)} (workspace — skipped)`);
     } else if (isRequestFile(name)) {
-      validateFile(fullPath, data, validateHttpRequest, 'HttpRequest');
+      const route = requestValidationRoute(data);
+      validateFile(fullPath, data, route.validator, route.label);
     }
   }
 }
