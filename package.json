@@ -123,6 +123,36 @@
         "icon": "$(play)"
       },
       {
+        "command": "missio.connectWebSocket",
+        "title": "Connect WebSocket",
+        "category": "Missio",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "missio.sendWebSocketMessage",
+        "title": "Send WebSocket Message",
+        "category": "Missio",
+        "icon": "$(send)"
+      },
+      {
+        "command": "missio.disconnectWebSocket",
+        "title": "Disconnect WebSocket",
+        "category": "Missio",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "missio.showWebSocketSessions",
+        "title": "Show Active WebSocket Sessions",
+        "category": "Missio",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "missio.disconnectAllWebSockets",
+        "title": "Disconnect All WebSockets",
+        "category": "Missio",
+        "icon": "$(close-all)"
+      },
+      {
         "command": "missio.refreshCollections",
         "title": "Refresh Collections",
         "category": "Missio",
@@ -503,6 +533,26 @@
           "command": "missio.importRequest",
           "when": "view == missio.collections && viewItem =~ /^(collection|folder|folderWithSubdirs)$/",
           "group": "3_import@1"
+        },
+        {
+          "command": "missio.connectWebSocket",
+          "when": "view == missio.collections && viewItem == websocketRequest",
+          "group": "inline@1"
+        },
+        {
+          "command": "missio.sendWebSocketMessage",
+          "when": "view == missio.collections && viewItem == websocketRequest",
+          "group": "inline@2"
+        },
+        {
+          "command": "missio.disconnectWebSocket",
+          "when": "view == missio.collections && viewItem == websocketRequest",
+          "group": "inline@3"
+        },
+        {
+          "command": "missio.disconnectWebSocket",
+          "when": "view == missio.collections && viewItem == websocketRequest",
+          "group": "1_open@1"
         },
         {
           "command": "missio.renameRequest",
@@ -955,7 +1005,7 @@
       {
         "name": "missio_send_request",
         "displayName": "Send API Request",
-        "modelDescription": "Execute an HTTP, GraphQL, WebSocket, or gRPC request through the Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition where supported, and secret provider resolution where supported. gRPC supports unary, server-streaming, client-streaming, and bidirectional-streaming calls. Returns status, headers, body or protocol exchange summary (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request target, headers/auth, body/message/messages/metadata, and unresolvedVariables; any listed variables must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom HTTP JSON body that is not templated, use missio_send_raw_request instead.",
+        "modelDescription": "Execute an HTTP, GraphQL, or gRPC request through the Missio resolution chain: variable interpolation, auth inheritance (request -> folder -> collection), OAuth2 token acquisition where supported, and secret provider resolution where supported. Use missio_websocket_session for WebSocket connect, send-message, disconnect, status, and message-history operations. gRPC supports unary, server-streaming, client-streaming, and bidirectional-streaming calls. Returns status, headers, body or protocol exchange summary (truncated to 10 000 chars — use responseOutputPath for the full body), duration, and size. IMPORTANT: Always call with dryRun: true and environment set before sending any write request. Dry run resolves the full request target, headers/auth, body/message/messages/metadata, and unresolvedVariables; any listed variables must be supplied via variables before a live send. Variable overrides only substitute {{placeholders}} that exist in the request template — they do not inject values into hardcoded body fields. If you need to supply a custom HTTP JSON body that is not templated, use missio_send_raw_request instead.",
         "userDescription": "Send an API request from a collection.",
         "toolReferenceName": "missio_send_request",
         "canBeReferencedInPrompt": true,
@@ -1004,6 +1054,61 @@
           },
           "required": [
             "requestFilePath"
+          ]
+        }
+      },
+      {
+        "name": "missio_websocket_session",
+        "displayName": "Manage WebSocket Session",
+        "modelDescription": "Manage first-class WebSocket request lifecycle operations for an OpenCollection WebSocket request file. operation must be one of connect, send-message, disconnect, status, list-messages, or disconnect-all. Connect opens a persistent session without sending a message. Send-message sends the provided message or the selected request message over an existing connected session. Status and list-messages report current lifecycle state and recent sent, received, close, and error events. WebSocket URLs are redacted for sensitive query names.",
+        "userDescription": "Connect, send messages, inspect, and disconnect WebSocket sessions.",
+        "toolReferenceName": "missio_websocket_session",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(plug)",
+        "tags": [
+          "api",
+          "websocket",
+          "session",
+          "missio"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "connect",
+                "send-message",
+                "disconnect",
+                "status",
+                "list-messages",
+                "disconnect-all"
+              ],
+              "description": "WebSocket lifecycle operation to perform."
+            },
+            "requestFilePath": {
+              "type": "string",
+              "description": "Path to the WebSocket request .yml file. Required except for disconnect-all."
+            },
+            "collectionId": {
+              "type": "string",
+              "description": "Optional collection ID to disambiguate relative request paths."
+            },
+            "environment": {
+              "type": "string",
+              "description": "Optional environment name for variable resolution during connect."
+            },
+            "variables": {
+              "type": "object",
+              "description": "Optional variable overrides used during connect."
+            },
+            "message": {
+              "type": "object",
+              "description": "Optional WebSocket message for send-message, for example {\"type\":\"json\",\"data\":\"{\\\"ping\\\":true}\"}."
+            }
+          },
+          "required": [
+            "operation"
           ]
         }
       },

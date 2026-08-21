@@ -37,6 +37,7 @@ import {
   SetEnvironmentTool,
   ResolveVariablesTool,
   SendRequestTool,
+  WebSocketSessionTool,
   ValidateCollectionTool,
   SendRawRequestTool,
 } from './copilot/tools';
@@ -178,7 +179,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'missio.selectEnvironment';
   statusBarItem.tooltip = 'Missio: Select Active Environment';
-  context.subscriptions.push(statusBarItem);
+  const webSocketStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  webSocketStatusBarItem.command = 'missio.showWebSocketSessions';
+  webSocketStatusBarItem.tooltip = 'Missio: Manage WebSocket Sessions';
+  context.subscriptions.push(statusBarItem, webSocketStatusBarItem);
 
   function getActiveTabFilePath(): string | undefined {
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
@@ -208,6 +212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   function updateStatusBar() {
     const filePath = getActiveTabFilePath();
+    updateWebSocketStatusBar(filePath);
     if (!filePath || !isMissioRequestFile(filePath)) {
       statusBarItem.hide();
       vscode.commands.executeCommand('setContext', 'missio.isRequestFile', false);
@@ -240,9 +245,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBarItem.show();
   }
 
+  function updateWebSocketStatusBar(activeFilePath?: string) {
+    const sessions = requestExecutionService.listWebSocketSessions({ includeClosed: false });
+    const activeSession = activeFilePath ? requestExecutionService.getWebSocketSession(activeFilePath) : undefined;
+    if (sessions.length === 0 && !activeSession) {
+      webSocketStatusBarItem.hide();
+      return;
+    }
+
+    const activeCount = sessions.length;
+    const state = activeSession?.state;
+    webSocketStatusBarItem.text = state
+      ? `$(plug) WS ${state}`
+      : `$(plug) WS ${activeCount}`;
+    webSocketStatusBarItem.tooltip = [
+      `${activeCount} active WebSocket session${activeCount === 1 ? '' : 's'}`,
+      ...sessions.map(session => `${session.requestName ?? path.basename(session.requestFilePath ?? session.requestId)}: ${session.state}`),
+    ].join('\n');
+    webSocketStatusBarItem.backgroundColor = state === 'error'
+      ? new vscode.ThemeColor('statusBarItem.errorBackground')
+      : undefined;
+    webSocketStatusBarItem.show();
+  }
+
   updateStatusBar();
   collectionService.onDidChange(updateStatusBar);
   environmentService.onDidChange(updateStatusBar);
+  const webSocketStatusListener = requestExecutionService.onDidChangeWebSocketSession?.(() => updateStatusBar());
+  if (webSocketStatusListener) context.subscriptions.push(webSocketStatusListener);
 
   // Update status bar when active tab changes (covers custom editors)
   context.subscriptions.push(
@@ -274,12 +304,13 @@ function registerLanguageModelTools(
   context.subscriptions.push(
     vscode.lm.registerTool('missio_list_collections', new ListCollectionsTool(collectionService)),
     vscode.lm.registerTool('missio_get_collection', new GetCollectionTool(collectionService)),
-    vscode.lm.registerTool('missio_list_requests', new ListRequestsTool(collectionService)),
-    vscode.lm.registerTool('missio_get_request', new GetRequestTool(collectionService)),
+    vscode.lm.registerTool('missio_list_requests', new ListRequestsTool(collectionService, requestExecutionService)),
+    vscode.lm.registerTool('missio_get_request', new GetRequestTool(collectionService, requestExecutionService)),
     vscode.lm.registerTool('missio_list_environments', new ListEnvironmentsTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_set_environment', new SetEnvironmentTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_resolve_variables', new ResolveVariablesTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, requestExecutionService)),
+    vscode.lm.registerTool('missio_websocket_session', new WebSocketSessionTool(collectionService, environmentService, requestExecutionService)),
     vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
     vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, environmentService, secretService)),
   );

@@ -20,6 +20,7 @@ export interface ResolvedWebSocketRequest {
   url: string;
   headers: Record<string, string>;
   message?: WebSocketMessage;
+  variables: Map<string, string>;
 }
 
 export interface WebSocketExchangeEvent {
@@ -31,14 +32,55 @@ export interface WebSocketExchangeEvent {
   reason?: string;
 }
 
-interface ActiveWebSocket {
+export type WebSocketSessionState =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'disconnecting'
+  | 'closed'
+  | 'error';
+
+export interface WebSocketSessionSnapshot {
+  requestId: string;
+  requestFilePath?: string;
+  requestName?: string;
+  state: WebSocketSessionState;
+  url?: string;
+  events: WebSocketExchangeEvent[];
+  inboundCount: number;
+  outboundCount: number;
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
+  lastError?: string;
+}
+
+interface ActiveWebSocketSession {
+  requestId: string;
+  requestFilePath?: string;
+  requestName?: string;
+  state: WebSocketSessionState;
+  socket?: WebSocket;
+  resolved?: ResolvedWebSocketRequest;
+  events: WebSocketExchangeEvent[];
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
+  lastError?: string;
+  closeWaiters: Array<(response: HttpResponse) => void>;
+}
+
+interface OneShotWebSocket {
   socket: WebSocket;
   cancel: () => void;
 }
 
 export class WebSocketClient implements vscode.Disposable {
   private _secretService: SecretService | undefined;
-  private readonly _activeSockets = new Map<string, ActiveWebSocket>();
+  private readonly _sessions = new Map<string, ActiveWebSocketSession>();
+  private readonly _oneShotSockets = new Map<string, OneShotWebSocket>();
+  private readonly _onDidChangeSession = new vscode.EventEmitter<WebSocketSessionSnapshot>();
+  readonly onDidChangeSession = this._onDidChangeSession.event;
 
   constructor(private readonly _environmentService: EnvironmentService) {}
 
@@ -47,7 +89,25 @@ export class WebSocketClient implements vscode.Disposable {
   }
 
   get activeConnectionCount(): number {
-    return this._activeSockets.size;
+    let count = this._oneShotSockets.size;
+    for (const session of this._sessions.values()) {
+      if (session.state === 'connecting' || session.state === 'connected' || session.state === 'disconnecting') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  listSessions(options: { includeClosed?: boolean } = {}): WebSocketSessionSnapshot[] {
+    return [...this._sessions.values()]
+      .filter(session => options.includeClosed || session.state === 'connecting' || session.state === 'connected' || session.state === 'disconnecting')
+      .map(session => this._snapshot(session))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  getSession(requestId: string): WebSocketSessionSnapshot | undefined {
+    const session = this._sessions.get(requestId);
+    return session ? this._snapshot(session) : undefined;
   }
 
   async buildResolvedRequest(
@@ -98,7 +158,202 @@ export class WebSocketClient implements vscode.Disposable {
       }
     }
 
-    return { url, headers, message };
+    return { url, headers, message, variables };
+  }
+
+  async connect(
+    request: WebSocketRequest,
+    collection: MissioCollection,
+    folderDefaults?: RequestDefaults,
+    onProgress?: (message: string) => void,
+    extraVariables?: Map<string, string>,
+    environmentName?: string,
+    options?: { requestId?: string; requestFilePath?: string; requestName?: string },
+  ): Promise<WebSocketSessionSnapshot> {
+    const requestId = options?.requestId ?? options?.requestFilePath ?? `${Date.now()}-${Math.random()}`;
+    const existing = this._sessions.get(requestId);
+    if (existing && (existing.state === 'connecting' || existing.state === 'connected' || existing.state === 'disconnecting')) {
+      throw Object.assign(
+        new Error(`WebSocket session is already ${existing.state}. Disconnect before connecting again.`),
+        { code: 'MISSIO_WEBSOCKET_ALREADY_CONNECTED' },
+      );
+    }
+
+    const now = new Date().toISOString();
+    const session: ActiveWebSocketSession = {
+      requestId,
+      requestFilePath: options?.requestFilePath,
+      requestName: options?.requestName ?? request.info?.name,
+      state: 'connecting',
+      events: [],
+      createdAt: now,
+      updatedAt: now,
+      closeWaiters: [],
+    };
+    this._sessions.set(requestId, session);
+    this._emit(session);
+
+    let resolved: ResolvedWebSocketRequest;
+    try {
+      onProgress?.('Resolving WebSocket request...');
+      resolved = await this.buildResolvedRequest(request, collection, folderDefaults, extraVariables, environmentName);
+      session.resolved = resolved;
+      this._touch(session);
+      this._emit(session);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      session.state = 'error';
+      session.lastError = err.message;
+      session.closedAt = new Date().toISOString();
+      this._recordEvent(session, { direction: 'error', type: 'error', data: err.message });
+      throw error;
+    }
+
+    const timeoutMs = vscode.workspace.getConfiguration('missio').get<number>('timeout', 30000);
+    const wsOptions: ClientOptions = {
+      headers: resolved.headers,
+      rejectUnauthorized: vscode.workspace.getConfiguration('missio').get<boolean>('rejectUnauthorized', true),
+    };
+
+    onProgress?.('Connecting WebSocket...');
+    return new Promise<WebSocketSessionSnapshot>((resolve, reject) => {
+      let settled = false;
+      let timeout: NodeJS.Timeout | undefined;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        fn();
+      };
+
+      const socket = new WebSocket(resolved.url, wsOptions);
+      session.socket = socket;
+      this._touch(session);
+      this._emit(session);
+
+      timeout = setTimeout(() => {
+        const error = Object.assign(new Error('WebSocket connection timed out'), { code: 'MISSIO_WEBSOCKET_TIMEOUT' });
+        session.state = 'error';
+        session.lastError = error.message;
+        session.closedAt = new Date().toISOString();
+        this._recordEvent(session, { direction: 'error', type: 'error', data: error.message });
+        socket.terminate();
+        settle(() => reject(error));
+      }, timeoutMs);
+
+      socket.on('open', () => {
+        session.state = 'connected';
+        this._recordEvent(session, { direction: 'event', type: 'open' });
+        onProgress?.('WebSocket connected.');
+        settle(() => resolve(this._snapshot(session)));
+      });
+
+      socket.on('message', (data, isBinary) => {
+        this._recordEvent(session, {
+          direction: 'inbound',
+          type: isBinary ? 'binary' : 'text',
+          data: isBinary ? rawDataToBuffer(data).toString('base64') : rawDataToBuffer(data).toString('utf-8'),
+        });
+      });
+
+      socket.on('close', (code, reasonBuffer) => {
+        session.socket = undefined;
+        session.state = session.state === 'error' ? 'error' : 'closed';
+        session.closedAt = new Date().toISOString();
+        this._recordEvent(session, {
+          direction: 'event',
+          type: 'close',
+          closeCode: code,
+          reason: reasonBuffer.toString('utf-8'),
+        });
+        const response = this._buildResponse(session, Date.now() - Date.parse(session.createdAt));
+        const waiters = session.closeWaiters.splice(0);
+        waiters.forEach(waiter => waiter(response));
+        if (!settled) {
+          settle(() => resolve(this._snapshot(session)));
+        }
+      });
+
+      socket.on('error', (error) => {
+        session.lastError = error.message;
+        session.state = 'error';
+        session.closedAt = new Date().toISOString();
+        this._recordEvent(session, { direction: 'error', type: 'error', data: error.message });
+        if (!settled) {
+          settle(() => reject(error));
+        }
+      });
+    });
+  }
+
+  async sendMessage(
+    requestId: string,
+    message?: WebSocketMessage,
+    onProgress?: (message: string) => void,
+  ): Promise<WebSocketSessionSnapshot> {
+    const session = this._sessions.get(requestId);
+    if (!session || session.state !== 'connected' || !session.socket || session.socket.readyState !== WebSocket.OPEN) {
+      throw Object.assign(
+        new Error('WebSocket session is not connected. Connect before sending a message.'),
+        { code: 'MISSIO_WEBSOCKET_NOT_CONNECTED' },
+      );
+    }
+
+    const selectedMessage = message
+      ? {
+          type: message.type,
+          data: this._resolveMessageData(message, session.resolved?.variables ?? new Map()),
+        }
+      : session.resolved?.message;
+    if (!selectedMessage) {
+      throw Object.assign(
+        new Error('WebSocket request does not define a message to send.'),
+        { code: 'MISSIO_WEBSOCKET_MESSAGE_REQUIRED' },
+      );
+    }
+
+    onProgress?.('Sending WebSocket message...');
+    const payload = this._messagePayload(selectedMessage);
+    await new Promise<void>((resolve, reject) => {
+      session.socket!.send(payload, error => error ? reject(error) : resolve());
+    });
+    this._recordEvent(session, {
+      direction: 'outbound',
+      type: selectedMessage.type,
+      data: selectedMessage.type === 'binary' && Buffer.isBuffer(payload)
+        ? payload.toString('base64')
+        : String(selectedMessage.data),
+    });
+    return this._snapshot(session);
+  }
+
+  disconnectSession(requestId: string, reason = 'Missio disconnect'): Promise<HttpResponse | undefined> {
+    const session = this._sessions.get(requestId);
+    if (!session) return Promise.resolve(undefined);
+
+    if (!session.socket || session.state === 'closed' || session.state === 'error') {
+      return Promise.resolve(this._buildResponse(session, Date.now() - Date.parse(session.createdAt)));
+    }
+
+    session.state = 'disconnecting';
+    this._touch(session);
+    this._emit(session);
+
+    return new Promise<HttpResponse>(resolve => {
+      session.closeWaiters.push(resolve);
+      session.socket?.close(1000, reason);
+    });
+  }
+
+  disconnectAllSessions(): void {
+    for (const session of this._sessions.values()) {
+      if (session.socket && (session.state === 'connecting' || session.state === 'connected')) {
+        session.state = 'disconnecting';
+        this._touch(session);
+        this._emit(session);
+        session.socket.close(1000, 'Missio disconnect all');
+      }
+    }
   }
 
   async send(
@@ -133,7 +388,7 @@ export class WebSocketClient implements vscode.Disposable {
         if (settled) return;
         settled = true;
         if (timeout) clearTimeout(timeout);
-        this._activeSockets.delete(requestId);
+        this._oneShotSockets.delete(requestId);
         fn();
       };
 
@@ -147,7 +402,7 @@ export class WebSocketClient implements vscode.Disposable {
       };
 
       const socket = new WebSocket(resolved.url, wsOptions);
-      this._activeSockets.set(requestId, {
+      this._oneShotSockets.set(requestId, {
         socket,
         cancel: () => {
           fail(new Error('Request cancelled'));
@@ -211,21 +466,31 @@ export class WebSocketClient implements vscode.Disposable {
   }
 
   disconnect(requestId: string): boolean {
-    const active = this._activeSockets.get(requestId);
-    if (!active) return false;
+    const active = this._oneShotSockets.get(requestId);
+    if (!active) {
+      const session = this._sessions.get(requestId);
+      if (!session?.socket) return false;
+      session.state = 'disconnecting';
+      this._touch(session);
+      this._emit(session);
+      session.socket.close(1000, 'Missio disconnect');
+      return true;
+    }
     active.cancel();
     return true;
   }
 
   cancelAll(): void {
-    for (const [requestId, active] of this._activeSockets) {
-      this._activeSockets.delete(requestId);
+    for (const [requestId, active] of this._oneShotSockets) {
+      this._oneShotSockets.delete(requestId);
       active.cancel();
     }
+    this.disconnectAllSessions();
   }
 
   dispose(): void {
     this.cancelAll();
+    this._onDidChangeSession.dispose();
   }
 
   private _buildHeaders(
@@ -362,29 +627,71 @@ export class WebSocketClient implements vscode.Disposable {
   }
 
   private _buildResponse(
-    resolved: ResolvedWebSocketRequest,
-    events: WebSocketExchangeEvent[],
-    duration: number,
+    source: ResolvedWebSocketRequest | ActiveWebSocketSession,
+    eventsOrDuration: WebSocketExchangeEvent[] | number,
+    durationValue?: number,
   ): HttpResponse {
+    const isSession = Object.prototype.hasOwnProperty.call(source, 'state');
+    const resolved: ResolvedWebSocketRequest | undefined = isSession
+      ? (source as ActiveWebSocketSession).resolved
+      : (source as ResolvedWebSocketRequest);
+    const responseEvents = Array.isArray(eventsOrDuration)
+      ? eventsOrDuration
+      : isSession
+        ? (source as ActiveWebSocketSession).events
+        : [];
+    const duration = typeof eventsOrDuration === 'number' ? eventsOrDuration : durationValue ?? 0;
     const body = JSON.stringify({
       protocol: 'websocket',
-      url: resolved.url,
-      messageCount: events.filter(event => event.direction === 'inbound').length,
-      events,
+      url: resolved?.url ?? '',
+      state: isSession ? (source as ActiveWebSocketSession).state : 'closed',
+      messageCount: responseEvents.filter(event => event.direction === 'inbound').length,
+      events: responseEvents,
     }, null, 2);
 
     return {
       status: 101,
-      statusText: 'WebSocket Exchange',
+      statusText: 'WebSocket Session',
       headers: {
         'content-type': 'application/json',
         'x-missio-protocol': 'websocket',
-        'x-missio-websocket-url': resolved.url,
+        'x-missio-websocket-url': resolved?.url ?? '',
       },
       body,
       duration,
       size: Buffer.byteLength(body, 'utf-8'),
     };
+  }
+
+  private _snapshot(session: ActiveWebSocketSession): WebSocketSessionSnapshot {
+    return {
+      requestId: session.requestId,
+      requestFilePath: session.requestFilePath,
+      requestName: session.requestName,
+      state: session.state,
+      url: session.resolved?.url,
+      events: session.events.map(event => ({ ...event })),
+      inboundCount: session.events.filter(event => event.direction === 'inbound').length,
+      outboundCount: session.events.filter(event => event.direction === 'outbound').length,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      closedAt: session.closedAt,
+      lastError: session.lastError,
+    };
+  }
+
+  private _recordEvent(session: ActiveWebSocketSession, entry: Omit<WebSocketExchangeEvent, 'timestamp'>): void {
+    session.events.push({ timestamp: new Date().toISOString(), ...entry });
+    this._touch(session);
+    this._emit(session);
+  }
+
+  private _touch(session: ActiveWebSocketSession): void {
+    session.updatedAt = new Date().toISOString();
+  }
+
+  private _emit(session: ActiveWebSocketSession): void {
+    this._onDidChangeSession.fire(this._snapshot(session));
   }
 }
 

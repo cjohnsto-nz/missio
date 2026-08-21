@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
-import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollection } from '../models/types';
+import type { HttpRequest, OpenCollectionRequest, RequestDefaults, MissioCollection, WebSocketMessage, WebSocketRequest } from '../models/types';
 import { getItemKind, isGraphQLRequest, isGrpcRequest, isHttpRequest, isProtocolRequest, isWebSocketRequest } from '../models/types';
 import { requestLog, type ResolvedRequest } from '../services/httpClient';
 import type { RequestExecutionService } from '../services/requestExecutionService';
@@ -105,6 +105,9 @@ export class RequestEditorProvider extends BaseEditorProvider {
       const request = parseYaml(document.getText()) as OpenCollectionRequest;
       migrateRequest(request);
       webview.postMessage({ type: 'requestLoaded', request, filePath: document.uri.fsPath });
+      if (isWebSocketRequest(request)) {
+        this._postWebSocketSession(webview, document.uri.fsPath);
+      }
     } catch (error) {
       webview.postMessage({
         type: 'requestLoadError',
@@ -122,6 +125,21 @@ export class RequestEditorProvider extends BaseEditorProvider {
     } catch {
       return undefined;
     }
+  }
+
+  private _readPostedWebSocketRequest(msg: any): OpenCollectionRequest | undefined {
+    const request = msg?.request as OpenCollectionRequest | undefined;
+    if (!request || typeof request !== 'object') return undefined;
+    try {
+      migrateRequest(request);
+    } catch {
+      return undefined;
+    }
+    return isWebSocketRequest(request) ? request : undefined;
+  }
+
+  private _readWebSocketLifecycleRequest(document: vscode.TextDocument, msg: any): OpenCollectionRequest | undefined {
+    return this._readPostedWebSocketRequest(msg) ?? this._readDocumentRequest(document);
   }
 
   protected _getDocumentDataKey(): string { return 'request'; }
@@ -200,6 +218,12 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     refreshCache();
     // Re-populate caches when collection/folder config changes on disk
     _disposables.push(this._collectionService.onDidChange(() => refreshCache()));
+    const sessionListener = this._requestExecutionService.onDidChangeWebSocketSession?.(session => {
+      if (session.requestId === fp || session.requestFilePath === fp) {
+        webviewPanel.webview.postMessage({ type: 'webSocketSession', session });
+      }
+    });
+    if (sessionListener) _disposables.push(sessionListener);
   }
 
   protected _onPanelDisposed(document: vscode.TextDocument): void {
@@ -208,7 +232,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     RequestEditorProvider._panels.delete(key);
     RequestEditorProvider._folderDefaultsCache.delete(key);
     RequestEditorProvider._collectionCache.delete(key);
-    this._requestExecutionService.disconnectWebSocket(document.uri.fsPath);
+    void this._requestExecutionService.disconnectWebSocketSession(document.uri.fsPath, 'Missio editor closed');
   }
 
   protected async _getFolderDefaults(filePath: string, collection: MissioCollection): Promise<RequestDefaults | undefined> {
@@ -255,6 +279,18 @@ window.missioPdfJsReady = import('${pdfJsUri}')
         }
         const folderDefaults = await this._getFolderDefaults(filePath, collection);
         await this._sendRequest(webview, request, collection, folderDefaults, filePath);
+        return true;
+      }
+      case 'webSocketConnect': {
+        await this._connectWebSocket(webview, msg, ctx);
+        return true;
+      }
+      case 'webSocketSendMessage': {
+        await this._sendWebSocketMessage(webview, msg, ctx);
+        return true;
+      }
+      case 'webSocketDisconnect': {
+        await this._disconnectWebSocket(webview, ctx);
         return true;
       }
       case 'cancelRequest': {
@@ -444,6 +480,97 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     if (this._cliApprovalResolver) {
       this._cliApprovalResolver(false);
       this._cliApprovalResolver = null;
+    }
+  }
+
+  private _postWebSocketSession(webview: vscode.Webview, requestId: string): void {
+    const session = this._requestExecutionService.getWebSocketSession(requestId) ?? {
+      requestId,
+      state: 'disconnected',
+      events: [],
+      inboundCount: 0,
+      outboundCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    webview.postMessage({ type: 'webSocketSession', session });
+  }
+
+  private async _connectWebSocket(webview: vscode.Webview, msg: any, ctx: EditorContext): Promise<void> {
+    const filePath = ctx.document.uri.fsPath;
+    const collection = this._findCollection(filePath);
+    if (!collection) {
+      webview.postMessage({ type: 'error', message: 'Collection not found' });
+      return;
+    }
+    const request = this._readWebSocketLifecycleRequest(ctx.document, msg);
+    if (!isWebSocketRequest(request)) {
+      webview.postMessage({ type: 'error', message: 'File does not contain a WebSocket request.' });
+      return;
+    }
+    const folderDefaults = await this._getFolderDefaults(filePath, collection);
+    webview.postMessage({ type: 'webSocketConnecting' });
+
+    try {
+      const unresolved = await detectUnresolvedVars(request, collection, this._environmentService, folderDefaults);
+      let extraVariables: Map<string, string> | undefined = new Map();
+      if (unresolved.length > 0) {
+        webview.postMessage({ type: 'promptUnresolvedVars', variables: unresolved });
+        extraVariables = await new Promise<Map<string, string> | undefined>(resolve => {
+          this._unresolvedVarsResolver = resolve;
+        });
+      }
+      if (extraVariables === undefined) {
+        webview.postMessage({ type: 'cancelled' });
+        return;
+      }
+      const session = await this._requestExecutionService.connectWebSocket(
+        request,
+        collection,
+        folderDefaults,
+        message => webview.postMessage({ type: 'webSocketProgress', message }),
+        extraVariables.size > 0 ? extraVariables : undefined,
+        undefined,
+        { requestId: filePath, requestFilePath: filePath, requestName: request.info?.name },
+      );
+      webview.postMessage({ type: 'webSocketSession', session });
+    } catch (error: any) {
+      webview.postMessage({ type: 'webSocketError', message: error?.message ?? String(error) });
+      this._postWebSocketSession(webview, filePath);
+    }
+  }
+
+  private async _sendWebSocketMessage(webview: vscode.Webview, msg: any, ctx: EditorContext): Promise<void> {
+    const filePath = ctx.document.uri.fsPath;
+    const request = this._readWebSocketLifecycleRequest(ctx.document, msg);
+    if (!isWebSocketRequest(request)) {
+      webview.postMessage({ type: 'error', message: 'File does not contain a WebSocket request.' });
+      return;
+    }
+    try {
+      const session = await this._requestExecutionService.sendWebSocketMessage(
+        filePath,
+        selectedWebSocketMessage(request),
+        message => webview.postMessage({ type: 'webSocketProgress', message }),
+      );
+      webview.postMessage({ type: 'webSocketSession', session });
+    } catch (error: any) {
+      webview.postMessage({ type: 'webSocketError', message: error?.message ?? String(error) });
+      this._postWebSocketSession(webview, filePath);
+    }
+  }
+
+  private async _disconnectWebSocket(webview: vscode.Webview, ctx: EditorContext): Promise<void> {
+    const filePath = ctx.document.uri.fsPath;
+    try {
+      const response = await this._requestExecutionService.disconnectWebSocketSession(filePath);
+      this._postWebSocketSession(webview, filePath);
+      if (response) {
+        webview.postMessage({ type: 'response', response, timing: (response as any).timing ?? [], usedOAuth2: false });
+      }
+    } catch (error: any) {
+      webview.postMessage({ type: 'webSocketError', message: error?.message ?? String(error) });
+      this._postWebSocketSession(webview, filePath);
     }
   }
 
@@ -858,6 +985,7 @@ window.missioPdfJsReady = import('${pdfJsUri}')
     </div>
     <button class="btn btn-toggle" id="varToggleBtn" title="Toggle resolved variables">{{}}</button>
     <button class="btn btn-primary" id="sendBtn">Send</button>
+    <button class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn" style="display:none;" title="Send WebSocket message">Send</button>
   </div>
 
   <div class="main-content">
@@ -1034,6 +1162,17 @@ window.missioPdfJsReady = import('${pdfJsUri}')
 
     <!-- Response Section -->
     <div class="response-section" id="responseSection">
+      <div class="websocket-session-panel" id="webSocketSessionPanel" style="display:none;">
+        <div class="websocket-session-header">
+          <span class="websocket-state-badge" id="webSocketStateBadge">Disconnected</span>
+          <span class="websocket-session-meta" id="webSocketSessionMeta"></span>
+          <div class="websocket-session-actions">
+            <button class="btn btn-secondary websocket-history-btn" id="wsCopyHistoryBtn" type="button" title="Copy WebSocket history">Copy</button>
+            <button class="btn btn-secondary websocket-history-btn" id="wsClearHistoryBtn" type="button" title="Clear visible WebSocket history">Clear</button>
+          </div>
+        </div>
+        <div class="websocket-history" id="webSocketHistory"></div>
+      </div>
       <div class="loading-overlay" id="respLoading" style="display:none;">
         <div class="spinner"></div>
         <span>Sending request…</span>
@@ -1112,4 +1251,11 @@ function describeProtocol(request: OpenCollectionRequest): string {
     grpc: 'gRPC',
   };
   return labels[getItemKind(request)] ?? 'OpenCollection';
+}
+
+function selectedWebSocketMessage(request: WebSocketRequest): WebSocketMessage | undefined {
+  const message = request.websocket?.message;
+  if (!message) return undefined;
+  if (!Array.isArray(message)) return message;
+  return (message.find(variant => variant.selected) ?? message[0])?.message;
 }

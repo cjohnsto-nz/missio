@@ -139,7 +139,7 @@ describe('OC-070 baseline protocol UI and command surfaces', () => {
     expect(codeLensTitles).toEqual([
       ['Send Request', 'GET {{baseUrl}}/items?token={{secretToken}}'],
       ['Send GraphQL', 'GRAPHQL QUERY {{baseUrl}}/graphql'],
-      ['Connect WebSocket', 'WS {{wsBaseUrl}}/socket'],
+      ['Connect WebSocket', 'Send Message', 'Disconnect WebSocket', 'WS {{wsBaseUrl}}/socket'],
       ['Send gRPC', 'gRPC package.Service/Method'],
     ]);
     codeLensProvider.dispose();

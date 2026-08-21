@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as os from 'os';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import { WebSocketServer } from 'ws';
-import { workspace, WorkspaceEdit } from 'vscode';
+import { commands, window, workspace, WorkspaceEdit } from 'vscode';
 import type { MissioCollection, RequestDefaults, WebSocketRequest } from '../src/models/types';
 import { MissioCodeLensProvider } from '../src/providers/codeLensProvider';
 import { ListRequestsTool } from '../src/copilot/tools/listRequestsTool';
 import { SendRequestTool } from '../src/copilot/tools/sendRequestTool';
+import { WebSocketSessionTool } from '../src/copilot/tools/webSocketSessionTool';
 import { RequestEditorProvider } from '../src/panels/requestPanel';
+import { registerRequestCommands } from '../src/commands/requestCommands';
 import { RequestExecutionService } from '../src/services/requestExecutionService';
 import { RuntimeExecutionError, RuntimeExecutionService } from '../src/services/runtimeExecutionService';
 import { WebSocketClient } from '../src/services/webSocketClient';
@@ -122,7 +125,7 @@ async function startFixture(): Promise<Fixture> {
       rejectUpgrade(socket, 401);
       return;
     }
-    if (!['/ws/echo', '/ws/auth', '/ws/close', '/ws/hold'].includes(route)) {
+    if (!['/ws/echo', '/ws/auth', '/ws/close', '/ws/hold', '/ws/session', '/ws/push'].includes(route)) {
       rejectUpgrade(socket, 404);
       return;
     }
@@ -139,8 +142,16 @@ async function startFixture(): Promise<Fixture> {
       ws.close(4000, 'fixture close');
       return;
     }
+    if (route === '/ws/push') {
+      ws.send(JSON.stringify({ route, event: 'connected' }));
+      setTimeout(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ route, event: 'server-push' }));
+      }, 25);
+    }
+    let messageCount = 0;
 
     ws.on('message', (data, isBinary) => {
+      messageCount += 1;
       if (route === '/ws/hold') return;
       const buffer = dataBuffer(data);
       if (route === '/ws/auth') {
@@ -155,6 +166,15 @@ async function startFixture(): Promise<Fixture> {
             'x-runtime-header': req.headers['x-runtime-header'],
           },
           message: JSON.parse(text),
+        }));
+        return;
+      }
+      if (route === '/ws/session' || route === '/ws/push') {
+        ws.send(JSON.stringify({
+          ok: true,
+          route,
+          messageCount,
+          message: isBinary ? buffer.toString('base64') : buffer.toString('utf8'),
         }));
         return;
       }
@@ -194,6 +214,60 @@ afterEach(async () => {
 });
 
 describe('WebSocket execution lifecycle', () => {
+  it('connects without sending, sends repeated messages, records server push, and disconnects with history', async () => {
+    const fixture = await startFixture();
+    const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, name: 'Ada', tenant: 'nz' });
+    const client = new WebSocketClient(envService);
+    const request: WebSocketRequest = {
+      info: { name: 'Persistent session', type: 'websocket' },
+      websocket: {
+        url: '{{wsBaseUrl}}/ws/push',
+        message: { type: 'text', data: 'hello {{name}}' },
+      },
+    };
+
+    const connected = await client.connect(request, makeCollection(), undefined, undefined, undefined, undefined, {
+      requestId: 'persistent.yml',
+      requestFilePath: 'persistent.yml',
+    });
+    expect(connected).toMatchObject({
+      state: 'connected',
+      outboundCount: 0,
+    });
+
+    await waitFor(() => (client.getSession('persistent.yml')?.inboundCount ?? 0) >= 2);
+    await client.sendMessage('persistent.yml');
+    await client.sendMessage('persistent.yml', { type: 'text', data: 'second {{name}}' });
+    await waitFor(() => (client.getSession('persistent.yml')?.events.filter(event => event.direction === 'outbound').length ?? 0) === 2);
+    await waitFor(() => (client.getSession('persistent.yml')?.inboundCount ?? 0) >= 4);
+
+    const response = await client.disconnectSession('persistent.yml');
+    const body = JSON.parse(response!.body);
+
+    expect(client.activeConnectionCount).toBe(0);
+    expect(client.getSession('persistent.yml')).toMatchObject({ state: 'closed', outboundCount: 2 });
+    expect(body.events.map((event: any) => event.direction)).toEqual(expect.arrayContaining(['outbound', 'inbound', 'event']));
+    expect(body.events.filter((event: any) => event.direction === 'outbound').map((event: any) => event.data)).toEqual([
+      'hello Ada',
+      'second Ada',
+    ]);
+  });
+
+  it('diagnoses duplicate connect and send while disconnected', async () => {
+    const fixture = await startFixture();
+    const client = new WebSocketClient(makeEnvService({ wsBaseUrl: fixture.baseUrl, tenant: 'nz' }));
+    const request: WebSocketRequest = {
+      info: { name: 'Duplicate', type: 'websocket' },
+      websocket: { url: '{{wsBaseUrl}}/ws/session', message: { type: 'text', data: 'ping' } },
+    };
+
+    await expect(client.sendMessage('missing.yml')).rejects.toMatchObject({ code: 'MISSIO_WEBSOCKET_NOT_CONNECTED' });
+    await client.connect(request, makeCollection(), undefined, undefined, undefined, undefined, { requestId: 'duplicate.yml' });
+    await expect(client.connect(request, makeCollection(), undefined, undefined, undefined, undefined, { requestId: 'duplicate.yml' }))
+      .rejects.toMatchObject({ code: 'MISSIO_WEBSOCKET_ALREADY_CONNECTED' });
+    await client.disconnectSession('duplicate.yml');
+  });
+
   it('connects, sends a text message, receives an echo, and clears active sockets', async () => {
     const fixture = await startFixture();
     const envService = makeEnvService({ wsBaseUrl: fixture.baseUrl, name: 'Ada', tenant: 'nz' });
@@ -503,6 +577,49 @@ describe('WebSocket execution lifecycle', () => {
 });
 
 describe('WebSocket editor, variables, and tools', () => {
+  it('renders a stateful WebSocket lifecycle control, message send, and history shell', () => {
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      { disconnectWebSocketSession: vi.fn(), getWebSocketSession: vi.fn() } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const html = (provider as any)._getBodyHtml({} as any) as string;
+    const css = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
+    const script = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.ts'), 'utf8');
+
+    expect(html).toContain('id="sendBtn">Send</button>');
+    expect(html).toContain('class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn"');
+    expect(html).not.toContain('id="wsDisconnectBtn"');
+    expect(html).toContain('id="webSocketSessionPanel"');
+    expect(html).toContain('id="webSocketHistory"');
+    expect(css).toContain('.websocket-session-panel');
+    expect(css).toContain('.websocket-history-row');
+    expect(css).toContain('.response-section.websocket-response-ledger-only .websocket-session-panel');
+    expect(css).toContain('.response-section.websocket-response-ledger-only .response-body');
+    expect(css).toContain('max-height: none;');
+    expect(css).toContain('.request-editor-shell[data-protocol="websocket"] #sendBtn');
+    expect(css).toContain('#sendBtn.ws-disconnect-state');
+    expect(css).toContain('width: 90px;');
+    expect(script).toContain("connectBtn.textContent = canDisconnect ? 'Disconnect' : 'Connect';");
+    expect(script).toContain("connectBtn.classList.toggle('ws-disconnect-state', canDisconnect);");
+    expect(script).toContain('fractionalSecondDigits: 3');
+  });
+
+  it('wires VS Code bottom status bar session management in extension activation', () => {
+    const extensionSource = fs.readFileSync(path.join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+    const commands = new Set(pkg.contributes.commands.map((command: any) => command.command));
+
+    expect(extensionSource).toContain('webSocketStatusBarItem');
+    expect(extensionSource).toContain("webSocketStatusBarItem.command = 'missio.showWebSocketSessions'");
+    expect(extensionSource).toContain('requestExecutionService.onDidChangeWebSocketSession');
+    expect(commands.has('missio.showWebSocketSessions')).toBe(true);
+    expect(commands.has('missio.disconnectAllWebSockets')).toBe(true);
+  });
+
   it('edits WebSocket requests schema-natively while preserving message variants', () => {
     const request = {
       info: { name: 'Socket variants', type: 'websocket' },
@@ -580,6 +697,185 @@ websocket:
     });
   });
 
+  it('connects with the freshly posted WebSocket request when document YAML is stale', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const collection = makeCollection(rootDir);
+    const requestExecutionService = {
+      connectWebSocket: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 0,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+      sendWebSocketMessage: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      { getCollections: () => [collection] } as any,
+      makeEnvService({ tenant: 'nz' }),
+      {} as any,
+      {} as any,
+    );
+    const staleYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/stale"',
+      '  message: { type: text, data: "stale" }',
+      '',
+    ].join('\n');
+    const postedRequest: WebSocketRequest = {
+      info: { name: 'Editor Socket', type: 'websocket' },
+      websocket: {
+        url: 'ws://127.0.0.1:7777/ws/current',
+        headers: [{ name: 'X-Current', value: 'yes' }],
+        message: { type: 'text', data: 'current' },
+      },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._connectWebSocket(
+        webview,
+        { request: postedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => staleYaml,
+          },
+        },
+      );
+
+      const connectedRequest = requestExecutionService.connectWebSocket.mock.calls[0][0] as WebSocketRequest;
+      expect(connectedRequest.websocket.url).toBe('ws://127.0.0.1:7777/ws/current');
+      expect(connectedRequest.websocket.headers).toEqual([{ name: 'X-Current', value: 'yes' }]);
+      expect(connectedRequest.websocket.message).toEqual({ type: 'text', data: 'current' });
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('sends the freshly posted WebSocket message when document YAML is stale', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const requestExecutionService = {
+      sendWebSocketMessage: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 1,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const staleYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/stale"',
+      '  message: { type: text, data: "stale" }',
+      '',
+    ].join('\n');
+    const postedRequest: WebSocketRequest = {
+      info: { name: 'Editor Socket', type: 'websocket' },
+      websocket: {
+        url: 'ws://127.0.0.1:7777/ws/current',
+        message: { type: 'text', data: 'current' },
+      },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._sendWebSocketMessage(
+        webview,
+        { request: postedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => staleYaml,
+          },
+        },
+      );
+
+      expect(requestExecutionService.sendWebSocketMessage).toHaveBeenCalledWith(
+        requestFilePath,
+        { type: 'text', data: 'current' },
+        expect.any(Function),
+      );
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the document request consistently when posted send-message data is malformed', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-editor-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    const requestExecutionService = {
+      sendWebSocketMessage: vi.fn().mockResolvedValue({
+        requestId: requestFilePath,
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 1,
+      }),
+      getWebSocketSession: vi.fn(),
+      disconnectWebSocketSession: vi.fn(),
+    };
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      requestExecutionService as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const documentYaml = [
+      'info: { name: Editor Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:7777/ws/document"',
+      '  message: { type: text, data: "document" }',
+      '',
+    ].join('\n');
+    const malformedPostedRequest = {
+      info: { name: 'Not a socket', type: 'http' },
+      http: { method: 'GET', url: 'https://example.com' },
+    };
+    const webview = { postMessage: vi.fn().mockResolvedValue(true) };
+
+    try {
+      await (provider as any)._sendWebSocketMessage(
+        webview,
+        { request: malformedPostedRequest },
+        {
+          document: {
+            uri: { fsPath: requestFilePath },
+            getText: () => documentYaml,
+          },
+        },
+      );
+
+      expect(requestExecutionService.sendWebSocketMessage).toHaveBeenCalledWith(
+        requestFilePath,
+        { type: 'text', data: 'document' },
+        expect.any(Function),
+      );
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('detects unresolved variables across WebSocket URL, inherited headers, message, and auth', async () => {
     const collection = makeCollection();
     collection.data.request!.headers = [{ name: 'X-Collection', value: '{{collectionHeader}}' }];
@@ -621,6 +917,8 @@ websocket:
     } as any);
     expect(lenses.map(lens => lens.command?.title)).toEqual([
       'Connect WebSocket',
+      'Send Message',
+      'Disconnect WebSocket',
       'WS {{wsBaseUrl}}/ws/echo',
     ]);
     provider.dispose();
@@ -652,7 +950,7 @@ websocket:
     });
   });
 
-  it('dry-runs and sends WebSocket requests from the Copilot send tool', async () => {
+  it('dry-runs WebSocket requests from send_request and manages live sessions through the lifecycle tool', async () => {
     const fixture = await startFixture();
     const collection = makeCollection();
     const envService = makeEnvService({
@@ -667,17 +965,20 @@ websocket:
         message: { type: 'text', data: 'hello {{name}}' },
       },
     };
+    const webSocketClient = new WebSocketClient(envService);
+    const execution = new RequestExecutionService(
+      { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
+      webSocketClient,
+    );
+    const collectionFacade = {
+      loadRequestFile: async () => request,
+      getCollection: () => collection,
+      getCollections: () => [collection],
+    } as any;
     const tool = new SendRequestTool(
-      {
-        loadRequestFile: async () => request,
-        getCollection: () => collection,
-        getCollections: () => [collection],
-      } as any,
+      collectionFacade,
       envService,
-      new RequestExecutionService(
-        { send: vi.fn(), buildResolvedRequest: vi.fn(), cancelAll: vi.fn() } as any,
-        new WebSocketClient(envService),
-      ),
+      execution,
     );
 
     const requestFilePath = path.join(collection.rootDir, 'socket.yml');
@@ -698,13 +999,117 @@ websocket:
       {} as any,
     ));
     expect(live).toMatchObject({
-      success: true,
-      status: 101,
-      headers: { 'x-missio-protocol': 'websocket' },
+      success: false,
+      protocol: 'websocket',
+      code: 'MISSIO_WEBSOCKET_LIFECYCLE_REQUIRED',
     });
-    expect(JSON.parse(live.body).events.find((event: any) => event.direction === 'inbound')).toMatchObject({
+
+    const sessionTool = new WebSocketSessionTool(collectionFacade, envService, execution);
+    const connected = JSON.parse(await sessionTool.call(
+      { input: { operation: 'connect', requestFilePath, collectionId: collection.id } } as any,
+      {} as any,
+    ));
+    expect(connected).toMatchObject({
+      success: true,
+      operation: 'connect',
+      session: { state: 'connected', outboundCount: 0 },
+    });
+
+    const sent = JSON.parse(await sessionTool.call(
+      { input: { operation: 'send-message', requestFilePath, collectionId: collection.id } } as any,
+      {} as any,
+    ));
+    expect(sent).toMatchObject({
+      success: true,
+      operation: 'send-message',
+      session: { state: 'connected', outboundCount: 1 },
+    });
+    await waitFor(() => (execution.getWebSocketSession(requestFilePath)?.inboundCount ?? 0) === 1);
+    const status = JSON.parse(await sessionTool.call(
+      { input: { operation: 'status', requestFilePath, collectionId: collection.id } } as any,
+      {} as any,
+    ));
+    expect(status.session.events.find((event: any) => event.direction === 'inbound')).toMatchObject({
       data: 'hello Ada',
     });
+
+    const disconnected = JSON.parse(await sessionTool.call(
+      { input: { operation: 'disconnect', requestFilePath, collectionId: collection.id } } as any,
+      {} as any,
+    ));
+    expect(disconnected).toMatchObject({
+      success: true,
+      operation: 'disconnect',
+      session: { state: 'closed' },
+      response: { status: 101 },
+    });
+    expect(webSocketClient.activeConnectionCount).toBe(0);
+  });
+
+  it('registers command palette lifecycle operations for WebSocket requests', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-ws-commands-'));
+    const requestFilePath = path.join(rootDir, 'socket.yml');
+    fs.writeFileSync(requestFilePath, [
+      'info: { name: Command Socket, type: websocket }',
+      'websocket:',
+      '  url: "ws://127.0.0.1:3456/ws/session"',
+      '  message: { type: text, data: "ping" }',
+      '',
+    ].join('\n'));
+    const handlers = new Map<string, (...args: any[]) => unknown>();
+    vi.spyOn(commands, 'registerCommand').mockImplementation((name: string, callback: (...args: any[]) => unknown) => {
+      handlers.set(name, callback);
+      return { dispose: () => {} } as any;
+    });
+    vi.spyOn(window, 'withProgress').mockImplementation(async (_options: any, task: any) =>
+      task({ report: vi.fn() }, { onCancellationRequested: vi.fn() }),
+    );
+    const collection = makeCollection(rootDir);
+    const requestExecutionService = {
+      connectWebSocket: vi.fn().mockResolvedValue({ requestId: requestFilePath, state: 'connected', events: [], inboundCount: 0, outboundCount: 0 }),
+      sendWebSocketMessage: vi.fn().mockResolvedValue({ requestId: requestFilePath, state: 'connected', events: [], inboundCount: 0, outboundCount: 1 }),
+      disconnectWebSocketSession: vi.fn().mockResolvedValue({ status: 101, statusText: 'WebSocket Session', headers: {}, body: '{}', duration: 1, size: 2 }),
+      getWebSocketSession: vi.fn().mockReturnValue({ requestId: requestFilePath, state: 'closed', events: [], inboundCount: 0, outboundCount: 1, requestName: 'Command Socket' }),
+      listWebSocketSessions: vi.fn().mockReturnValue([{ requestId: requestFilePath, requestFilePath, requestName: 'Command Socket', state: 'connected', events: [], inboundCount: 0, outboundCount: 0 }]),
+      disconnectAllWebSocketSessions: vi.fn(),
+      disconnectWebSocket: vi.fn(),
+      cancelAll: vi.fn(),
+    };
+
+    try {
+      registerRequestCommands({
+        collectionService: {
+          getCollections: () => [collection],
+          loadRequestFile: vi.fn(),
+        },
+        environmentService: makeEnvService({ tenant: 'nz' }),
+        httpClient: {},
+        requestExecutionService,
+        responseProvider: { showResponse: vi.fn() },
+        collectionTreeProvider: {},
+        extensionContext: {},
+      } as any);
+
+      await handlers.get('missio.connectWebSocket')?.(requestFilePath);
+      await handlers.get('missio.sendWebSocketMessage')?.(requestFilePath);
+      await handlers.get('missio.disconnectWebSocket')?.(requestFilePath);
+      await handlers.get('missio.disconnectAllWebSockets')?.();
+
+      expect(requestExecutionService.connectWebSocket).toHaveBeenCalledWith(
+        expect.objectContaining({ websocket: expect.objectContaining({ url: 'ws://127.0.0.1:3456/ws/session' }) }),
+        collection,
+        undefined,
+        expect.any(Function),
+        undefined,
+        undefined,
+        { requestId: requestFilePath, requestFilePath, requestName: 'Command Socket' },
+      );
+      expect(requestExecutionService.sendWebSocketMessage).toHaveBeenCalledWith(requestFilePath, { type: 'text', data: 'ping' });
+      expect(requestExecutionService.disconnectWebSocketSession).toHaveBeenCalledWith(requestFilePath);
+      expect(requestExecutionService.disconnectAllWebSocketSessions).toHaveBeenCalled();
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it('dispatches WebSocket requests and cancellation through RequestExecutionService', async () => {

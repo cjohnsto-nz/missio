@@ -123,6 +123,15 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       return this._dryRun(dryRunRequest, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings, isGraphQLRequest(request) ? 'graphql' : 'http');
     }
 
+    if (isWebSocketRequest(request)) {
+      return JSON.stringify({
+        success: false,
+        protocol: 'websocket',
+        code: 'MISSIO_WEBSOCKET_LIFECYCLE_REQUIRED',
+        message: 'WebSocket requests use persistent sessions. Use missio_websocket_session with operation "connect", then "send-message", then "disconnect".',
+      });
+    }
+
     // Warn on unresolved placeholders
     if (stillUnresolved.length > 0) {
       return JSON.stringify({

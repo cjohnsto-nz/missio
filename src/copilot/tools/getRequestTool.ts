@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
-import { getItemKind } from '../../models/types';
+import { getItemKind, isWebSocketRequest } from '../../models/types';
+import type { WebSocketSessionSnapshot } from '../../services/webSocketClient';
 
 export interface GetRequestParams {
   requestFilePath: string;
@@ -10,7 +11,10 @@ export interface GetRequestParams {
 export class GetRequestTool extends ToolBase<GetRequestParams> {
   public readonly toolName = 'missio_get_request';
 
-  constructor(private _collectionService: CollectionService) {
+  constructor(
+    private _collectionService: CollectionService,
+    private _webSocketSessions?: { getWebSocketSession(requestId: string): WebSocketSessionSnapshot | undefined },
+  ) {
     super();
   }
 
@@ -24,11 +28,24 @@ export class GetRequestTool extends ToolBase<GetRequestParams> {
       return JSON.stringify({ success: false, message: `Failed to load request: ${requestFilePath}` });
     }
     const protocol = getItemKind(request);
+    const session = isWebSocketRequest(request)
+      ? this._webSocketSessions?.getWebSocketSession(requestFilePath)
+      : undefined;
     return JSON.stringify({
       success: true,
       protocol,
       requestFilePath,
       request: redactRequestForTool(request),
+      lifecycle: isWebSocketRequest(request)
+        ? {
+            canConnect: !session || session.state === 'closed' || session.state === 'error' || session.state === 'disconnected',
+            canSendMessage: session?.state === 'connected',
+            canDisconnect: session?.state === 'connected' || session?.state === 'connecting' || session?.state === 'disconnecting',
+            state: session?.state ?? 'disconnected',
+            inboundCount: session?.inboundCount,
+            outboundCount: session?.outboundCount,
+          }
+        : undefined,
     });
   }
 }
