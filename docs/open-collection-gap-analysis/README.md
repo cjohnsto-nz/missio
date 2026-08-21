@@ -75,6 +75,7 @@ Project-local skills live in [.agents/skills/](../../.agents/skills/). They are 
 | `missio-protocol-implementer` | GraphQL, WebSocket, and gRPC protocol work. |
 | `missio-runtime-implementer` | Scripts, assertions, actions, auth, proxy, mTLS, and transport runtime work. |
 | `missio-editor-schema-implementer` | Editors, validation, imports, exports, and schema round-trip safety. |
+| `missio-demo-server-fixtures` | Extending the local demo API and example requests for user-verifiable protocol/runtime features. |
 | `but` | Installed GitButler skill for branch, stack, commit, push, and PR operations. |
 
 ## Repo Evidence
