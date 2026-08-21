@@ -208,10 +208,29 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
           extractFromString(h.value, 'metadata');
         }
       }
-      const message = Array.isArray(details?.message)
-        ? (details?.message.find((variant: any) => variant.selected) ?? details?.message[0])?.message
-        : details?.message;
-      extractFromString(message, 'message');
+      scanGrpcMessages(details?.message as unknown, 'message');
+    }
+
+    function scanGrpcMessages(message: unknown, placement: string): void {
+      if (!Array.isArray(message)) {
+        extractFromString(typeof message === 'string' ? message : undefined, placement);
+        return;
+      }
+
+      const isSequence = message.every(entry => isRecord(entry) && !Object.prototype.hasOwnProperty.call(entry, 'title'));
+      if (isSequence) {
+        for (const entry of message) {
+          extractFromString(typeof entry.message === 'string' ? entry.message : undefined, placement);
+        }
+        return;
+      }
+
+      const selected = message.find(entry => isRecord(entry) && entry.selected === true) ?? message[0];
+      extractFromString(isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined, placement);
+    }
+
+    function isRecord(value: unknown): value is Record<string, any> {
+      return !!value && typeof value === 'object' && !Array.isArray(value);
     }
 
     // Auth template variables (request-level only; no environment resolution)

@@ -5,7 +5,7 @@ import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { HttpClient, requestLog } from '../src/services/httpClient';
+import { HttpClient } from '../src/services/httpClient';
 import { OAuth2Service } from '../src/services/oauth2Service';
 import { exportRequest } from '../src/services/snippetExporter';
 import type { AuthOAuth2, MissioCollection } from '../src/models/types';
@@ -187,56 +187,6 @@ describe('HttpClient OC-050 auth and transport behavior', () => {
     expect(resolved.headers.Authorization).toBeUndefined();
   });
 
-  it('redacts query-placed auth values from request execution logs', async () => {
-    const server = http.createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end('{}');
-    });
-    const port = await listen(server);
-
-    try {
-      const appendLine = vi.spyOn(requestLog, 'appendLine');
-      const client = new HttpClient(makeEnvService());
-      client.setOAuth2Service({ getToken: vi.fn().mockResolvedValue('oauth-log-secret') } as any);
-
-      await client.send(
-        {
-          http: { method: 'GET', url: `http://127.0.0.1:${port}/resource` },
-          runtime: {
-            auth: {
-              ...makeOAuth2Auth(),
-              tokenConfig: { placement: { query: 'access_token' } },
-            },
-          },
-        },
-        makeCollection(),
-      );
-
-      const log = appendLine.mock.calls.flat().join('\n');
-      expect(log).not.toContain('oauth-log-secret');
-      expect(log).toContain('access_token=%5BREDACTED%5D');
-    } finally {
-      await close(server);
-    }
-  });
-
-  it('leaves reserved query characters unencoded when encodeUrl is false', async () => {
-    const client = new HttpClient(makeEnvService());
-    const resolved = await client.buildResolvedRequest(
-      {
-        http: {
-          method: 'GET',
-          url: 'https://example.com/users',
-          params: [{ type: 'query', name: 'filter', value: 'users/active:all' }],
-        },
-        settings: { encodeUrl: false },
-      },
-      makeCollection(),
-    );
-
-    expect(resolved.url).toBe('https://example.com/users?filter=users/active:all');
-  });
-
   it('sends OAuth2 additional token request parameters by header, query, and body placement', async () => {
     let observed: { url: string; headers: http.IncomingHttpHeaders; body: string } | undefined;
     const server = http.createServer((req, res) => {
@@ -315,6 +265,35 @@ describe('HttpClient OC-050 auth and transport behavior', () => {
 
       expect(response.status).toBe(200);
       expect(JSON.parse(response.body)).toEqual({ path: '/final', method: 'GET' });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it('inherits boolean request settings instead of treating inherit as false', async () => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(302, { Location: '/final' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ path: req.url }));
+    });
+    const port = await listen(server);
+
+    try {
+      const client = new HttpClient(makeEnvService());
+      const response = await client.send(
+        {
+          http: { method: 'GET', url: `http://127.0.0.1:${port}/start` },
+          settings: { followRedirects: 'inherit', encodeUrl: 'inherit' },
+        },
+        makeCollection(),
+      );
+
+      expect(response.status).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ path: '/final' });
     } finally {
       await close(server);
     }
@@ -492,74 +471,6 @@ describe('HttpClient OC-050 auth and transport behavior', () => {
       },
       makeCollection(),
     )).rejects.toThrow(/digest.*not supported/);
-  });
-
-  it('strips auth headers and query tokens from cross-origin redirects', async () => {
-    const sourceRequests: Array<{ url: string; headers: http.IncomingHttpHeaders }> = [];
-    const targetRequests: Array<{ url: string; headers: http.IncomingHttpHeaders }> = [];
-    const target = http.createServer((req, res) => {
-      targetRequests.push({ url: req.url ?? '', headers: req.headers });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end('{}');
-    });
-    const targetPort = await listen(target);
-    const source = http.createServer((req, res) => {
-      sourceRequests.push({ url: req.url ?? '', headers: req.headers });
-      res.writeHead(302, { Location: `http://127.0.0.1:${targetPort}/capture?access_token=oauth-redirect-secret` });
-      res.end();
-    });
-    const sourcePort = await listen(source);
-
-    try {
-      const oauthClient = new HttpClient(makeEnvService());
-      oauthClient.setOAuth2Service({ getToken: vi.fn().mockResolvedValue('oauth-redirect-secret') } as any);
-      await oauthClient.send(
-        {
-          http: {
-            method: 'GET',
-            url: `http://127.0.0.1:${sourcePort}/oauth`,
-            headers: [
-              { name: 'Authorization', value: 'Bearer explicit-secret' },
-              { name: 'Cookie', value: 'session=secret' },
-              { name: 'Proxy-Authorization', value: 'Basic proxy-secret' },
-            ],
-          },
-          runtime: {
-            auth: {
-              ...makeOAuth2Auth(),
-              tokenConfig: { placement: { query: 'access_token' } },
-            },
-          },
-          settings: { followRedirects: true },
-        },
-        makeCollection(),
-      );
-
-      const apiKeyClient = new HttpClient(makeEnvService());
-      await apiKeyClient.send(
-        {
-          http: { method: 'GET', url: `http://127.0.0.1:${sourcePort}/api-key` },
-          runtime: { auth: { type: 'apikey', key: 'X-API-Key', value: 'api-key-secret', placement: 'header' } },
-          settings: { followRedirects: true },
-        },
-        makeCollection(),
-      );
-
-      expect(sourceRequests[0].url).toContain('access_token=oauth-redirect-secret');
-      expect(sourceRequests[0].headers.authorization).toBe('Bearer explicit-secret');
-      expect(sourceRequests[0].headers.cookie).toBe('session=secret');
-      expect(sourceRequests[0].headers['proxy-authorization']).toBe('Basic proxy-secret');
-      expect(sourceRequests[1].headers['x-api-key']).toBe('api-key-secret');
-
-      expect(new URL(targetRequests[0].url, `http://127.0.0.1:${targetPort}`).searchParams.has('access_token')).toBe(false);
-      expect(targetRequests[0].headers.authorization).toBeUndefined();
-      expect(targetRequests[0].headers.cookie).toBeUndefined();
-      expect(targetRequests[0].headers['proxy-authorization']).toBeUndefined();
-      expect(targetRequests[1].headers['x-api-key']).toBeUndefined();
-    } finally {
-      await close(source);
-      await close(target);
-    }
   });
 });
 

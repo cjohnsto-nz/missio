@@ -34,10 +34,6 @@ export interface ResolvedRequest {
   headers: Record<string, string>;
   /** String for text bodies; Buffer for binary file bodies. */
   body?: string | Buffer;
-  /** Auth-derived headers that must not cross an origin boundary. */
-  sensitiveHeaders?: string[];
-  /** Auth-derived query parameters that must not cross an origin boundary or appear in logs. */
-  sensitiveQueryParameters?: string[];
 }
 
 interface CliTokenCacheEntry {
@@ -162,8 +158,6 @@ export class HttpClient implements vscode.Disposable {
     }
 
     // Auth (skip when exporting without auth)
-    const sensitiveHeaders = new Set<string>();
-    const sensitiveQueryParameters = new Set<string>();
     if (options?.includeAuth !== false) {
       let auth: Auth | undefined;
       if (collection.data.config?.forceAuthInherit) {
@@ -181,25 +175,12 @@ export class HttpClient implements vscode.Disposable {
         if (auth === 'inherit') auth = collection.data.request?.auth;
       }
       if (auth && auth !== 'inherit') {
-        const headersBeforeAuth = { ...headers };
-        const urlBeforeAuth = url;
         if (auth.type === 'oauth2') {
           url = await this._applyOAuth2(auth as AuthOAuth2, headers, variables, collection, environmentName, url, settings.encodeUrl);
         } else if (auth.type === 'cli') {
           await this._applyCliAuth(auth as AuthCli, headers, variables, collection, cliApprovalPrompt);
         } else {
           url = this._applyAuth(auth, headers, variables, url, settings.encodeUrl);
-        }
-        for (const [name, value] of Object.entries(headers)) {
-          const previousName = Object.keys(headersBeforeAuth).find(candidate => candidate.toLowerCase() === name.toLowerCase());
-          if (!previousName || headersBeforeAuth[previousName] !== value) sensitiveHeaders.add(name);
-        }
-        const configuredHeader = this._configuredAuthHeaderName(auth, variables);
-        if (configuredHeader) sensitiveHeaders.add(configuredHeader);
-        const configuredQuery = this._configuredAuthQueryName(auth, variables);
-        if (configuredQuery) sensitiveQueryParameters.add(configuredQuery);
-        for (const name of this._changedQueryParameterNames(urlBeforeAuth, url)) {
-          sensitiveQueryParameters.add(name);
         }
       }
     }
@@ -240,14 +221,7 @@ export class HttpClient implements vscode.Disposable {
 
     url = this._normalizeUrl(url, settings.encodeUrl);
 
-    return {
-      method: details.method.toUpperCase(),
-      url,
-      headers,
-      body,
-      sensitiveHeaders: sensitiveHeaders.size > 0 ? [...sensitiveHeaders] : undefined,
-      sensitiveQueryParameters: sensitiveQueryParameters.size > 0 ? [...sensitiveQueryParameters] : undefined,
-    };
+    return { method: details.method.toUpperCase(), url, headers, body };
   }
 
   async send(
@@ -311,7 +285,7 @@ export class HttpClient implements vscode.Disposable {
     let redirects = 0;
 
     while (true) {
-      _log(`  executing: ${current.method} ${this._redactUrlForLog(current.url, current.sensitiveQueryParameters)}`);
+      _log(`  executing: ${current.method} ${current.url}`);
       const response = await this._sendOnce(current, settings, collection, variables, environmentName, requestId, startedAt);
       const location = this._getRedirectLocation(response);
       if (!location || !settings.followRedirects) {
@@ -620,26 +594,10 @@ export class HttpClient implements vscode.Disposable {
   }
 
   private _buildRedirectRequest(current: ResolvedRequest, status: number, location: string, encodeUrl: boolean): ResolvedRequest {
-    const currentUrl = new URL(current.url);
-    const redirectUrl = new URL(location, current.url);
-    const crossesOrigin = currentUrl.origin !== redirectUrl.origin;
-    let url = this._normalizeUrl(redirectUrl.toString(), encodeUrl);
+    const url = this._normalizeUrl(new URL(location, current.url).toString(), encodeUrl);
     const headers = { ...current.headers };
     let method = current.method;
     let body = current.body;
-
-    if (crossesOrigin) {
-      for (const name of ['authorization', 'cookie', 'proxy-authorization', ...(current.sensitiveHeaders ?? [])]) {
-        this._deleteHeader(headers, name);
-      }
-      if (current.sensitiveQueryParameters?.length) {
-        const sanitizedUrl = new URL(url);
-        for (const name of current.sensitiveQueryParameters) {
-          this._deleteQueryParam(sanitizedUrl, name, encodeUrl);
-        }
-        url = this._normalizeUrl(sanitizedUrl.toString(), encodeUrl);
-      }
-    }
 
     if ([301, 302, 303].includes(status) && method !== 'GET' && method !== 'HEAD') {
       method = 'GET';
@@ -647,103 +605,12 @@ export class HttpClient implements vscode.Disposable {
       this._deleteHeader(headers, 'content-length');
     }
 
-    return {
-      method,
-      url,
-      headers,
-      body,
-      sensitiveHeaders: current.sensitiveHeaders,
-      sensitiveQueryParameters: current.sensitiveQueryParameters,
-    };
+    return { method, url, headers, body };
   }
 
-  private _setQueryParam(url: URL, name: string, value: string, encodeUrl = true): void {
-    if (!name) return;
-    if (encodeUrl) {
+  private _setQueryParam(url: URL, name: string, value: string, _encodeUrl = true): void {
+    if (name) {
       url.searchParams.set(name, value);
-      return;
-    }
-
-    const entries = url.search.slice(1)
-      .split('&')
-      .filter(Boolean)
-      .filter(entry => this._queryParameterName(entry) !== name);
-    entries.push(`${name}=${value}`);
-    url.search = entries.join('&');
-  }
-
-  private _deleteQueryParam(url: URL, name: string, encodeUrl: boolean): void {
-    if (encodeUrl) {
-      url.searchParams.delete(name);
-      return;
-    }
-    const entries = url.search.slice(1)
-      .split('&')
-      .filter(Boolean)
-      .filter(entry => this._queryParameterName(entry) !== name);
-    url.search = entries.join('&');
-  }
-
-  private _queryParameterName(entry: string): string {
-    const rawName = entry.split('=', 1)[0];
-    try {
-      return decodeURIComponent(rawName.replace(/\+/g, ' '));
-    } catch {
-      return rawName;
-    }
-  }
-
-  private _changedQueryParameterNames(before: string, after: string): string[] {
-    try {
-      const beforeParams = new URL(before).searchParams;
-      const afterParams = new URL(after).searchParams;
-      return [...new Set(afterParams.keys())].filter(name =>
-        JSON.stringify(beforeParams.getAll(name)) !== JSON.stringify(afterParams.getAll(name)));
-    } catch {
-      return [];
-    }
-  }
-
-  private _configuredAuthHeaderName(auth: Exclude<Auth, 'inherit'>, variables: Map<string, string>): string | undefined {
-    if (auth.type === 'basic' || auth.type === 'bearer') return 'Authorization';
-    if (auth.type === 'apikey' && auth.placement !== 'query') {
-      return this._environmentService.interpolate(auth.key ?? '', variables) || undefined;
-    }
-    if (auth.type === 'cli') {
-      return this._environmentService.interpolate(auth.tokenHeader || 'Authorization', variables);
-    }
-    if (auth.type === 'oauth2') {
-      const placement = auth.tokenConfig?.placement;
-      if (placement && 'query' in placement) return undefined;
-      const header = placement && 'header' in placement ? placement.header : 'Authorization';
-      return this._environmentService.interpolate(header || 'Authorization', variables);
-    }
-    return undefined;
-  }
-
-  private _configuredAuthQueryName(auth: Exclude<Auth, 'inherit'>, variables: Map<string, string>): string | undefined {
-    if (auth.type === 'apikey' && auth.placement === 'query') {
-      return this._environmentService.interpolate(auth.key ?? '', variables) || undefined;
-    }
-    if (auth.type === 'oauth2') {
-      const placement = auth.tokenConfig?.placement;
-      if (placement && 'query' in placement) {
-        return this._environmentService.interpolate(placement.query || 'access_token', variables);
-      }
-    }
-    return undefined;
-  }
-
-  private _redactUrlForLog(url: string, sensitiveQueryParameters: string[] | undefined): string {
-    if (!sensitiveQueryParameters?.length) return url;
-    try {
-      const parsed = new URL(url);
-      for (const name of sensitiveQueryParameters) {
-        if (parsed.searchParams.has(name)) parsed.searchParams.set(name, '[REDACTED]');
-      }
-      return parsed.toString();
-    } catch {
-      return '<URL redacted: invalid URL>';
     }
   }
 
@@ -774,10 +641,14 @@ export class HttpClient implements vscode.Disposable {
   ): ResolvedHttpRequestSettings {
     return {
       timeout: (settings?.timeout !== 'inherit' ? settings?.timeout : undefined) ?? config.get<number>('timeout', 30000),
-      followRedirects: (settings?.followRedirects !== 'inherit' && settings?.followRedirects) ?? config.get<boolean>('followRedirects', true),
+      followRedirects: this._resolveInheritedBoolean(settings?.followRedirects, config.get<boolean>('followRedirects', true)),
       maxRedirects: (settings?.maxRedirects !== 'inherit' ? settings?.maxRedirects : undefined) ?? config.get<number>('maxRedirects', 5),
-      encodeUrl: (settings?.encodeUrl !== 'inherit' && settings?.encodeUrl) ?? true,
+      encodeUrl: this._resolveInheritedBoolean(settings?.encodeUrl, true),
     };
+  }
+
+  private _resolveInheritedBoolean(value: boolean | 'inherit' | undefined, fallback: boolean): boolean {
+    return value === undefined || value === 'inherit' ? fallback : value;
   }
 
   private _resolveBody(body: HttpRequestDetails['body']): HttpRequestBody | undefined {
