@@ -16,6 +16,12 @@ This is the shared coordination file for parallel agents. Update it before start
 
 Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`, `Done`.
 
+## Supervisor
+
+| Role | Owner | Scope | Since | Current Focus |
+| --- | --- | --- | --- | --- |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-000 and OC-060 implementation audit. |
+
 ## Test Coverage Rules
 
 Every code change must include complete automated coverage for the behavior it adds or changes. Record the plan before implementation and the evidence before review:
@@ -84,6 +90,23 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
 | 2026-06-14 | Agent skills now require a finalization audit before marking tasks done. | Parallel agents need each task to classify uncommitted change IDs, commit only owned slices with GitButler, and log remaining unrelated IDs so completed work is not left only in `zz`. | Codex |
 
 ## Task Logs
+
+### Supervisor Reports
+
+- 2026-06-14 22:33 NZT - Codex: Declared Supervisor role and completed the first sanity audit for OC-000 and OC-060.
+  GitButler: current applied stack includes `supervisor/oc-000-oc-060-audit` on top of `feature/oc-060-schema-roundtrip-validation` (sc), `feature/oc-000-foundation-dispatch` (fo), and `docs/open-collection-agent-plan` (do). Workspace had no unassigned changes before the supervisor ledger update.
+  Coverage: inspected the OC-000 model/parser/execution/tree/tooling path and the OC-060 validation/round-trip/editor merge path; re-ran focused and full verification rather than relying only on agent notes.
+  Changed: `docs/open-collection-gap-analysis/AGENT_PROGRESS.md` only.
+  Verified: `npm run compile` passed; `npx vitest run test\openCollectionFoundation.test.ts test\schemaRoundTrip.test.ts test\validationService.test.ts` passed 17 tests; `npm test` passed 15 files and 341 tests; `npm run build` passed; `npx @vscode/vsce package --out %TEMP%\missio-0.7.7-supervisor.vsix` passed; `code.cmd --install-extension %TEMP%\missio-0.7.7-supervisor.vsix --force` installed successfully; `code.cmd --list-extensions --show-versions` shows `missio.missio@0.7.7`.
+  Observed: `Code.exe --install-extension` failed because the executable does not accept the CLI flag on this install; `C:\Program Files\Microsoft VS Code\bin\code.cmd` is the correct wrapper. VSIX packaging currently includes `.agents/`, `.opencode/`, and docs folders; acceptable for this local install, but consider `.vscodeignore` cleanup before publishing.
+  Next: proceed with OC-010/OC-020/OC-030/OC-070 kickoff as dependencies allow.
+- 2026-06-14 22:39 NZT - Codex: Completed supervisor packaging hygiene follow-up and confirmed the local binary upload server exists.
+  GitButler: supervisor branch `supervisor/oc-000-oc-060-audit` remains stacked above OC-060/OC-000/planning branches; workspace had only `.vscodeignore` before this ledger update.
+  Coverage: packaging verification only; no runtime behavior changed.
+  Changed: `.vscodeignore` excludes development-only coordination/config folders and `docs/open-collection-gap-analysis/**` from VSIX packages.
+  Verified: `npx @vscode/vsce package --out %TEMP%\missio-vscodeignore-check.vsix` passed; file list no longer includes `.agents/`, `.opencode/`, `.github/`, `.socket/`, `.windsurf/`, or `docs/open-collection-gap-analysis/`.
+  Observed: the local binary post demo server exists at `examples/demo-api/server.js`; it runs with `node examples/demo-api/server.js` on `http://localhost:3456` and exposes `GET /health`, `POST /upload`, `POST /upload/image`, `POST /upload/pdf`, and `POST /upload/text`.
+  Next: keep `examples/demo-api` packaged because it is useful sample content; protocol agents can reuse its local-server pattern for fixture-backed tests.
 
 ### OC-000 Foundation and Protocol Dispatch
 

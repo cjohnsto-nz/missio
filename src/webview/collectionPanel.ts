@@ -98,9 +98,9 @@ function buildAndSend() {
   collectionPayload.request.variables = requestVariables.length > 0 ? requestVariables : undefined;
 
   const mergedRequestDefaults = applyRequestDefaultsEditorModel(collectionData?.request, {
-    headers: requestHeaders,
+    headers: requestHeaders.length > 0 ? requestHeaders : undefined,
     auth: authData,
-    variables: requestVariables,
+    variables: requestVariables.length > 0 ? requestVariables : undefined,
   });
   if (mergedRequestDefaults) collectionPayload.request = mergedRequestDefaults;
   else delete collectionPayload.request;
