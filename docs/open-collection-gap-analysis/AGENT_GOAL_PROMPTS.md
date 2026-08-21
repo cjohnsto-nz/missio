@@ -100,8 +100,14 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 /goal Complete OC-090 gRPC streaming support using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until client-streaming, server-streaming, and bidirectional-streaming execution, schema-native message sequences, validation, cancellation, response streaming UI/tool output, local demo streaming fixtures, AGENT_PROGRESS updates, and complete automated unit, integration, round-trip, failure-path, and cleanup tests are implemented and passing.
 ```
 
+## gRPC Demo Server Reliability
+
+```text
+/goal Complete OC-160 gRPC demo server reliability review using $missio-agent-coordination, $missio-protocol-implementer, and $missio-demo-server-fixtures without stopping until the current failing demo-request behavior is reproduced or concretely explained, every packaged gRPC demo request has a documented local start flow, localhost:50051 is served by a deterministic fixture or all request endpoints are corrected, unary/server-streaming/client-streaming/bidirectional-streaming/error/runtime demo requests pass live smoke tests through Missio execution where applicable, missing-fixture diagnostics are clear, AGENT_PROGRESS updates are complete, and demo collection validation plus complete automated gRPC/demo regression, build, package, and install verification are passing.
+```
+
 ## Final Integration
 
 ```text
-/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-150 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-160 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
 ```
