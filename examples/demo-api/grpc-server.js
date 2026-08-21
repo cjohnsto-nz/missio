@@ -102,40 +102,12 @@ server.addService(proto.DemoService.service, {
   streamUsersWithError,
 });
 
-let shutdownStarted = false;
-
-function shutdown(signal) {
-  if (shutdownStarted) return;
-  shutdownStarted = true;
-  console.log(`Received ${signal}; shutting down the gRPC demo server.`);
-
-  const forceTimer = setTimeout(() => {
-    console.error('Graceful gRPC shutdown timed out; forcing shutdown.');
-    server.forceShutdown();
-    process.exitCode = 1;
-  }, 2_000);
-  forceTimer.unref();
-
-  server.tryShutdown((error) => {
-    clearTimeout(forceTimer);
-    if (error) {
-      console.error(error);
-      server.forceShutdown();
-      process.exitCode = 1;
-      return;
-    }
-    console.log('Missio gRPC Demo Server stopped.');
-  });
-}
-
 server.bindAsync(ADDRESS, grpc.ServerCredentials.createInsecure(), (err, port) => {
   if (err) {
     console.error(err);
     process.exit(1);
   }
   server.start();
-  process.once('SIGINT', () => shutdown('SIGINT'));
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
   const boundAddress = `${HOST}:${port}`;
   console.log(`Missio gRPC Demo Server -> ${boundAddress}`);
   console.log('Start command: node examples/demo-api/grpc-server.js');

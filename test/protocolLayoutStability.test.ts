@@ -10,6 +10,7 @@ import {
 } from '../src/models/schemaRoundTrip';
 import type { RequestProtocol } from '../src/models/types';
 import { RequestEditorProvider } from '../src/panels/requestPanel';
+import { MissioCodeLensProvider } from '../src/providers/codeLensProvider';
 
 const schema = require('../schema/opencollectionschema.json');
 const protocolRoots: RequestProtocol[] = ['http', 'graphql', 'websocket', 'grpc'];
@@ -142,6 +143,27 @@ async function loadRequestPanel(): Promise<{ dom: JSDOM; messages: unknown[] }> 
 
 function dispatchPanelMessage(dom: JSDOM, data: unknown): void {
   dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data }));
+}
+
+function messagesOfType(messages: unknown[], type: string, startIndex = 0): any[] {
+  return messages.slice(startIndex).filter((message: any) => message?.type === type);
+}
+
+function dispatchMouseDown(element: HTMLElement): void {
+  const view = element.ownerDocument.defaultView!;
+  element.dispatchEvent(new view.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+}
+
+function dispatchMouseActivationSequence(element: HTMLElement): void {
+  const view = element.ownerDocument.defaultView!;
+  element.dispatchEvent(new view.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+  element.dispatchEvent(new view.MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+  element.dispatchEvent(new view.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+}
+
+function dispatchKeyboardActivation(element: HTMLElement, key: 'Enter' | ' '): void {
+  const view = element.ownerDocument.defaultView!;
+  element.dispatchEvent(new view.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key }));
 }
 
 afterEach(() => {
@@ -481,5 +503,172 @@ describe('OC-130 request editor first paint', () => {
       }
       validateSubschema(protocol, updated);
     }
+  });
+});
+
+describe('OC-170 request action first-click reliability', () => {
+  it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('fires %s Send on the first mouse-down after hydration', async (protocol) => {
+    const { dom, messages } = await loadRequestPanel();
+    const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(sendBtn.title).toBe('Request editor is loading');
+    const pendingCount = messages.length;
+    dispatchMouseDown(sendBtn);
+    expect(messages).toHaveLength(pendingCount);
+
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
+
+    expect(sendBtn.disabled).toBe(false);
+    expect(sendBtn.hasAttribute('aria-disabled')).toBe(false);
+
+    if (protocol === 'graphql') {
+      (document.getElementById('bodyData') as HTMLTextAreaElement).value = 'query EditedFirstClick { health { status } }';
+    }
+
+    const beforeAction = messages.length;
+    dispatchMouseDown(sendBtn);
+    const sent = messagesOfType(messages, 'sendRequest', beforeAction);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].request.info.type).toBe(protocol);
+    if (protocol === 'graphql') {
+      expect(sent[0].request.graphql.body.query).toBe('query EditedFirstClick { health { status } }');
+    }
+  });
+
+  it('fires WebSocket Connect, Send Message, and Disconnect on first mouse-down actions', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+
+    const lifecycleBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+    const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
+
+    expect(lifecycleBtn.disabled).toBe(false);
+    expect(lifecycleBtn.textContent).toBe('Connect');
+    expect(sendMessageBtn.disabled).toBe(true);
+    expect(sendMessageBtn.getAttribute('aria-disabled')).toBe('true');
+
+    let beforeAction = messages.length;
+    dispatchMouseDown(lifecycleBtn);
+    let posted = messagesOfType(messages, 'webSocketConnect', beforeAction);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].request.info.type).toBe('websocket');
+
+    dispatchPanelMessage(dom, {
+      type: 'webSocketSession',
+      session: {
+        requestId: 'websocket.yml',
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 0,
+      },
+    });
+
+    expect(lifecycleBtn.textContent).toBe('Disconnect');
+    expect(lifecycleBtn.disabled).toBe(false);
+    expect(sendMessageBtn.disabled).toBe(false);
+    expect(sendMessageBtn.hasAttribute('aria-disabled')).toBe(false);
+
+    beforeAction = messages.length;
+    dispatchMouseDown(sendMessageBtn);
+    posted = messagesOfType(messages, 'webSocketSendMessage', beforeAction);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].request.info.type).toBe('websocket');
+
+    beforeAction = messages.length;
+    dispatchMouseDown(lifecycleBtn);
+    posted = messagesOfType(messages, 'webSocketDisconnect', beforeAction);
+    expect(posted).toHaveLength(1);
+  });
+
+  it('suppresses the click that follows a handled first mouse-down action', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('graphql'), filePath: 'graphql.yml' });
+
+    const beforeAction = messages.length;
+    dispatchMouseActivationSequence(document.getElementById('sendBtn') as HTMLButtonElement);
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+  });
+
+  it.each(['http', 'graphql', 'grpc'] as RequestProtocol[])('supports keyboard activation for %s Send', async (protocol) => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol(protocol), filePath: `${protocol}.yml` });
+
+    const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+    let beforeAction = messages.length;
+    dispatchKeyboardActivation(sendBtn, 'Enter');
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+
+    beforeAction = messages.length;
+    dispatchKeyboardActivation(sendBtn, ' ');
+    expect(messagesOfType(messages, 'sendRequest', beforeAction)).toHaveLength(1);
+  });
+
+  it('supports keyboard activation for WebSocket lifecycle controls', async () => {
+    const { dom, messages } = await loadRequestPanel();
+    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('websocket'), filePath: 'websocket.yml' });
+
+    const lifecycleBtn = document.getElementById('sendBtn') as HTMLButtonElement;
+    const sendMessageBtn = document.getElementById('wsSendBtn') as HTMLButtonElement;
+
+    let beforeAction = messages.length;
+    dispatchKeyboardActivation(lifecycleBtn, 'Enter');
+    expect(messagesOfType(messages, 'webSocketConnect', beforeAction)).toHaveLength(1);
+
+    dispatchPanelMessage(dom, {
+      type: 'webSocketSession',
+      session: {
+        requestId: 'websocket.yml',
+        state: 'connected',
+        events: [],
+        inboundCount: 0,
+        outboundCount: 0,
+      },
+    });
+
+    beforeAction = messages.length;
+    dispatchKeyboardActivation(sendMessageBtn, ' ');
+    expect(messagesOfType(messages, 'webSocketSendMessage', beforeAction)).toHaveLength(1);
+
+    beforeAction = messages.length;
+    dispatchKeyboardActivation(lifecycleBtn, ' ');
+    expect(messagesOfType(messages, 'webSocketDisconnect', beforeAction)).toHaveLength(1);
+  });
+
+  it('keeps command, editor toolbar, and CodeLens routes armed for every protocol', () => {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+    const editorTitleSend = packageJson.contributes.menus['editor/title'].find((entry: any) => entry.command === 'missio.sendRequest');
+    const provider = new MissioCodeLensProvider();
+
+    expect(editorTitleSend).toMatchObject({
+      command: 'missio.sendRequest',
+      group: 'navigation',
+    });
+
+    for (const protocol of protocolRoots) {
+      const request = requestForProtocol(protocol);
+      const yaml = stringifyYaml(request, { lineWidth: 120 });
+      const lenses = provider.provideCodeLenses({
+        getText: () => yaml,
+        uri: { fsPath: path.join(process.cwd(), `${protocol}.yml`) },
+      } as any);
+      const commandLens = lenses.find(lens => lens.command?.command);
+
+      expect(commandLens?.command?.arguments).toEqual([path.join(process.cwd(), `${protocol}.yml`)]);
+      if (protocol === 'websocket') {
+        expect(lenses.map(lens => lens.command?.command).filter(Boolean)).toEqual([
+          'missio.connectWebSocket',
+          'missio.sendWebSocketMessage',
+          'missio.disconnectWebSocket',
+        ]);
+      } else {
+        expect(commandLens?.command?.command).toBe('missio.sendRequest');
+      }
+    }
+
+    provider.dispose();
   });
 });

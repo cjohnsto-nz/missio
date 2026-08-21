@@ -600,7 +600,9 @@ describe('WebSocket editor, variables, and tools', () => {
     const css = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
     const script = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.ts'), 'utf8');
 
-    expect(html).toContain('id="sendBtn">Send</button>');
+    expect(html).toContain('id="sendBtn" type="button" disabled aria-disabled="true" title="Request editor is loading">Send</button>');
+    expect(html).toContain('id="wsSendBtn" type="button"');
+    expect(html).toContain('disabled aria-disabled="true" title="Request editor is loading">Send</button>');
     expect(html).toContain('class="btn btn-primary ws-lifecycle-btn ws-send-btn" id="wsSendBtn"');
     expect(html).not.toContain('id="wsDisconnectBtn"');
     expect(html).toContain('id="webSocketSessionPanel"');
