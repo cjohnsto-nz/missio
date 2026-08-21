@@ -7,7 +7,6 @@ out/
 media/*.js
 media/*.css
 media/*.map
-media/pdf*.mjs
 
 # code workspace
 *.code-workspace

@@ -1144,7 +1144,6 @@
     "esbuild": "^0.20.0",
     "esbuild-plugin-copy": "^2.1.0",
     "jsdom": "^29.1.1",
-    "pdfjs-dist": "5.4.624",
     "typescript": "^5.3.0",
     "vitest": "^4.0.18"
   },
@@ -1153,6 +1152,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "highlight.js": "^11.11.1",
     "httpsnippet": "^3.0.9",
+    "pdfjs-dist": "^5.4.624",
     "ws": "^8.21.0",
     "yaml": "^2.3.0"
   }
