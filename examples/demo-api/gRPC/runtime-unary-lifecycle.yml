@@ -32,16 +32,15 @@ runtime:
   scripts:
     - type: before-request
       code: |-
-        missio.variables.set("grpcRuntimeName", missio.variables.get("grpcRuntimeNameSeed"));
+        missio.variables.set("grpcRuntimeName", "{{grpcRuntimeNameSeed}}");
     - type: before-request
       code: |-
-        const grpcRequestId = missio.variables.get("grpcRequestId");
-        missio.variables.set("grpcRuntimeTrace", `runtime-${grpcRequestId}`);
-        missio.request.metadata.set("x-demo-request", `script-${grpcRequestId}`);
+        missio.variables.set("grpcRuntimeTrace", "runtime-{{grpcRequestId}}");
+        missio.request.metadata.set("x-demo-request", "script-{{grpcRequestId}}");
         missio.request.body = {
-          name: missio.variables.get("grpcRuntimeName"),
-          userId: Number(missio.variables.get("grpcRuntimeUserId")),
-          trace: { requestId: missio.variables.get("grpcRuntimeTrace") }
+          name: "{{grpcRuntimeName}}",
+          userId: Number("{{grpcRuntimeUserId}}"),
+          trace: { requestId: "{{grpcRuntimeTrace}}" }
         };
     - type: after-response
       code: |-

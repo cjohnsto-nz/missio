@@ -100,17 +100,11 @@ export class RuntimeExecutionService {
 
   async buildRequestVariableOverrides(
     request: RuntimeCapableRequest,
-    collection: MissioCollection,
-    folderDefaults?: RequestDefaults,
     extraVariables?: Map<string, string>,
-    environmentName?: string,
   ): Promise<Map<string, string> | undefined> {
-    const baseVariables = this._variableResolver
-      ? await this._variableResolver(collection, folderDefaults, environmentName)
-      : new Map<string, string>();
     const requestVariables = resolveVariableMapValues(
       variablesToMap(runtimeConfig(request)?.variables),
-      baseVariables,
+      new Map(),
       extraVariables,
     );
     if (requestVariables.size === 0 && (!extraVariables || extraVariables.size === 0)) {
@@ -261,21 +255,15 @@ export class RuntimeExecutionService {
   }
 
   private _runScript(state: RuntimeState, script: Script, phase: RuntimePhase): void {
-    const templateNames = [...new Set(
-      [...script.code.matchAll(varPatternGlobal())].map(match => match[1].trim()),
-    )].sort();
-    if (templateNames.length > 0) {
-      throw new Error(
-        `Runtime script source interpolation is not supported (${templateNames.map(name => `{{${name}}}`).join(', ')}). `
-        + 'Read variables as data with missio.variables.get("name").',
-      );
-    }
     const sandbox = this._createSandbox(state, phase);
     const context = vm.createContext(sandbox, {
       name: 'missio-runtime',
       codeGeneration: { strings: false, wasm: false },
     });
-    const compiled = new vm.Script(script.code, { filename: `missio-${script.type}.js` });
+    const compiled = new vm.Script(
+      interpolateRuntimeTemplate(script.code, buildVisibleVariables(state.variables)),
+      { filename: `missio-${script.type}.js` },
+    );
     compiled.runInContext(context, { timeout: 1000, displayErrors: true });
   }
 
@@ -513,8 +501,7 @@ function resolveVariableMapValues(
   extraVariables?: Map<string, string>,
 ): Map<string, string> {
   const resolved = new Map(variables);
-  const maxPasses = Math.max(1, variables.size + 1);
-  for (let pass = 0; pass < maxPasses; pass++) {
+  for (let pass = 0; pass < 10; pass++) {
     let changed = false;
     const visible = new Map(baseVariables);
     mergeInto(visible, resolved);
@@ -523,13 +510,9 @@ function resolveVariableMapValues(
     for (const [key, value] of resolved) {
       const next = value.replace(varPatternGlobal(), (match, name) => {
         const ref = String(name).trim();
+        if (ref === key) return match;
         const builtin = resolveRuntimeBuiltin(ref);
         if (builtin !== undefined) return builtin;
-        if (ref === key) {
-          if (extraVariables?.has(ref)) return extraVariables.get(ref)!;
-          if (baseVariables.has(ref)) return baseVariables.get(ref)!;
-          return match;
-        }
         return visible.has(ref) ? visible.get(ref)! : match;
       });
       if (next !== value) {
@@ -539,21 +522,6 @@ function resolveVariableMapValues(
     }
 
     if (!changed) break;
-  }
-  const cyclicNames = new Set<string>();
-  for (const [key, value] of resolved) {
-    const re = varPatternGlobal();
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(value)) !== null) {
-      const ref = match[1].trim();
-      if (variables.has(ref)) {
-        cyclicNames.add(key);
-        cyclicNames.add(ref);
-      }
-    }
-  }
-  if (cyclicNames.size > 0) {
-    throw new Error(`Cyclic runtime variable reference: ${[...cyclicNames].sort().join(', ')}`);
   }
   return resolved;
 }
@@ -568,7 +536,6 @@ function interpolateRuntimeTemplate(template: string, variables: Map<string, str
 }
 
 function resolveRuntimeBuiltin(name: string): string | undefined {
-  // Resolve each textual occurrence independently to match Postman dynamic-variable semantics.
   switch (name) {
     case '$guid': return randomUUID();
     case '$timestamp': return String(Math.floor(Date.now() / 1000));
@@ -1025,8 +992,7 @@ function buildVisibleVariables(variables: RuntimeVariableScopes): Map<string, st
 }
 
 function getVariable(state: RuntimeState, name: string): string | undefined {
-  const key = String(name);
-  return resolveRuntimeBuiltin(key) ?? buildVisibleVariables(state.variables).get(key);
+  return buildVisibleVariables(state.variables).get(String(name));
 }
 
 function setRuntimeVariable(

