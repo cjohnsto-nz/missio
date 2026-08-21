@@ -25,14 +25,19 @@ runtime:
     type: bearer
     token: "{{grpcToken}}"
   variables:
+    - name: grpcRuntimeNameSeed
+      value: "{{grpcName}} Runtime"
     - name: grpcRuntimeUserId
       value: "77"
   scripts:
     - type: before-request
       code: |-
-        missio.variables.set("grpcRuntimeName", "Runtime Ada");
-        missio.variables.set("grpcRuntimeTrace", "runtime-" + missio.variables.get("grpcRequestId"));
-        missio.request.metadata.set("x-demo-request", "script-" + missio.variables.get("grpcRequestId"));
+        missio.variables.set("grpcRuntimeName", missio.variables.get("grpcRuntimeNameSeed"));
+    - type: before-request
+      code: |-
+        const grpcRequestId = missio.variables.get("grpcRequestId");
+        missio.variables.set("grpcRuntimeTrace", `runtime-${grpcRequestId}`);
+        missio.request.metadata.set("x-demo-request", `script-${grpcRequestId}`);
         missio.request.body = {
           name: missio.variables.get("grpcRuntimeName"),
           userId: Number(missio.variables.get("grpcRuntimeUserId")),
@@ -43,11 +48,11 @@ runtime:
         console.info("runtime grpc request", response.json().requestId);
     - type: tests
       code: |-
-        test("runtime grpc message echoed", () => assert(response.json().name === "Runtime Ada"));
+        test("runtime grpc message echoed", () => assert(response.json().name === "Ada Runtime"));
   assertions:
     - expression: res.body.name
       operator: equals
-      value: Runtime Ada
+      value: Ada Runtime
     - expression: res.body.userId
       operator: equals
       value: "77"

