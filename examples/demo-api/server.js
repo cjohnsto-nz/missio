@@ -25,6 +25,7 @@
 const http = require('http');
 const fs   = require('fs');
 const path = require('path');
+const { WebSocketServer } = require('ws');
 
 const PORT         = 3456;
 const FIXTURES_DIR = path.join(__dirname, 'fixtures');
@@ -74,6 +75,60 @@ function collectBody(req) {
   });
 }
 
+function parseJsonBody(buffer) {
+  if (!buffer.length) return {};
+  return JSON.parse(buffer.toString('utf8'));
+}
+
+function buildGraphQLFixture(payload, headers) {
+  const query = String(payload.query || '');
+  const variables = payload.variables && typeof payload.variables === 'object'
+    ? payload.variables
+    : {};
+  const normalized = query.replace(/\s+/g, ' ').trim().toLowerCase();
+  const operation = normalized.startsWith('mutation') ? 'mutation' : 'query';
+  const users = [
+    { id: '1', name: 'Ada Lovelace', role: 'admin' },
+    { id: '2', name: 'Grace Hopper', role: 'maintainer' },
+  ];
+
+  let data;
+  if (operation === 'mutation') {
+    data = {
+      createDemoNote: {
+        id: 'note-1',
+        title: variables.title || 'Untitled note',
+        ownerId: variables.ownerId || variables.userId || '1',
+        saved: true,
+      },
+    };
+  } else if (normalized.includes('health')) {
+    data = {
+      health: {
+        status: 'ok',
+        service: 'Missio Demo GraphQL',
+      },
+    };
+  } else if (normalized.includes('user(') || normalized.includes('demo user')) {
+    const id = String(variables.id || variables.userId || '1');
+    data = {
+      user: users.find(user => user.id === id) || { id, name: `Demo User ${id}` },
+    };
+  } else {
+    data = { users };
+  }
+
+  return {
+    data,
+    extensions: {
+      demo: true,
+      operation,
+      echoedVariables: variables,
+      requestHeader: headers['x-demo-token'] || null,
+    },
+  };
+}
+
 function addCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
@@ -107,6 +162,28 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── POST /upload ───────────────────────────────────────────────────────────
+  if (method === 'GET' && url === '/graphql') {
+    return json(res, 200, {
+      status: 'ok',
+      route: '/graphql',
+      accepts: 'POST application/json with query and variables',
+    });
+  }
+
+  if (method === 'POST' && url === '/graphql') {
+    const body = await collectBody(req);
+    let payload;
+    try {
+      payload = parseJsonBody(body);
+    } catch (error) {
+      return json(res, 400, {
+        errors: [{ message: `Invalid JSON body: ${error.message}` }],
+      });
+    }
+
+    return json(res, 200, buildGraphQLFixture(payload, headers));
+  }
+
   // Generic binary upload: accepts anything, returns metadata.
   if (method === 'POST' && url === '/upload') {
     const body = await collectBody(req);
@@ -172,19 +249,172 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── 404 ────────────────────────────────────────────────────────────────────
+  if ((method === 'GET' || method === 'POST') && url === '/runtime/echo') {
+    const body = method === 'POST' ? await collectBody(req) : Buffer.alloc(0);
+    let parsedBody = body.toString('utf8');
+    if ((contentType || '').includes('json') && parsedBody) {
+      try {
+        parsedBody = JSON.parse(parsedBody);
+      } catch {
+        // Keep raw text when intentionally testing bad JSON.
+      }
+    }
+    return json(res, 200, {
+      ok: true,
+      route: '/runtime/echo',
+      method,
+      scriptedHeader: headers['x-runtime-script'] || null,
+      requestToken: headers['x-runtime-token'] || null,
+      body: parsedBody,
+    });
+  }
+
+  if (method === 'POST' && url === '/runtime/token') {
+    const body = await collectBody(req);
+    let payload = {};
+    try {
+      payload = parseJsonBody(body);
+    } catch (error) {
+      return json(res, 400, {
+        ok: false,
+        error: `Invalid JSON body: ${error.message}`,
+      });
+    }
+    return json(res, 200, {
+      ok: true,
+      token: 'runtime-token-123',
+      nested: {
+        count: 2,
+        owner: payload.owner || 'missio-demo',
+      },
+      scriptedHeader: headers['x-runtime-script'] || null,
+      echoedBody: payload,
+    });
+  }
+
+  if (method === 'GET' && url === '/runtime/assert-fail') {
+    return json(res, 200, {
+      ok: false,
+      expected: 'pass',
+      actual: 'fail',
+      message: 'This route intentionally fails the demo assertion.',
+    });
+  }
+
   json(res, 404, { error: 'Not Found', path: url });
 });
 
+function socketPath(requestUrl) {
+  try {
+    return new URL(requestUrl, `http://localhost:${PORT}`).pathname;
+  } catch {
+    return requestUrl || '/';
+  }
+}
+
+function rejectUpgrade(socket, status, message) {
+  socket.write([
+    `HTTP/1.1 ${status} ${message}`,
+    'Connection: close',
+    'Content-Length: 0',
+    '',
+    '',
+  ].join('\r\n'));
+  socket.destroy();
+}
+
+function parseSocketMessage(data, isBinary) {
+  if (isBinary) {
+    return { type: 'binary', base64: Buffer.from(data).toString('base64') };
+  }
+
+  const text = Buffer.from(data).toString('utf8');
+  try {
+    return { type: 'json', value: JSON.parse(text), text };
+  } catch {
+    return { type: 'text', text };
+  }
+}
+
+function attachWebSocketFixtures(httpServer) {
+  const wss = new WebSocketServer({ noServer: true });
+  const supportedRoutes = new Set(['/ws/echo', '/ws/auth', '/ws/close']);
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const route = socketPath(req.url);
+    if (route === '/ws/reject') {
+      rejectUpgrade(socket, 401, 'Unauthorized');
+      return;
+    }
+
+    if (!supportedRoutes.has(route)) {
+      rejectUpgrade(socket, route.startsWith('/ws/') ? 404 : 400, route.startsWith('/ws/') ? 'Not Found' : 'Bad Request');
+      return;
+    }
+
+    if (route === '/ws/auth') {
+      const bearer = req.headers.authorization === 'Bearer demo-token';
+      const client = req.headers['x-demo-client'] === 'missio-demo';
+      if (!bearer || !client) {
+        rejectUpgrade(socket, 401, 'Unauthorized');
+        return;
+      }
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.demoRoute = route;
+      wss.emit('connection', ws, req);
+    });
+  });
+
+  wss.on('connection', (ws, req) => {
+    const route = ws.demoRoute || socketPath(req.url);
+    console.log(`  WS ${route}`);
+
+    if (route === '/ws/close') {
+      ws.close(4000, 'Missio demo close');
+      return;
+    }
+
+    ws.on('message', (data, isBinary) => {
+      if (route === '/ws/auth') {
+        ws.send(JSON.stringify({
+          ok: true,
+          route,
+          authorized: true,
+          client: req.headers['x-demo-client'] || null,
+          message: parseSocketMessage(data, isBinary),
+        }, null, 2));
+        return;
+      }
+
+      ws.send(data, { binary: isBinary });
+    });
+  });
+
+  return wss;
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 ensureFixtures();
+attachWebSocketFixtures(server);
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`\nMissio Demo Server  →  http://localhost:${PORT}\n`);
   console.log('Routes:');
   console.log(`  GET  http://localhost:${PORT}/health`);
+  console.log(`  GET  http://localhost:${PORT}/graphql        (GraphQL fixture info)`);
+  console.log(`  POST http://localhost:${PORT}/graphql        (GraphQL JSON body -> JSON response)`);
   console.log(`  POST http://localhost:${PORT}/upload          (any binary body → JSON info)`);
   console.log(`  POST http://localhost:${PORT}/upload/image    (image body → echoed back)`);
   console.log(`  POST http://localhost:${PORT}/upload/pdf      (PDF body → JSON info)`);
   console.log(`  POST http://localhost:${PORT}/upload/text     (text body → JSON + preview)`);
+  console.log(`  POST http://localhost:${PORT}/runtime/echo    (runtime header/body echo)`);
+  console.log(`  POST http://localhost:${PORT}/runtime/token   (runtime token fixture)`);
+  console.log(`  GET  http://localhost:${PORT}/runtime/assert-fail (intentional runtime failure)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/echo        (text/json/binary echo)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/auth        (requires bearer + X-Demo-Client headers)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/close       (deterministic server close)`);
+  console.log(`  WS   ws://localhost:${PORT}/ws/reject      (deterministic upgrade rejection)`);
   console.log('\nFixture files for demo requests:');
   console.log(`  ${path.join(FIXTURES_DIR, 'sample.png')}`);
   console.log(`  ${path.join(FIXTURES_DIR, 'sample.txt')}`);

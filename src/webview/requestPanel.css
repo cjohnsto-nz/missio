@@ -75,6 +75,21 @@ body {
   position: relative;
   min-width: 100px;
 }
+.protocol-chip {
+  min-width: 72px;
+  background: var(--input-bg);
+  color: var(--vscode-textLink-foreground, #4fc1ff);
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--vscode-editor-font-family, monospace);
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
 .method-picker .method-select {
   width: 100%;
 }
@@ -803,6 +818,23 @@ td.var-cell .var-overlay {
 }
 
 /* ── Language Select ───────────────────── */
+#graphqlVariablesEditor {
+  margin-top: 8px;
+  min-height: 120px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#graphqlVariablesData {
+  min-height: 110px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background, var(--input-bg));
+  color: var(--fg);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
 .lang-select {
   background-color: var(--input-bg);
   color: var(--input-fg);
@@ -1424,6 +1456,73 @@ mark.resp-search-match.resp-search-current {
   font-size: 12px;
 }
 .resp-headers-table td:first-child { color: var(--btn-bg); font-weight: 500; white-space: nowrap; }
+
+/* Runtime Results */
+.runtime-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+}
+.runtime-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.runtime-summary span:first-child {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.runtime-summary.runtime-ok span:first-child { color: var(--badge-success); }
+.runtime-summary.runtime-fail span:first-child { color: var(--badge-error); }
+.runtime-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.runtime-section h3 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--m-fg-muted);
+}
+.runtime-section table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.runtime-section th,
+.runtime-section td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  vertical-align: top;
+  word-break: break-word;
+}
+.runtime-section th {
+  color: var(--m-fg-muted);
+  font-weight: 600;
+  text-align: left;
+}
+.runtime-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.runtime-pass { background: rgba(46, 160, 67, 0.18); color: var(--badge-success); }
+.runtime-failed { background: rgba(239, 68, 68, 0.18); color: var(--badge-error); }
+.runtime-skip { background: rgba(127, 127, 127, 0.18); color: var(--m-fg-muted); }
 
 /* ── Variable Highlighting ────────────────── */
 .tk-var {

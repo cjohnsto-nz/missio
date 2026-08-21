@@ -1,0 +1,34 @@
+info:
+  name: GraphQL Create Note Mutation
+  type: graphql
+  seq: 3
+  description: Run node examples/demo-api/server.js first. This mutation returns a deterministic note and echoes the variables.
+graphql:
+  method: POST
+  url: "{{baseUrl}}/graphql"
+  body:
+    query: |-
+      mutation CreateDemoNote($title: String!, $ownerId: ID!) {
+        createDemoNote(title: $title, ownerId: $ownerId) {
+          id
+          title
+          ownerId
+          saved
+        }
+      }
+    variables: |-
+      {
+        "title": "Missio local GraphQL",
+        "ownerId": "{{userId}}"
+      }
+settings:
+  timeout: 5000
+runtime:
+  assertions:
+    - expression: res.body.data.createDemoNote.saved
+      operator: equals
+      value: "true"
+    - expression: res.body.extensions.operation
+      operator: equals
+      value: mutation
+

@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
-import type { Item, Folder, HttpRequest } from '../../models/types';
-import { isFolder, isHttpRequest } from '../../models/types';
+import type { Item, Folder, OpenCollectionRequest } from '../../models/types';
+import { isFolder, isGraphQLRequest, isGrpcRequest, isHttpRequest, isWebSocketRequest } from '../../models/types';
 import { varPatternGlobal } from '../../models/varPattern';
+import { describeGraphQLOperation } from '../../services/graphqlSupport';
 
 export interface ListRequestsParams {
   collectionId?: string;
@@ -12,6 +13,7 @@ export interface ListRequestsParams {
 
 interface RequestEntry {
   name: string;
+  protocol: string;
   method: string;
   url: string;
   filePath: string | undefined;
@@ -58,13 +60,28 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
         const name = f.info?.name ?? 'folder';
         const subPath = folder ? `${folder}/${name}` : name;
         if (f.items) this._extract(f.items, subPath, out);
-      } else if (isHttpRequest(item)) {
+      } else if (isHttpRequest(item) || isGraphQLRequest(item) || isGrpcRequest(item) || isWebSocketRequest(item)) {
         const req = item;
-        const url = req.http?.url ?? '';
+        const protocol = isWebSocketRequest(req) ? 'websocket' : isGrpcRequest(req) ? 'grpc' : isGraphQLRequest(req) ? 'graphql' : 'http';
+        const url = isWebSocketRequest(req)
+          ? (req.websocket?.url ?? '')
+          : isGrpcRequest(req)
+          ? (req.grpc?.url ?? '')
+          : isGraphQLRequest(req)
+          ? (req.graphql?.url ?? '')
+          : (req.http?.url ?? '');
+        const method = isWebSocketRequest(req)
+          ? 'WS'
+          : isGrpcRequest(req)
+          ? (req.grpc?.method ?? 'gRPC')
+          : isGraphQLRequest(req)
+          ? describeGraphQLOperation(req)
+          : (req.http?.method ?? 'GET');
         const templateVariables = this._extractTemplateVariables(req);
         const entry: RequestEntry = {
           name: req.info?.name ?? 'Unnamed',
-          method: req.http?.method ?? 'GET',
+          protocol,
+          method,
           url,
           filePath: (req as any)._filePath,
           folder,
@@ -75,7 +92,7 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
     }
   }
 
-  private _extractTemplateVariables(req: HttpRequest): Record<string, string[]> {
+  private _extractTemplateVariables(req: OpenCollectionRequest): Record<string, string[]> {
     const result: Record<string, string[]> = {};
     const add = (name: string, placement: string) => {
       if (!name) return;
@@ -104,7 +121,7 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
       }
     };
 
-    const details = req.http;
+    const details = isGraphQLRequest(req) ? req.graphql : isHttpRequest(req) ? req.http : undefined;
     if (details) {
       extractFromString(details.url, 'url');
 
@@ -125,6 +142,11 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
       const body = details.body as any;
       const scanBody = (b: any) => {
         if (!b) return;
+        if (isGraphQLRequest(req)) {
+          extractFromString(b.query, 'body');
+          extractFromString(b.variables, 'body');
+          return;
+        }
         switch (b.type) {
           case 'json':
           case 'text':
@@ -158,6 +180,38 @@ export class ListRequestsTool extends ToolBase<ListRequestsParams> {
           scanBody(body);
         }
       }
+    }
+
+    if (isWebSocketRequest(req)) {
+      const details = req.websocket;
+      extractFromString(details?.url, 'url');
+      for (const h of details?.headers ?? []) {
+        if (!h.disabled) {
+          extractFromString(h.name, 'headers');
+          extractFromString(h.value, 'headers');
+        }
+      }
+      const message = Array.isArray(details?.message)
+        ? (details?.message.find((variant: any) => variant.selected) ?? details?.message[0])?.message
+        : details?.message;
+      extractFromString(message?.data, 'message');
+    }
+
+    if (isGrpcRequest(req)) {
+      const details = req.grpc;
+      extractFromString(details?.url, 'url');
+      extractFromString(details?.method, 'method');
+      extractFromString(details?.protoFilePath, 'proto');
+      for (const h of details?.metadata ?? []) {
+        if (!h.disabled) {
+          extractFromString(h.name, 'metadata');
+          extractFromString(h.value, 'metadata');
+        }
+      }
+      const message = Array.isArray(details?.message)
+        ? (details?.message.find((variant: any) => variant.selected) ?? details?.message[0])?.message
+        : details?.message;
+      extractFromString(message, 'message');
     }
 
     // Auth template variables (request-level only; no environment resolution)
