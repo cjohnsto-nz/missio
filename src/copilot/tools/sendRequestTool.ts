@@ -205,6 +205,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
 
     if (savedTo) result.savedTo = savedTo;
     if (response.runtime) result.runtime = response.runtime;
+    if ((response as any).stream) result.stream = (response as any).stream;
 
     // Extract values from JSON response body
     if (extract && response.body) {
@@ -245,10 +246,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         for (const h of collection.data.request?.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
         for (const h of folderDefaults?.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
         for (const h of details.metadata ?? []) { if (!h.disabled) { extract(h.name); extract(h.value); } }
-        const message = Array.isArray(details.message)
-          ? (details.message.find((v: any) => v.selected) ?? details.message[0])?.message
-          : details.message;
-        extract(message);
+        this._forEachGrpcMessageTemplate(details.message as unknown, extract);
       }
     }
 
@@ -512,17 +510,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       }
     }
 
-    let message: unknown = {};
-    const rawMessage = Array.isArray(details?.message)
-      ? (details?.message.find((v: any) => v.selected) ?? details?.message[0])?.message
-      : details?.message;
-    if (rawMessage) {
-      try {
-        message = JSON.parse(this._environmentService.interpolateJson(rawMessage, variables));
-      } catch {
-        message = rawMessage;
-      }
-    }
+    const grpcMessages = this._resolveGrpcDryRunMessages(details?.message as unknown, variables, secretValues);
 
     return JSON.stringify({
       success: unresolvedNames.length === 0,
@@ -536,12 +524,77 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         methodType: details?.methodType ?? 'unary',
         protoFilePath: details?.protoFilePath ? this._environmentService.interpolate(details.protoFilePath, variables) : undefined,
         metadata,
-        message,
+        ...grpcMessages,
       },
     });
   }
 
   // ── Dry-run: resolve and preview without sending ──
+
+  private _forEachGrpcMessageTemplate(
+    message: unknown,
+    visit: (message: string | undefined) => void,
+  ): void {
+    if (!Array.isArray(message)) {
+      visit(typeof message === 'string' ? message : undefined);
+      return;
+    }
+
+    if (this._isGrpcMessageSequence(message)) {
+      for (const entry of message) {
+        visit(entry.message);
+      }
+      return;
+    }
+
+    const selected = message.find(entry => this._isRecord(entry) && entry.selected === true) ?? message[0];
+    visit(this._isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined);
+  }
+
+  private _resolveGrpcDryRunMessages(
+    message: unknown,
+    variables: Map<string, string>,
+    secretValues: Set<string>,
+  ): Record<string, unknown> {
+    const parseMessage = (rawMessage: string | undefined): unknown => {
+      if (!rawMessage) return {};
+      const interpolated = this._environmentService.interpolateJson(rawMessage, variables);
+      const redacted = this._redactSecretValues(interpolated, secretValues);
+      try {
+        return JSON.parse(redacted);
+      } catch {
+        return redacted;
+      }
+    };
+
+    if (this._isGrpcMessageSequence(message)) {
+      return {
+        messages: message.map((entry, index) => ({
+          index,
+          description: typeof entry.description === 'string' ? entry.description : undefined,
+          message: parseMessage(entry.message),
+        })),
+      };
+    }
+
+    let rawMessage: string | undefined;
+    if (Array.isArray(message)) {
+      const selected = message.find(entry => this._isRecord(entry) && entry.selected === true) ?? message[0];
+      rawMessage = this._isRecord(selected) && typeof selected.message === 'string' ? selected.message : undefined;
+    } else {
+      rawMessage = typeof message === 'string' ? message : undefined;
+    }
+    return { message: parseMessage(rawMessage) };
+  }
+
+  private _isGrpcMessageSequence(value: unknown): value is Array<{ description?: unknown; message: string }> {
+    return Array.isArray(value)
+      && value.every(entry => this._isRecord(entry) && !Object.prototype.hasOwnProperty.call(entry, 'title') && typeof entry.message === 'string');
+  }
+
+  private _isRecord(value: unknown): value is Record<string, any> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
 
   private async _webSocketDryRun(
     request: WebSocketRequest,

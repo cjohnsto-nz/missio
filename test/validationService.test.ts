@@ -66,6 +66,18 @@ describe('validationService', () => {
         message: '{"id":"42"}',
       },
     });
+    writeYaml(rootDir, 'grpc-upload-users.yml', {
+      info: { name: 'Upload users', type: 'grpc' },
+      grpc: {
+        url: 'grpc://api.example.com',
+        method: 'users.UserService/UploadUsers',
+        methodType: 'client-streaming',
+        message: [
+          { description: 'first', message: '{"id":"42"}' },
+          { description: 'second', message: '{"id":"43"}' },
+        ],
+      },
+    });
     writeYaml(rootDir, 'shared-script.yml', {
       type: 'script',
       script: 'export default async function () {}',
@@ -73,8 +85,8 @@ describe('validationService', () => {
 
     const report = await validateCollection(rootDir, schemaPath);
 
-    expect(report.totalFiles).toBe(8);
-    expect(report.passCount).toBe(8);
+    expect(report.totalFiles).toBe(9);
+    expect(report.passCount).toBe(9);
     expect(report.failCount).toBe(0);
     expect(report.issues).toEqual([]);
   });
