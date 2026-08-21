@@ -57,7 +57,7 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     if (!isProtocolRequest(request)) {
       return JSON.stringify({ success: false, message: `File is not an executable OpenCollection request: ${requestFilePath}` });
     }
-    const protocol = getItemKind(request) as RequestProtocol;
+    const protocol = getItemKind(request);
 
     // Find collection: prefer explicit collectionId, fall back to path-based
     const collection = collectionId
@@ -73,6 +73,12 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
     if (!isHttpRequest(request) && !isGraphQLRequest(request) && !isGrpcRequest(request) && !isWebSocketRequest(request)) {
       return this._unsupportedProtocolResult(request, dryRun);
     }
+
+    const dryRunRequest = isGraphQLRequest(request)
+      ? buildGraphQLHttpRequest(request)
+      : isHttpRequest(request)
+        ? request
+        : undefined;
 
     // Convert typed variable values to strings for the resolution map.
     const extraVariables = variables
@@ -111,18 +117,6 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       if (isWebSocketRequest(request)) {
         return this._webSocketDryRun(request, collection, folderDefaults, extraVariables, environment, stillUnresolved, warnings);
       }
-
-      let dryRunRequest;
-      try {
-        dryRunRequest = isGraphQLRequest(request)
-          ? buildGraphQLHttpRequest(request)
-          : isHttpRequest(request)
-            ? request
-            : undefined;
-      } catch (err) {
-        return this._executionFailureResult(request, protocol, err);
-      }
-
       if (!dryRunRequest) {
         return this._unsupportedProtocolResult(request, dryRun);
       }
@@ -155,7 +149,26 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
         { requestId: requestFilePath },
       );
     } catch (err) {
-      return this._executionFailureResult(request, protocol, err);
+      const message = err instanceof Error ? err.message : String(err);
+      const result: Record<string, unknown> = {
+        success: false,
+        message,
+        protocol,
+      };
+      const diagnostic = (err as any)?.code === 'MISSIO_UNSUPPORTED_PROTOCOL'
+        ? ((err as any)?.diagnostic ?? getUnsupportedProtocolDiagnostic(request))
+        : undefined;
+      if (diagnostic) {
+        result.code = (err as any).code;
+        result.protocol = diagnostic.protocol;
+        result.protocolName = diagnostic.protocolName;
+        result.taskId = diagnostic.taskId;
+        result.message = diagnostic.message;
+      }
+      if ((err as any)?.runtime) {
+        result.runtime = (err as any).runtime;
+      }
+      return JSON.stringify(result);
     }
 
     // Write response body to file if requested
@@ -327,36 +340,6 @@ export class SendRequestTool extends ToolBase<SendRequestParams> {
       taskId: diagnostic.taskId,
       message: diagnostic.message,
     });
-  }
-
-  private _executionFailureResult(
-    request: OpenCollectionRequest,
-    protocol: RequestProtocol,
-    error: unknown,
-  ): string {
-    const message = error instanceof Error ? error.message : String(error);
-    const result: Record<string, unknown> = {
-      success: false,
-      message,
-      protocol,
-    };
-    const code = (error as any)?.code;
-    if (typeof code === 'string') {
-      result.code = code;
-    }
-    const diagnostic = code === 'MISSIO_UNSUPPORTED_PROTOCOL'
-      ? ((error as any)?.diagnostic ?? getUnsupportedProtocolDiagnostic(request))
-      : undefined;
-    if (diagnostic) {
-      result.protocol = diagnostic.protocol;
-      result.protocolName = diagnostic.protocolName;
-      result.taskId = diagnostic.taskId;
-      result.message = diagnostic.message;
-    }
-    if ((error as any)?.runtime) {
-      result.runtime = (error as any).runtime;
-    }
-    return JSON.stringify(result);
   }
 
   private _selectEffectiveAuth(

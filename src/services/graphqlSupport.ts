@@ -11,15 +11,6 @@ export interface SelectedGraphQLBody {
   index?: number;
 }
 
-export class InvalidGraphQLVariablesError extends Error {
-  public readonly code = 'MISSIO_INVALID_GRAPHQL_VARIABLES';
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'InvalidGraphQLVariablesError';
-  }
-}
-
 function cloneJson<T>(value: T): T {
   if (value === undefined || value === null) return value;
   return JSON.parse(JSON.stringify(value)) as T;
@@ -65,7 +56,7 @@ export function buildGraphQLRequestBodyData(body: GraphQLBody | undefined): stri
       JSON.parse(rawVariables);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new InvalidGraphQLVariablesError(`GraphQL variables must be valid JSON: ${message}`);
+      throw new Error(`GraphQL variables must be valid JSON: ${message}`);
     }
     variables = rawVariables;
   }
@@ -76,20 +67,6 @@ export function buildGraphQLRequestBodyData(body: GraphQLBody | undefined): stri
 export function buildGraphQLHttpRequest(request: GraphQLRequest): HttpRequest {
   const details = request.graphql ?? {};
   const selected = selectGraphQLBody(details.body);
-  const method = (details.method ?? 'POST').toUpperCase();
-  const bodyData = buildGraphQLRequestBodyData(selected.body);
-  const params = cloneJson(details.params ?? []);
-
-  if (method === 'GET') {
-    const setGraphQLParam = (name: string, value: string): void => {
-      const existing = params.find(param => !param.disabled && param.name.toLowerCase() === name);
-      if (existing) existing.value = value;
-      else params.push({ name, value, type: 'query' });
-    };
-
-    setGraphQLParam('query', selected.body?.query ?? '');
-    setGraphQLParam('variables', selected.body?.variables?.trim() || '{}');
-  }
 
   return {
     info: {
@@ -99,13 +76,13 @@ export function buildGraphQLHttpRequest(request: GraphQLRequest): HttpRequest {
       type: 'http',
     },
     http: {
-      method,
+      method: (details.method ?? 'POST').toUpperCase(),
       url: details.url ?? '',
       headers: cloneJson(details.headers ?? []),
-      params,
-      body: method === 'GET' ? undefined : {
+      params: cloneJson(details.params ?? []),
+      body: {
         type: 'json',
-        data: bodyData,
+        data: buildGraphQLRequestBodyData(selected.body),
       },
     },
     runtime: cloneJson(request.runtime),

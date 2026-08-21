@@ -1,0 +1,10 @@
+info:
+  name: WebSocket rejected upgrade
+  type: websocket
+  seq: 5
+websocket:
+  url: "{{wsBaseUrl}}/ws/reject"
+  message:
+    type: text
+    data: should not connect
+docs: Exercises the deterministic upgrade rejection route on the local demo server.

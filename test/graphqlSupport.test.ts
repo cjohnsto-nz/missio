@@ -125,30 +125,6 @@ describe('GraphQL request adapter and execution', () => {
     });
   });
 
-  it('encodes GraphQL GET requests as query parameters without an HTTP body', () => {
-    const request: GraphQLRequest = {
-      info: { name: 'GET query', type: 'graphql' },
-      graphql: {
-        method: 'GET',
-        url: 'https://example.test/graphql',
-        params: [{ name: 'trace', value: 'demo', type: 'query' }],
-        body: {
-          query: 'query User($id: ID!) { user(id: $id) { id } }',
-          variables: '{"id":"2"}',
-        },
-      },
-    };
-
-    const adapted = buildGraphQLHttpRequest(request);
-
-    expect(adapted.http?.body).toBeUndefined();
-    expect(adapted.http?.params).toEqual([
-      { name: 'trace', value: 'demo', type: 'query' },
-      { name: 'query', value: 'query User($id: ID!) { user(id: $id) { id } }', type: 'query' },
-      { name: 'variables', value: '{"id":"2"}', type: 'query' },
-    ]);
-  });
-
   it('executes GraphQL query and mutation requests through RequestExecutionService', async () => {
     const baseUrl = await startGraphQLFixture();
     const envService = makeEnvService({ baseUrl, userId: '2', title: 'From test' });
@@ -334,42 +310,6 @@ graphql:
       status: 200,
     });
     expect(JSON.parse(live.body).data.user.id).toBe('2');
-  });
-
-  it('returns structured Copilot errors for malformed GraphQL variables', async () => {
-    const collection = makeCollection();
-    const request: GraphQLRequest = {
-      info: { name: 'Invalid variables', type: 'graphql' },
-      graphql: {
-        url: 'http://127.0.0.1/graphql',
-        body: { query: 'query Users { users { id } }', variables: '{ nope' },
-      },
-    };
-    const envService = makeEnvService({});
-    const tool = new SendRequestTool(
-      {
-        loadRequestFile: async () => request,
-        getCollection: () => collection,
-        getCollections: () => [collection],
-      } as any,
-      envService,
-      new RequestExecutionService(new HttpClient(envService)),
-    );
-    const requestFilePath = path.join(collection.rootDir, 'invalid.yml');
-
-    for (const dryRun of [true, false]) {
-      const result = JSON.parse(await tool.call(
-        { input: { requestFilePath, collectionId: collection.id, dryRun } } as any,
-        {} as any,
-      ));
-
-      expect(result).toMatchObject({
-        success: false,
-        protocol: 'graphql',
-        code: 'MISSIO_INVALID_GRAPHQL_VARIABLES',
-      });
-      expect(result.message).toMatch(/GraphQL variables must be valid JSON/);
-    }
   });
 
   it('keeps the demo API collection schema-valid with GraphQL requests', async () => {

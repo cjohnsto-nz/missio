@@ -112,7 +112,7 @@ function buildGraphQLFixture(payload, headers) {
   } else if (normalized.includes('user(') || normalized.includes('demo user')) {
     const id = String(variables.id || variables.userId || '1');
     data = {
-      user: users.find(user => user.id === id) || { id, name: `Demo User ${id}` },
+      user: users.find(user => user.id === id) || users[0],
     };
   } else {
     data = { users };

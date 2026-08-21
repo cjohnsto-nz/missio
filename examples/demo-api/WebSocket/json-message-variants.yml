@@ -1,0 +1,23 @@
+info:
+  name: WebSocket JSON message variants
+  type: websocket
+  seq: 2
+websocket:
+  url: "{{wsBaseUrl}}/ws/echo"
+  message:
+    - title: Greeting JSON
+      selected: true
+      message:
+        type: json
+        data: '{"user":"{{socketUser}}","messageId":"{{socketMessageId}}","count":"{{socketCount}}"}'
+    - title: Text fallback
+      message:
+        type: text
+        data: "fallback {{socketUser}}"
+runtime:
+  variables:
+    - name: socketCount
+      value:
+        type: number
+        data: "2"
+docs: Demonstrates selected WebSocket message variants and JSON-aware variable interpolation.
