@@ -17,4 +17,5 @@ esbuild.js
 test/**
 docs/open-collection-gap-analysis/**
 vitest.config.ts
+scripts/build-and-install.ps1
 examples/demo-api/fixtures/*.key
