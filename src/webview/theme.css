@@ -55,6 +55,12 @@
   --m-method-head: var(--vscode-missio-methodHead, #9cd8a4);
   --m-method-options: var(--vscode-missio-methodOptions, #d16faa);
 
+  /* Request protocols */
+  --m-protocol-http: var(--vscode-missio-protocolHttp, #8aabeb);
+  --m-protocol-graphql: var(--vscode-missio-protocolGraphql, #d16faa);
+  --m-protocol-websocket: var(--vscode-missio-protocolWebsocket, #4ec9b0);
+  --m-protocol-grpc: var(--vscode-missio-protocolGrpc, #b9aad9);
+
   /* Syntax tokens */
   --m-tk-key: #9cdcfe;
   --m-tk-str: #ce9178;
@@ -163,6 +169,12 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --m-method-delete: var(--vscode-missio-methodDelete, #c62828);
   --m-method-head: var(--vscode-missio-methodHead, #2e7d32);
   --m-method-options: var(--vscode-missio-methodOptions, #ad1457);
+
+  /* Request protocols */
+  --m-protocol-http: var(--vscode-missio-protocolHttp, #1565c0);
+  --m-protocol-graphql: var(--vscode-missio-protocolGraphql, #ad1457);
+  --m-protocol-websocket: var(--vscode-missio-protocolWebsocket, #00796b);
+  --m-protocol-grpc: var(--vscode-missio-protocolGrpc, #6a1b9a);
 
   /* Variable highlighting */
   --m-var-color: #795e26;

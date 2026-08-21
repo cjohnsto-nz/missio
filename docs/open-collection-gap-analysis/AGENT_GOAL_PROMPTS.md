@@ -55,7 +55,7 @@ If an agent host does not inject the project-local skills, tell the agent to rea
 ## Request Type UX
 
 ```text
-/goal Complete OC-100 request type UX using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until Bruno/Postman UX benchmarking is recorded, UI request creation supports HTTP/GraphQL/WebSocket/gRPC type selection, the visual editor clearly shows and safely switches request type with preservation/loss confirmation, schema-valid conversion helpers are implemented, AGENT_PROGRESS updates are complete, and complete automated creation, conversion, validation, round-trip, and regression tests are passing.
+/goal Complete OC-100 request type UX using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until Bruno/Postman UX benchmarking is recorded, UI request creation supports HTTP/GraphQL/WebSocket/gRPC type selection, the visual editor clearly shows read-only request type identity without offering a saved-request switcher, AGENT_PROGRESS updates are complete, and complete automated creation, validation, round-trip, and regression tests are passing.
 ```
 
 ## Protocol Runtime Lifecycle

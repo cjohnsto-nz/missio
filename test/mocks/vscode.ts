@@ -42,6 +42,7 @@ export const window = {
   showInformationMessage: async () => {},
   showWarningMessage: async () => {},
   showErrorMessage: async () => {},
+  showQuickPick: async () => undefined,
   showInputBox: async () => undefined,
   createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
   createStatusBarItem: () => ({ show: () => {}, hide: () => {}, dispose: () => {} }),
