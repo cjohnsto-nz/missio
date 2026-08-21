@@ -1,0 +1,13 @@
+info:
+  name: Streaming unsupported diagnostic
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/StreamUsers
+  methodType: server-streaming
+  protoFilePath: proto/services/missio_demo.proto
+  message: |-
+    {
+      "userId": {{grpcUserId}}
+    }
+docs: Run `node examples/demo-api/grpc-server.js`; this request intentionally reports that gRPC streaming is not supported yet.

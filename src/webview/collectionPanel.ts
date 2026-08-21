@@ -110,6 +110,11 @@ function buildAndSend() {
   const secretProviders = buildSecretProviders();
   collectionPayload.config.secretProviders = secretProviders.length > 0 ? secretProviders : undefined;
 
+  // Protobuf config
+  const protobufConfig = buildProtobufConfig();
+  if (protobufConfig) collectionPayload.config.protobuf = protobufConfig;
+  else delete collectionPayload.config.protobuf;
+
   ignoreNextLoad = true;
   vscode.postMessage({ type: 'updateDocument', collection: collectionPayload });
 }
@@ -153,6 +158,73 @@ function addHeaderRow(name?: string, value?: string, disabled?: boolean) {
   headerRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.addEventListener('change', scheduleUpdate);
   enableContentEditableValue(headerRow.querySelector('.val-ce') as HTMLElement, value || '', scheduleUpdate);
   defaultHeadersTableBody.appendChild(headerRow);
+}
+
+// ── Protobuf config ─────────────────────────────────────────────────
+
+function updateProtobufBadge() {
+  const protoFileCount = getElementByIdOrThrow('protoFilesBody').children.length;
+  const importPathCount = getElementByIdOrThrow('protoImportPathsBody').children.length;
+  getElementByIdOrThrow('protobufBadge').textContent = String(protoFileCount + importPathCount);
+}
+
+function renderProtobufConfig(protobuf: any) {
+  const protoFilesTableBody = getElementByIdOrThrow('protoFilesBody');
+  const importPathsTableBody = getElementByIdOrThrow('protoImportPathsBody');
+  protoFilesTableBody.innerHTML = '';
+  importPathsTableBody.innerHTML = '';
+  (protobuf?.protoFiles || []).forEach((protoFile: any) => addProtoFileRow(protoFile.path));
+  (protobuf?.importPaths || []).forEach((importPath: any) => addProtoImportPathRow(importPath.path, importPath.disabled));
+  updateProtobufBadge();
+}
+
+function addProtoFileRow(protoPath = '') {
+  const protoFilesTableBody = getElementByIdOrThrow('protoFilesBody');
+  const protoFileRow = document.createElement('tr');
+  protoFileRow.innerHTML =
+    `<td><input type="text" class="proto-file-path" value="${escapeHtml(protoPath || '')}" placeholder="proto/demo.proto" /></td>` +
+    `<td><button class="row-delete">\u00d7</button></td>`;
+  protoFileRow.querySelector('.row-delete')!.addEventListener('click', () => { protoFileRow.remove(); updateProtobufBadge(); scheduleUpdate(); });
+  protoFileRow.querySelector<HTMLInputElement>('.proto-file-path')!.addEventListener('input', scheduleUpdate);
+  protoFilesTableBody.appendChild(protoFileRow);
+  updateProtobufBadge();
+}
+
+function addProtoImportPathRow(importPath = '', disabled?: boolean) {
+  const importPathsTableBody = getElementByIdOrThrow('protoImportPathsBody');
+  const importPathRow = document.createElement('tr');
+  importPathRow.innerHTML =
+    `<td><input type="checkbox" class="proto-import-enabled" ${disabled ? '' : 'checked'} /></td>` +
+    `<td><input type="text" class="proto-import-path" value="${escapeHtml(importPath || '')}" placeholder="proto" /></td>` +
+    `<td><button class="row-delete">\u00d7</button></td>`;
+  importPathRow.querySelector('.row-delete')!.addEventListener('click', () => { importPathRow.remove(); updateProtobufBadge(); scheduleUpdate(); });
+  importPathRow.querySelector<HTMLInputElement>('.proto-import-enabled')!.addEventListener('change', scheduleUpdate);
+  importPathRow.querySelector<HTMLInputElement>('.proto-import-path')!.addEventListener('input', scheduleUpdate);
+  importPathsTableBody.appendChild(importPathRow);
+  updateProtobufBadge();
+}
+
+function buildProtobufConfig(): any | undefined {
+  const protoFiles: any[] = [];
+  document.querySelectorAll('#protoFilesBody tr').forEach((protoFileRow) => {
+    const protoPath = protoFileRow.querySelector<HTMLInputElement>('.proto-file-path')?.value.trim();
+    if (protoPath) protoFiles.push({ type: 'file', path: protoPath });
+  });
+
+  const importPaths: any[] = [];
+  document.querySelectorAll('#protoImportPathsBody tr').forEach((importPathRow) => {
+    const importPath = importPathRow.querySelector<HTMLInputElement>('.proto-import-path')?.value.trim();
+    if (!importPath) return;
+    const enabled = importPathRow.querySelector<HTMLInputElement>('.proto-import-enabled')?.checked !== false;
+    const entry: any = { path: importPath };
+    if (!enabled) entry.disabled = true;
+    importPaths.push(entry);
+  });
+
+  const protobuf: any = {};
+  if (protoFiles.length > 0) protobuf.protoFiles = protoFiles;
+  if (importPaths.length > 0) protobuf.importPaths = importPaths;
+  return Object.keys(protobuf).length > 0 ? protobuf : undefined;
 }
 
 // ── Default Variables (plain vars only per schema) ────────────────────────
@@ -645,6 +717,9 @@ function loadCollection(data: any) {
   // Secret providers
   renderSecretProviders(data.config?.secretProviders || []);
 
+  // Protobuf
+  renderProtobufConfig(data.config?.protobuf || {});
+
   // Environments
   const environments = collectionData?.config?.environments || [];
   getElementByIdOrThrow('envBadge').textContent = String(environments.length);
@@ -976,6 +1051,8 @@ getElementByIdOrThrow('varToggleBtn').addEventListener('click', () => {
   syncAllVarOverlays();
 });
 getElementByIdOrThrow('addSecretProviderBtn').addEventListener('click', () => { addSecretProviderRow(); getElementByIdOrThrow('secretsBadge').textContent = String(getElementByIdOrThrow('secretProvidersBody').children.length); scheduleUpdate(); });
+getElementByIdOrThrow('addProtoFileBtn').addEventListener('click', () => { addProtoFileRow(); scheduleUpdate(); });
+getElementByIdOrThrow('addProtoImportPathBtn').addEventListener('click', () => { addProtoImportPathRow(); scheduleUpdate(); });
 getElementByIdOrThrow('addEnvBtn').addEventListener('click', (event) => {
   event.stopPropagation();
   if (hasActiveEnvironment()) {

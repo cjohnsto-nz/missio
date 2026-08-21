@@ -1,0 +1,20 @@
+info:
+  name: Echo metadata defaults
+  type: grpc
+grpc:
+  url: "{{grpcBaseUrl}}"
+  method: missio.demo.DemoService/EchoUnary
+  methodType: unary
+  protoFilePath: proto/services/missio_demo.proto
+  metadata:
+    - name: x-demo-request
+      value: metadata-defaults-{{grpcRequestId}}
+  message: |-
+    {
+      "name": "Metadata {{grpcName}}",
+      "userId": {{grpcUserId}},
+      "trace": {
+        "requestId": "{{grpcRequestId}}"
+      }
+    }
+docs: Run `node examples/demo-api/grpc-server.js` to verify collection, folder, and request metadata merging.
