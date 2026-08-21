@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
-import type { MissioCollection, OpenCollectionWorkspace, RequestFileItem, Item, Folder } from '../models/types';
+import { parseYaml, readCollectionFile, readWorkspaceFile, readRequestFile, readFolderFile, isRequestFile, getPendingMigrations, persistPendingMigrations, clearPendingMigrations } from './yamlParser';
+import type { MissioCollection, OpenCollection, OpenCollectionWorkspace, RequestFileItem, Item, Folder } from '../models/types';
 import { isProtocolRequest, isScriptFile } from '../models/types';
 
 const _log = vscode.window.createOutputChannel('Missio');
@@ -146,6 +146,30 @@ export class CollectionService implements vscode.Disposable {
   async refreshPinned(): Promise<void> {
     await this._loadActivePinnedWorkspace();
     this._onDidChange.fire();
+  }
+
+  /** Update an already-loaded collection after an in-editor save. */
+  updateCollectionData(filePath: string, data: OpenCollection): boolean {
+    const normalizedPath = path.normalize(filePath).toLowerCase();
+    let updated = false;
+    for (const collection of [...this._collections.values(), ...this._activePinnedCollections.values()]) {
+      if (path.normalize(collection.filePath).toLowerCase() === normalizedPath) {
+        collection.data = data;
+        updated = true;
+      }
+    }
+    if (updated) this._onDidChange.fire();
+    return updated;
+  }
+
+  refreshCollectionFromDocument(document: vscode.TextDocument): boolean {
+    try {
+      const data = parseYaml(document.getText()) as OpenCollection;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+      return this.updateCollectionData(document.uri.fsPath, data);
+    } catch {
+      return false;
+    }
   }
 
   async loadRequestFile(filePath: string): Promise<RequestFileItem | undefined> {
@@ -582,6 +606,9 @@ export class CollectionService implements vscode.Disposable {
     this._watchers.push(collectionWatcher, workspaceWatcher, requestWatcher);
 
     this._disposables.push(
+      vscode.workspace.onDidSaveTextDocument(document => {
+        this.refreshCollectionFromDocument(document);
+      }),
       vscode.workspace.onDidChangeWorkspaceFolders(() => debounceRefresh()),
       vscode.workspace.onDidRenameFiles(() => debounceRefresh()),
       vscode.workspace.onDidCreateFiles(() => debounceRefresh()),
@@ -603,6 +630,7 @@ export class CollectionService implements vscode.Disposable {
         if (fingerprint !== this._lastFingerprint) {
           this._lastFingerprint = fingerprint;
           await this.refresh();
+          await this.refreshPinned();
         }
       } catch {
         // Swallow — transient FS errors shouldn't crash the poll loop
@@ -628,7 +656,7 @@ export class CollectionService implements vscode.Disposable {
   /** Scoped fingerprint: only stat yml files within known collection root dirs (parallel). */
   private async _computeFingerprintScoped(): Promise<string> {
     const rootDirs = new Set<string>();
-    for (const col of this._collections.values()) {
+    for (const col of [...this._collections.values(), ...this._activePinnedCollections.values()]) {
       rootDirs.add(col.rootDir);
     }
 
@@ -638,12 +666,11 @@ export class CollectionService implements vscode.Disposable {
       return files.map(f => f.fsPath).sort().join('\n');
     }
 
-    // Find yml files only within known collection directories
+    // Scan through the VS Code filesystem API so pinned paths outside the open
+    // workspace participate in change detection as well.
     const allFiles: vscode.Uri[] = [];
     for (const rootDir of rootDirs) {
-      const pattern = new vscode.RelativePattern(rootDir, '**/*.{yml,yaml}');
-      const files = await vscode.workspace.findFiles(pattern);
-      allFiles.push(...files);
+      await this._walkYamlFiles(vscode.Uri.file(rootDir), allFiles);
     }
 
     // Stat in parallel
@@ -659,6 +686,24 @@ export class CollectionService implements vscode.Disposable {
     );
 
     return parts.filter(Boolean).sort().join('\n');
+  }
+
+  private async _walkYamlFiles(dir: vscode.Uri, results: vscode.Uri[], depth = 0): Promise<void> {
+    if (depth > 20) return;
+    let entries: [string, vscode.FileType][];
+    try {
+      entries = await vscode.workspace.fs.readDirectory(dir);
+    } catch {
+      return;
+    }
+    for (const [name, type] of entries) {
+      if ((type & vscode.FileType.Directory) !== 0) {
+        if (name === 'node_modules' || name === '.git') continue;
+        await this._walkYamlFiles(vscode.Uri.joinPath(dir, name), results, depth + 1);
+      } else if ((type & vscode.FileType.File) !== 0 && /\.(yml|yaml)$/i.test(name)) {
+        results.push(vscode.Uri.joinPath(dir, name));
+      }
+    }
   }
 
   private _debounce(fn: () => void, ms: number): () => void {

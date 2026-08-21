@@ -23,11 +23,15 @@ import {
 } from '../src/services/requestExecutionService';
 import { validateCollection } from '../src/services/validationService';
 import { SendRequestTool } from '../src/copilot/tools/sendRequestTool';
+import { applyCollectionYamlEdit } from '../src/panels/basePanel';
 import { RequestEditorProvider } from '../src/panels/requestPanel';
 
 const tempRoots: string[] = [];
 const originalReadDirectory = workspace.fs.readDirectory;
+const originalStat = workspace.fs.stat;
+const originalFindFiles = (workspace as any).findFiles;
 const originalApplyEdit = workspace.applyEdit;
+const originalOnDidSaveTextDocument = workspace.onDidSaveTextDocument;
 
 function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'missio-oc-foundation-'));
@@ -69,11 +73,117 @@ function makeCollection(rootDir: string): MissioCollection {
 
 afterEach(() => {
   workspace.fs.readDirectory = originalReadDirectory;
+  workspace.fs.stat = originalStat;
+  (workspace as any).findFiles = originalFindFiles;
   workspace.applyEdit = originalApplyEdit;
+  workspace.onDidSaveTextDocument = originalOnDidSaveTextDocument;
   vi.restoreAllMocks();
   for (const dir of tempRoots.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe('Collection polling fingerprints', () => {
+  it('refreshes cached collection data from a saved collection document', () => {
+    const root = makeTempDir();
+    const service = new CollectionService();
+    const collection = makeCollection(root);
+    (service as any)._collections.set(collection.id, collection);
+    let savedDocumentHandler: ((document: any) => void) | undefined;
+    workspace.onDidSaveTextDocument = ((handler: (document: any) => void) => {
+      savedDocumentHandler = handler;
+      return { dispose: () => {} };
+    }) as any;
+    (service as any)._setupWatchers();
+    const onDidChange = vi.fn();
+    service.onDidChange(onDidChange);
+    const document = {
+      uri: { fsPath: collection.filePath },
+      getText: () => 'opencollection: 1.0.0\ninfo:\n  name: Saved Update\n',
+    };
+
+    savedDocumentHandler?.(document);
+    expect(service.getCollection(collection.id)?.data.info?.name).toBe('Saved Update');
+    expect(onDidChange).toHaveBeenCalledOnce();
+    service.dispose();
+  });
+
+  it('ignores malformed saved collection documents', () => {
+    const root = makeTempDir();
+    const service = new CollectionService();
+    const collection = makeCollection(root);
+    (service as any)._collections.set(collection.id, collection);
+    const onDidChange = vi.fn();
+    service.onDidChange(onDidChange);
+
+    expect(service.refreshCollectionFromDocument({
+      uri: { fsPath: collection.filePath },
+      getText: () => 'info: [ malformed',
+    } as any)).toBe(false);
+    expect(service.getCollection(collection.id)?.data.info?.name).toBe('Foundation Test');
+    expect(onDidChange).not.toHaveBeenCalled();
+    service.dispose();
+  });
+
+  it('does not autosave unrelated dirty collection edits', async () => {
+    const applyEdit = vi.fn(async () => true);
+    workspace.applyEdit = applyEdit as any;
+    const save = vi.fn(async () => true);
+    const collectionDocument = {
+      isDirty: true,
+      lineCount: 3,
+      save,
+    } as any;
+
+    await expect(applyCollectionYamlEdit(
+      { fsPath: 'collection.yml' } as any,
+      collectionDocument,
+      'info:\n  name: Updated\n',
+    )).resolves.toBe(true);
+
+    expect(applyEdit).toHaveBeenCalledOnce();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('updates cached collection data and notifies listeners immediately', () => {
+    const root = makeTempDir();
+    const service = new CollectionService();
+    const collection = makeCollection(root);
+    const updatedData = {
+      ...collection.data,
+      info: { name: 'Updated Collection' },
+    };
+    (service as any)._collections.set(collection.id, collection);
+    const onDidChange = vi.fn();
+    service.onDidChange(onDidChange);
+
+    expect(service.updateCollectionData(collection.filePath, updatedData as any)).toBe(true);
+    expect(service.getCollection(collection.id)?.data).toBe(updatedData);
+    expect(onDidChange).toHaveBeenCalledOnce();
+    service.dispose();
+  });
+
+  it('includes pinned collection roots when polling for YAML changes', async () => {
+    const root = makeTempDir();
+    mockWorkspaceReadDirectory();
+    writeYaml(path.join(root, 'opencollection.yml'), `
+      opencollection: "1.0.0"
+      info: { name: Pinned }
+    `);
+    const service = new CollectionService();
+    const collection = makeCollection(root);
+    (service as any)._activePinnedCollections.set(collection.id, collection);
+
+    const findFiles = vi.fn(async () => []);
+    (workspace as any).findFiles = findFiles;
+    workspace.fs.stat = vi.fn(async (uri: { fsPath: string }) => ({ mtime: fs.statSync(uri.fsPath).mtimeMs })) as any;
+
+    const fingerprint = await (service as any)._computeFingerprintScoped();
+
+    expect(findFiles).not.toHaveBeenCalled();
+    expect(fingerprint.replace(/\\/g, '/')).toContain(path.join(root, 'opencollection.yml').replace(/\\/g, '/'));
+    service.dispose();
+  });
 });
 
 describe('OpenCollection foundation type guards and parser routing', () => {

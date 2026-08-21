@@ -16,7 +16,12 @@ export class Uri {
   static joinPath(base: any, ...segments: string[]) { return Uri.file([base.fsPath, ...segments].join('/')); }
 }
 
+export class RelativePattern {
+  constructor(public base: string, public pattern: string) {}
+}
+
 export const workspace = {
+  textDocuments: [] as any[],
   fs: {
     readDirectory: async () => [],
     stat: async () => ({}),
@@ -35,7 +40,20 @@ export const workspace = {
     dispose: () => {},
   }),
   onDidChangeTextDocument: () => ({ dispose: () => {} }),
+  onDidSaveTextDocument: () => ({ dispose: () => {} }),
+  onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
+  onDidRenameFiles: () => ({ dispose: () => {} }),
+  onDidCreateFiles: () => ({ dispose: () => {} }),
+  onDidDeleteFiles: () => ({ dispose: () => {} }),
+  onDidChangeConfiguration: () => ({ dispose: () => {} }),
   applyEdit: async () => true,
+  openTextDocument: async (uri: any) => ({
+    uri,
+    isDirty: false,
+    lineCount: 0,
+    getText: () => '',
+    save: async () => true,
+  }),
 };
 
 export const window = {

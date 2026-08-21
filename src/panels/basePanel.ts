@@ -16,6 +16,19 @@ export interface EditorContext {
   applyEdit: (data: any) => Promise<void>;
 }
 
+export async function applyCollectionYamlEdit(
+  collectionUri: vscode.Uri,
+  collectionDocument: vscode.TextDocument,
+  yaml: string,
+): Promise<boolean> {
+  const wasDirty = collectionDocument.isDirty;
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(collectionUri, new vscode.Range(0, 0, collectionDocument.lineCount, 0), yaml);
+  if (!(await vscode.workspace.applyEdit(edit))) return false;
+  if (!wasDirty && !(await collectionDocument.save())) return false;
+  return true;
+}
+
 /**
  * Base class for all CustomTextEditorProviders in Missio.
  * Owns shared infrastructure: service dependencies, variable resolution,
@@ -224,7 +237,13 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
               if (!collection) return;
               const collUri = vscode.Uri.file(collection.filePath);
               const fs = await import('fs');
-              const collText = await fs.promises.readFile(collection.filePath, 'utf-8');
+              const normalizedCollectionPath = path.normalize(collection.filePath).toLowerCase();
+              const openCollectionDocument = (vscode.workspace.textDocuments ?? [])
+                .find(doc => path.normalize(doc.uri.fsPath).toLowerCase() === normalizedCollectionPath);
+              const collDoc = openCollectionDocument ?? await vscode.workspace.openTextDocument(collUri);
+              const collText = openCollectionDocument
+                ? collDoc.getText()
+                : await fs.promises.readFile(collection.filePath, 'utf-8');
               const { parseYaml, stringifyYaml } = await import('../services/yamlParser');
               const data = parseYaml(collText);
               if (scope === 'collection') {
@@ -260,13 +279,9 @@ export abstract class BaseEditorProvider implements vscode.CustomTextEditorProvi
               }
               const yaml = stringifyYaml(data, { lineWidth: 120 });
               if (yaml !== collText) {
-                // Use workspace edit on the collection.yml URI
-                const collDoc = await vscode.workspace.openTextDocument(collUri);
-                const edit = new vscode.WorkspaceEdit();
-                edit.replace(collUri, new vscode.Range(0, 0, collDoc.lineCount, 0), yaml);
-                await vscode.workspace.applyEdit(edit);
-                await collDoc.save();
+                if (!(await applyCollectionYamlEdit(collUri, collDoc, yaml))) return;
               }
+              this._collectionService.updateCollectionData(collection.filePath, data);
             }
             await sendVariables();
           } catch { /* silently fail */ }
