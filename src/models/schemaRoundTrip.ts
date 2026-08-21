@@ -344,16 +344,7 @@ function mergeDescription(output: Record<string, unknown>, prior: unknown, descr
   const priorDescription = isObject(prior) ? prior.description : undefined;
   if (description === undefined) return;
   if (description) {
-    if (description === descriptionToText(priorDescription)) {
-      output.description = cloneJson(priorDescription);
-    } else if (isObject(priorDescription) && typeof priorDescription.content === 'string') {
-      output.description = {
-        ...cloneJson(priorDescription),
-        content: description,
-      };
-    } else {
-      output.description = description;
-    }
+    output.description = description === descriptionToText(priorDescription) ? cloneJson(priorDescription) : description;
   } else if (hasOwn(prior, 'description')) {
     delete output.description;
   }
@@ -755,9 +746,7 @@ function buildGrpcMessageFromEditor(originalMessage: unknown, model: RequestEdit
   if (model.kind === 'none') return undefined;
   if (model.kind !== 'raw') return selectedGrpcMessage(originalMessage).message;
 
-  if (!Array.isArray(originalMessage)) {
-    return originalMessage === undefined && model.data === '' ? undefined : model.data;
-  }
+  if (!Array.isArray(originalMessage)) return model.data;
 
   const messages = cloneJson(originalMessage);
   const index = model.bodyVariantIndex ?? messages.findIndex(variant => isObject(variant) && variant.selected === true);
@@ -787,52 +776,44 @@ function mergeRuntimeScripts(previous: unknown[] | undefined, rows: RuntimeScrip
 function mergeRuntimeAssertions(previous: unknown[] | undefined, rows: RuntimeAssertionEditorRow[] | undefined): unknown[] | undefined {
   if (!rows) return undefined;
   if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
-  const assertions: unknown[] = [];
-  for (const row of rows) {
-    const prior = getByExplicitOriginalIndex(previous, row);
-    if (!row.expression || !row.operator) {
-      if (isObject(prior)) assertions.push(cloneJson(prior));
-      continue;
-    }
-    const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
-    output.expression = row.expression;
-    output.operator = row.operator;
-    if (row.value || hasOwn(prior, 'value')) output.value = row.value ?? '';
-    else delete output.value;
-    mergeDescription(output, prior, row.description);
-    assertions.push(withOptionalDisabled(output, prior, row.disabled));
-  }
-  return assertions;
+  return rows
+    .filter(row => row.expression && row.operator)
+    .map((row) => {
+      const prior = getByExplicitOriginalIndex(previous, row);
+      const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+      output.expression = row.expression;
+      output.operator = row.operator;
+      if (row.value || hasOwn(prior, 'value')) output.value = row.value ?? '';
+      else delete output.value;
+      mergeDescription(output, prior, row.description);
+      return withOptionalDisabled(output, prior, row.disabled);
+    });
 }
 
 function mergeRuntimeActions(previous: unknown[] | undefined, rows: RuntimeActionEditorRow[] | undefined): unknown[] | undefined {
   if (!rows) return undefined;
   if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
-  const actions: unknown[] = [];
-  for (const row of rows) {
-    const prior = getByExplicitOriginalIndex(previous, row);
-    if (row.type !== 'set-variable' || !row.selectorExpression || !row.variableName) {
-      if (isObject(prior)) actions.push(cloneJson(prior));
-      continue;
-    }
-    const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
-    output.type = 'set-variable';
-    if (row.phase || hasOwn(prior, 'phase')) output.phase = row.phase || 'after-response';
-    else delete output.phase;
-    output.selector = {
-      ...(isObject(output.selector) ? output.selector : {}),
-      method: row.selectorMethod || 'jsonq',
-      expression: row.selectorExpression,
-    };
-    output.variable = {
-      ...(isObject(output.variable) ? output.variable : {}),
-      scope: row.variableScope || 'runtime',
-      name: row.variableName,
-    };
-    mergeDescription(output, prior, row.description);
-    actions.push(withOptionalDisabled(output, prior, row.disabled));
-  }
-  return actions;
+  return rows
+    .filter(row => row.type === 'set-variable' && row.selectorExpression && row.variableName)
+    .map((row) => {
+      const prior = getByExplicitOriginalIndex(previous, row);
+      const output: Record<string, unknown> = isObject(prior) ? cloneJson(prior) : {};
+      output.type = 'set-variable';
+      if (row.phase || hasOwn(prior, 'phase')) output.phase = row.phase || 'after-response';
+      else delete output.phase;
+      output.selector = {
+        ...(isObject(output.selector) ? output.selector : {}),
+        method: row.selectorMethod || 'jsonq',
+        expression: row.selectorExpression,
+      };
+      output.variable = {
+        ...(isObject(output.variable) ? output.variable : {}),
+        scope: row.variableScope || 'runtime',
+        name: row.variableName,
+      };
+      mergeDescription(output, prior, row.description);
+      return withOptionalDisabled(output, prior, row.disabled);
+    });
 }
 
 function mergeRuntime(
