@@ -151,13 +151,25 @@ export class RequestEditorProvider extends BaseEditorProvider {
   protected _getHtml(webview: vscode.Webview): string {
     const html = super._getHtml(webview);
     // Inject PDF.js scripts before the closing </body> tag
-    const pdfJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.js'));
-    const pdfWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.worker.js'));
+    const pdfJsUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.min.mjs'));
+    const pdfWorkerUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'pdf.worker.min.mjs'));
     const nonce = html.match(/nonce="([^"]+)"/)?.[1] ?? '';
-    const pdfScripts = `<script nonce="${nonce}" src="${pdfJsUri}"></script>\n<script nonce="${nonce}" src="${pdfWorkerUri}"></script>\n<script nonce="${nonce}">if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc='${pdfWorkerUri}';</script>`;
+    const pdfScripts = `<script nonce="${nonce}" type="module">
+window.missioPdfJsReady = import('${pdfJsUri}')
+  .then((pdfjsLib) => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '${pdfWorkerUri}';
+    window.pdfjsLib = pdfjsLib;
+    return pdfjsLib;
+  })
+  .catch((error) => {
+    console.error('Failed to load PDF.js', error);
+    return undefined;
+  });
+</script>`;
     return html
       .replace('</body>', pdfScripts + '\n</body>')
-      .replace(/img-src data:/, 'img-src blob: data:');
+      .replace(/img-src data:/, 'img-src blob: data:')
+      .replace(/frame-src data: blob:;/, `frame-src data: blob:; worker-src ${webview.cspSource} blob:;`);
   }
 
   protected _onPanelCreated(

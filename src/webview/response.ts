@@ -889,7 +889,7 @@ export function renderPreview(): void {
 async function renderPdfPreview(container: HTMLElement, base64: string): Promise<void> {
   container.innerHTML = '';
 
-  const pdfjsLib = (window as any).pdfjsLib;
+  const pdfjsLib = (window as any).pdfjsLib ?? await (window as any).missioPdfJsReady;
   if (!pdfjsLib) {
     container.innerHTML = '<div style="padding:24px;color:var(--vscode-foreground);font-family:system-ui;">PDF.js not available</div>';
     return;

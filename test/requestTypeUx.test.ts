@@ -183,6 +183,31 @@ describe('request editor protocol identity guard', () => {
     expect(html).not.toContain('id="requestTypeSwitcher"');
   });
 
+  it('loads packaged PDF.js assets for response previews', () => {
+    const provider = new RequestEditorProvider(
+      { extensionUri: { fsPath: process.cwd() } } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const webview = {
+      cspSource: 'vscode-webview://missio-test',
+      asWebviewUri: (uri: { fsPath: string }) => `webview-resource://${uri.fsPath.replace(/\\/g, '/')}`,
+    };
+
+    const html = (provider as any)._getHtml(webview) as string;
+
+    expect(html).toContain('pdf.min.mjs');
+    expect(html).toContain('pdf.worker.min.mjs');
+    expect(html).toContain('type="module"');
+    expect(html).toContain('window.missioPdfJsReady');
+    expect(html).toContain('worker-src vscode-webview://missio-test blob:');
+    expect(html).not.toContain('media/pdf.js');
+    expect(html).not.toContain('media/pdf.worker.js');
+  });
+
   it('defines request protocol colors in centralized theme surfaces', () => {
     const themeCss = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'theme.css'), 'utf8');
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
