@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
 import { stringifyYaml } from '../services/yamlParser';
-import type { CollectionImporter, ImportResult } from './types';
+import type { CollectionImporter, ImportDiagnostic, ImportResult } from './types';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'trace'];
 
@@ -29,6 +29,7 @@ export class OpenApiImporter implements CollectionImporter {
     const title = spec.info?.title || 'Imported API';
     const collDir = path.join(targetDir, this.sanitizePath(title));
     fs.mkdirSync(collDir, { recursive: true });
+    const diagnostics: ImportDiagnostic[] = [];
 
     // Build OpenCollection structure
     const collection: any = {
@@ -59,8 +60,24 @@ export class OpenApiImporter implements CollectionImporter {
 
     collection.config = { environments: [] };
 
+    if (spec.webhooks && typeof spec.webhooks === 'object' && Object.keys(spec.webhooks).length > 0) {
+      diagnostics.push({
+        code: 'MISSIO_IMPORT_UNSUPPORTED_WEBHOOKS',
+        severity: 'warning',
+        source: 'OpenAPI',
+        path: 'webhooks',
+        protocol: 'http',
+        message: 'OpenAPI webhooks are not imported. Missio imports HTTP path operations only and records this limitation to avoid inventing non-HTTP requests.',
+      });
+    }
+
     // Process paths into folders and requests
-    const counts = this.processPaths(spec, collDir, defaultAuth);
+    const counts = this.processPaths(spec, collDir, defaultAuth, diagnostics);
+
+    this.attachImportMetadata(collection, {
+      format: 'OpenAPI',
+      version: spec.openapi,
+    }, diagnostics);
 
     // Write opencollection.yml
     const collFile = path.join(collDir, 'opencollection.yml');
@@ -72,6 +89,7 @@ export class OpenApiImporter implements CollectionImporter {
       requestCount: counts.requests,
       folderCount: counts.folders,
       environmentCount: 0,
+      diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
     };
   }
 
@@ -107,7 +125,7 @@ export class OpenApiImporter implements CollectionImporter {
 
   // ── Path processing ─────────────────────────────────────────────────
 
-  private processPaths(spec: any, collDir: string, defaultAuth: any | null): { requests: number; folders: number } {
+  private processPaths(spec: any, collDir: string, defaultAuth: any | null, diagnostics: ImportDiagnostic[]): { requests: number; folders: number } {
     // Collect operations grouped by tag
     const tagGroups = new Map<string, { method: string; path: string; op: any; pathItem: any }[]>();
     const untagged: { method: string; path: string; op: any; pathItem: any }[] = [];
@@ -142,7 +160,7 @@ export class OpenApiImporter implements CollectionImporter {
     const rootCounters = new Map<string, number>();
     for (const entry of untagged) {
       seq++;
-      const req = this.convertOperation(entry, spec, seq, defaultAuth);
+      const req = this.convertOperation(entry, spec, seq, defaultAuth, diagnostics);
       const name = this.uniqueName(this.sanitizePath(req.info.name), rootCounters);
       const reqFile = path.join(collDir, name + '.yml');
       fs.writeFileSync(reqFile, stringifyYaml(req, { lineWidth: 120 }), 'utf-8');
@@ -176,7 +194,7 @@ export class OpenApiImporter implements CollectionImporter {
       const opCounters = new Map<string, number>();
       for (const entry of ops) {
         seq++;
-        const req = this.convertOperation(entry, spec, seq, defaultAuth);
+        const req = this.convertOperation(entry, spec, seq, defaultAuth, diagnostics);
         const name = this.uniqueName(this.sanitizePath(req.info.name), opCounters);
         const reqFile = path.join(folderDir, name + '.yml');
         fs.writeFileSync(reqFile, stringifyYaml(req, { lineWidth: 120 }), 'utf-8');
@@ -194,6 +212,7 @@ export class OpenApiImporter implements CollectionImporter {
     spec: any,
     seq: number,
     defaultAuth: any | null,
+    diagnostics: ImportDiagnostic[],
   ): any {
     const { method, path: pathStr, op, pathItem } = entry;
     const name = op.summary || op.operationId || `${method.toUpperCase()} ${pathStr}`;
@@ -230,6 +249,17 @@ export class OpenApiImporter implements CollectionImporter {
 
     if (op.description) {
       request.info.description = op.description;
+    }
+
+    if (op.callbacks && typeof op.callbacks === 'object' && Object.keys(op.callbacks).length > 0) {
+      diagnostics.push({
+        code: 'MISSIO_IMPORT_UNSUPPORTED_CALLBACKS',
+        severity: 'warning',
+        source: 'OpenAPI',
+        path: `${method.toUpperCase()} ${pathStr}`,
+        protocol: 'http',
+        message: `OpenAPI callbacks on ${method.toUpperCase()} ${pathStr} are not imported. The primary HTTP operation was preserved without callback requests.`,
+      });
     }
 
     // Auth → runtime.auth per OpenCollection schema
@@ -630,5 +660,16 @@ export class OpenApiImporter implements CollectionImporter {
     const count = counters.get(key) || 0;
     counters.set(key, count + 1);
     return count === 0 ? name : `${name} ${count + 1}`;
+  }
+
+  private attachImportMetadata(collection: any, source: Record<string, unknown>, diagnostics: ImportDiagnostic[]): void {
+    collection.extensions = collection.extensions || {};
+    collection.extensions.missio = {
+      ...(collection.extensions.missio || {}),
+      import: {
+        source,
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      },
+    };
   }
 }

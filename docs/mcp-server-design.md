@@ -50,8 +50,8 @@ All tools use the `missio_` prefix and follow snake_case naming.
 |------|-------------|------------|
 | `missio_list_collections` | List all collections in workspace | (none) |
 | `missio_get_collection` | Read full collection definition | `collectionId` |
-| `missio_list_requests` | List requests in a collection | `collectionId` |
-| `missio_get_request` | Read full request definition | `requestFilePath` |
+| `missio_list_requests` | List HTTP, GraphQL, WebSocket, and gRPC requests in a collection with protocol metadata | `collectionId` |
+| `missio_get_request` | Read a schema-native request definition with protocol metadata and redacted auth values | `requestFilePath` |
 | `missio_list_environments` | List environments with active indicator | `collectionId` |
 
 ### Environment & Variable Tools
@@ -65,7 +65,7 @@ All tools use the `missio_` prefix and follow snake_case naming.
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `missio_send_request` | Execute HTTP request with full resolution chain | `requestFilePath` |
+| `missio_send_request` | Execute or dry-run HTTP, GraphQL, WebSocket, and gRPC requests with the full resolution chain | `requestFilePath` |
 
 ### Validation Tools
 
@@ -108,9 +108,9 @@ src/copilot/
 
 The design enables an agent to:
 1. **Discover** collections, requests, and environments
-2. **Inspect** request definitions and resolved variable state
+2. **Inspect** request definitions, protocol metadata, and resolved variable state
 3. **Manage** active environments
-4. **Execute** requests through the full auth + variable resolution chain
+4. **Execute or dry-run** requests through the full auth + variable resolution chain
 5. **Validate** collections against the OpenCollection schema
 
 See [docs/contributing-tools.md](contributing-tools.md) for how to add new tools.

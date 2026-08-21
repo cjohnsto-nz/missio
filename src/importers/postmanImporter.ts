@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { stringifyYaml } from '../services/yamlParser';
-import type { CollectionImporter, ImportResult } from './types';
+import type { CollectionImporter, ImportDiagnostic, ImportResult } from './types';
 
 export class PostmanImporter implements CollectionImporter {
   readonly label = 'Postman';
@@ -29,6 +29,7 @@ export class PostmanImporter implements CollectionImporter {
 
     let requestCount = 0;
     let folderCount = 0;
+    const diagnostics: ImportDiagnostic[] = [];
 
     // Build OpenCollection structure
     const collection: any = {
@@ -41,6 +42,12 @@ export class PostmanImporter implements CollectionImporter {
 
     if (postman.info?.description) {
       collection.info.summary = this.extractDescription(postman.info.description);
+    }
+
+    const collectionScripts = this.convertEvents(postman.event, 'collection', `collection:${collName}`, diagnostics);
+    if (collectionScripts.length > 0) {
+      collection.request = collection.request || {};
+      collection.request.scripts = collectionScripts;
     }
 
     // Collection-level variables → request.variables
@@ -72,9 +79,14 @@ export class PostmanImporter implements CollectionImporter {
     collection.config = { environments: [] };
 
     // Process items recursively, writing request files to disk
-    const counts = await this.processItems(postman.item || [], collDir, collDir);
+    const counts = await this.processItems(postman.item || [], collDir, diagnostics, collName);
     requestCount = counts.requests;
     folderCount = counts.folders;
+
+    this.attachImportMetadata(collection, {
+      format: 'Postman',
+      schema: postman.info?.schema,
+    }, diagnostics);
 
     // Write opencollection.yml
     const collFile = path.join(collDir, 'opencollection.yml');
@@ -87,6 +99,7 @@ export class PostmanImporter implements CollectionImporter {
       requestCount,
       folderCount,
       environmentCount: 0,
+      diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
     };
   }
 
@@ -167,7 +180,8 @@ export class PostmanImporter implements CollectionImporter {
   private async processItems(
     items: any[],
     parentDir: string,
-    collDir: string,
+    diagnostics: ImportDiagnostic[],
+    importPath: string,
   ): Promise<{ requests: number; folders: number }> {
     let requests = 0;
     let folders = 0;
@@ -184,14 +198,15 @@ export class PostmanImporter implements CollectionImporter {
         fs.mkdirSync(folderDir, { recursive: true });
 
         // Write folder.yml if there's folder-level config (auth, headers, variables)
-        const folderMeta = this.buildFolderMeta(item, displayName);
+        const itemPath = `${importPath}/${displayName}`;
+        const folderMeta = this.buildFolderMeta(item, displayName, diagnostics, `folder:${itemPath}`);
         if (folderMeta) {
           const folderFile = path.join(folderDir, 'folder.yml');
           const yaml = stringifyYaml(folderMeta, { lineWidth: 120 });
           fs.writeFileSync(folderFile, yaml, 'utf-8');
         }
 
-        const sub = await this.processItems(item.item || [], folderDir, collDir);
+        const sub = await this.processItems(item.item || [], folderDir, diagnostics, itemPath);
         requests += sub.requests;
         folders += sub.folders;
       } else if (item.request) {
@@ -199,7 +214,7 @@ export class PostmanImporter implements CollectionImporter {
         const reqSafe = this.uniqueName(this.sanitizePath(displayName), nameCounters);
         const reqFile = path.join(parentDir, reqSafe + '.yml');
 
-        const request = this.convertRequest(item, displayName, i + 1);
+        const request = this.convertRequest(item, displayName, i + 1, diagnostics, `request:${importPath}/${displayName}`);
         const yaml = stringifyYaml(request, { lineWidth: 120 });
         fs.writeFileSync(reqFile, yaml, 'utf-8');
       }
@@ -212,7 +227,7 @@ export class PostmanImporter implements CollectionImporter {
     return !item.request && Array.isArray(item.item);
   }
 
-  private buildFolderMeta(item: any, name: string): any | null {
+  private buildFolderMeta(item: any, name: string, diagnostics: ImportDiagnostic[], diagnosticPath: string): any | null {
     const meta: any = {
       info: { name, type: 'folder' },
     };
@@ -235,10 +250,17 @@ export class PostmanImporter implements CollectionImporter {
       hasContent = true;
     }
 
+    const scripts = this.convertEvents(item.event, 'folder', diagnosticPath, diagnostics);
+    if (scripts.length > 0) {
+      meta.request = meta.request || {};
+      meta.request.scripts = scripts;
+      hasContent = true;
+    }
+
     return hasContent ? meta : null;
   }
 
-  private convertRequest(item: any, name: string, seq: number): any {
+  private convertRequest(item: any, name: string, seq: number, diagnostics: ImportDiagnostic[], diagnosticPath: string): any {
     const pm = item.request;
     const method = (pm.method || 'GET').toUpperCase();
     const url = this.constructUrl(pm.url);
@@ -278,6 +300,12 @@ export class PostmanImporter implements CollectionImporter {
     const body = this.convertBody(pm.body);
     if (body) {
       request.http.body = body;
+    }
+
+    const scripts = this.convertEvents(item.event, 'request', diagnosticPath, diagnostics);
+    if (scripts.length > 0) {
+      request.runtime = request.runtime || {};
+      request.runtime.scripts = scripts;
     }
 
     // Examples (Postman "responses")
@@ -362,6 +390,107 @@ export class PostmanImporter implements CollectionImporter {
       default:
         return null;
     }
+  }
+
+  private convertEvents(
+    events: any,
+    scope: 'collection' | 'folder' | 'request',
+    diagnosticPath: string,
+    diagnostics: ImportDiagnostic[],
+  ): any[] {
+    if (!Array.isArray(events)) return [];
+    const scripts: any[] = [];
+
+    for (const event of events) {
+      const listen = typeof event?.listen === 'string' ? event.listen.toLowerCase() : '';
+      const script = event?.script;
+      const scriptType = typeof script?.type === 'string' ? script.type.toLowerCase() : 'text/javascript';
+      const mappedType = listen === 'prerequest'
+        ? 'before-request'
+        : listen === 'test'
+          ? 'tests'
+          : undefined;
+
+      if (!mappedType) {
+        diagnostics.push({
+          code: 'MISSIO_IMPORT_UNSUPPORTED_EVENT',
+          severity: 'warning',
+          source: 'Postman',
+          path: diagnosticPath,
+          message: `Postman event "${event?.listen ?? 'unknown'}" is not supported and was not imported.`,
+        });
+        continue;
+      }
+
+      if (listen === 'test' && scope !== 'request') {
+        diagnostics.push({
+          code: 'MISSIO_IMPORT_UNSUPPORTED_INHERITED_TEST_EVENT',
+          severity: 'warning',
+          source: 'Postman',
+          path: diagnosticPath,
+          message: `Postman ${scope}-level test scripts run after each request in Postman, but Missio does not execute inherited test scripts; the script was not imported.`,
+        });
+        continue;
+      }
+
+      if (scriptType !== 'text/javascript' && scriptType !== 'javascript') {
+        diagnostics.push({
+          code: 'MISSIO_IMPORT_UNSUPPORTED_SCRIPT_TYPE',
+          severity: 'warning',
+          source: 'Postman',
+          path: diagnosticPath,
+          message: `Postman ${event.listen} script type "${script?.type}" is not supported; only JavaScript scripts are imported.`,
+        });
+        continue;
+      }
+
+      const code = this.extractScriptCode(script?.exec);
+      if (!code.trim() && script?.src != null) {
+        diagnostics.push({
+          code: 'MISSIO_IMPORT_UNSUPPORTED_SCRIPT_REFERENCE',
+          severity: 'warning',
+          source: 'Postman',
+          path: diagnosticPath,
+          message: `Postman ${event.listen} external script references are not supported and were not imported.`,
+        });
+        continue;
+      }
+      if (!code.trim()) {
+        diagnostics.push({
+          code: 'MISSIO_IMPORT_EMPTY_SCRIPT',
+          severity: 'info',
+          source: 'Postman',
+          path: diagnosticPath,
+          message: `Postman ${event.listen} script is empty and was skipped.`,
+        });
+        continue;
+      }
+
+      scripts.push({
+        type: mappedType,
+        code,
+        ...(event?.disabled === true || script?.disabled === true ? { disabled: true } : {}),
+      });
+    }
+
+    return scripts;
+  }
+
+  private extractScriptCode(exec: unknown): string {
+    if (Array.isArray(exec)) return exec.map(line => String(line)).join('\n');
+    if (typeof exec === 'string') return exec;
+    return '';
+  }
+
+  private attachImportMetadata(collection: any, source: Record<string, unknown>, diagnostics: ImportDiagnostic[]): void {
+    collection.extensions = collection.extensions || {};
+    collection.extensions.missio = {
+      ...(collection.extensions.missio || {}),
+      import: {
+        source,
+        ...(diagnostics.length > 0 ? { diagnostics } : {}),
+      },
+    };
   }
 
   private detectBodyLanguage(body: any): string {
