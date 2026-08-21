@@ -1,0 +1,59 @@
+# Agent Goal Prompts
+
+Use these prompts to launch parallel agents for the OpenCollection implementation tracks. Run OC-000 and OC-060 first. Start the remaining tracks as their dependencies become stable.
+
+If an agent host does not inject the project-local skills, tell the agent to read the matching `SKILL.md` file under `.agents/skills/` before starting.
+
+## Foundation
+
+```text
+/goal Complete OC-000 foundation and protocol dispatch using $missio-agent-coordination and $missio-protocol-implementer without stopping until the OpenCollection item model, protocol type guards, load/save routing, execution facade, unsupported-protocol diagnostics, AGENT_PROGRESS updates, and complete automated regression tests are implemented and passing.
+```
+
+## Schema Safety
+
+```text
+/goal Complete OC-060 schema round-trip and validation using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until protocol-aware validation, workspace validation, no-op editor round-trip coverage for schema-valid fixtures, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
+```
+
+## GraphQL
+
+```text
+/goal Complete OC-010 GraphQL support using $missio-agent-coordination and $missio-protocol-implementer without stopping until schema-native GraphQL editing, execution, validation, tree/CodeLens/tool routing, body variants, AGENT_PROGRESS updates, and complete automated unit, integration, and round-trip tests are implemented and passing.
+```
+
+## WebSocket
+
+```text
+/goal Complete OC-020 WebSocket support using $missio-agent-coordination and $missio-protocol-implementer without stopping until schema-native WebSocket editing, connect/send/receive/disconnect lifecycle, message variants, cleanup behavior, AGENT_PROGRESS updates, and complete automated tests with a local WebSocket fixture server are implemented and passing.
+```
+
+## gRPC
+
+```text
+/goal Complete OC-030 gRPC unary and protobuf support using $missio-agent-coordination and $missio-protocol-implementer without stopping until protobuf config editing, gRPC request validation, metadata defaults, unary execution against a local fixture server, explicit streaming diagnostics, AGENT_PROGRESS updates, and complete automated tests are implemented and passing.
+```
+
+## Runtime
+
+```text
+/goal Complete OC-040 scripts, tests, assertions, and actions using $missio-agent-coordination and $missio-runtime-implementer without stopping until lifecycle execution, sandbox policy, assertions, set-variable actions, test result UI/tool output, AGENT_PROGRESS updates, and complete automated runtime, security, and failure-path tests are implemented and passing.
+```
+
+## Auth And Transport
+
+```text
+/goal Complete OC-050 auth, proxy, mTLS, redirects, and transport completion using $missio-agent-coordination and $missio-runtime-implementer without stopping until missing schema auth behavior, OAuth2 completeness, API-key query placement, redirect handling, proxy, mTLS, unsupported-auth diagnostics, AGENT_PROGRESS updates, and complete automated fixture-backed tests are implemented and passing.
+```
+
+## User And Agent Surfaces
+
+```text
+/goal Complete OC-070 imports, exports, tree, CodeLens, commands, and Copilot protocol tooling using $missio-agent-coordination and $missio-editor-schema-implementer without stopping until all user-facing and agent-facing surfaces are protocol-aware, unsupported conversions are explicit, AGENT_PROGRESS updates are complete, and complete automated tests for tree, CodeLens, commands, import/export, and Copilot tools are implemented and passing.
+```
+
+## Final Integration
+
+```text
+/goal Complete final OpenCollection compatibility integration across all Missio tracks using $missio-agent-coordination without stopping until all OC-000 through OC-070 task rows are Done, all GitButler branches or PRs are linked, the full test suite and required fixture integration tests pass, documentation is consistent, and AGENT_PROGRESS.md contains final verification evidence.
+```

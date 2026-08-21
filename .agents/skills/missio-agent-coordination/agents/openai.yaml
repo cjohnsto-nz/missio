@@ -1,0 +1,4 @@
+interface:
+  display_name: "Missio Agent Coordination"
+  short_description: "Coordinate parallel Missio implementation work"
+  default_prompt: "Use $missio-agent-coordination to claim a Missio OpenCollection task and keep the shared progress ledger current."

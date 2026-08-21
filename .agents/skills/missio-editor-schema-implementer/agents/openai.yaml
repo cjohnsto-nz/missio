@@ -1,0 +1,4 @@
+interface:
+  display_name: "Missio Editor Schema Implementer"
+  short_description: "Preserve schema data through Missio editors"
+  default_prompt: "Use $missio-editor-schema-implementer to improve Missio validation, editors, imports, exports, or round-trip schema safety."
