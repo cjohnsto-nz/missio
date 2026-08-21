@@ -4,6 +4,8 @@
 
 Implement OpenCollection `WebSocketRequest` support with connection lifecycle, outbound message variants, inbound message logging, auth, variables, and tests.
 
+Use `$missio-demo-server-fixtures` for local WebSocket fixtures and user-verifiable example requests.
+
 ## Schema Surface
 
 | Feature | Schema Shape |
@@ -34,6 +36,14 @@ There is no WebSocket dependency, editor, connection manager, response/message U
 4. Add cancellation/disconnect behavior and cleanup on editor close.
 5. Resolve variables and secrets in URL, headers, auth, and outbound messages.
 6. Add tests with a local WebSocket echo server.
+7. Extend the local demo API and example collection:
+
+| Demo Area | Required Work |
+| --- | --- |
+| Server route | Add a local WebSocket fixture, preferably attached to `examples/demo-api/server.js` when using `ws`, with echo and auth/header verification paths. |
+| Environment | Add `LOCAL.wsBaseUrl` such as `ws://localhost:3456` if WebSocket URLs cannot reuse `baseUrl`. |
+| Demo requests | Add `examples/demo-api/WebSocket/` with `folder.yml` and schema-valid WebSocket requests for text echo, JSON echo with variables, auth/header handshake, and disconnect/error behavior. |
+| User notes | Each demo request description should say which local server command to run. |
 
 ## Acceptance Criteria
 
@@ -45,6 +55,7 @@ There is no WebSocket dependency, editor, connection manager, response/message U
 | Auth | Header-compatible auth applies to handshake. |
 | Safety | Closing editor or cancelling disconnects active sockets. |
 | Validation | WebSocket request files validate against `WebSocketRequest`. |
+| Demo verification | A user can run the local demo server and verify connect/send/receive/disconnect from Missio without internet access. |
 
 ## Suggested Tests
 
@@ -54,6 +65,7 @@ There is no WebSocket dependency, editor, connection manager, response/message U
 | Echo JSON message with variables. | JSON payload has interpolated values. |
 | Connect with bearer auth. | Server receives `Authorization` header. |
 | Invalid URL. | UI shows clear connection error. |
+| Demo WebSocket echo. | Local demo request logs outbound and echoed inbound messages. |
 
 ## Dependency Choice
 

@@ -107,6 +107,12 @@ Record cross-cutting decisions here so parallel agents do not rediscover them.
   Verified: `npx @vscode/vsce package --out %TEMP%\missio-vscodeignore-check.vsix` passed; file list no longer includes `.agents/`, `.opencode/`, `.github/`, `.socket/`, `.windsurf/`, or `docs/open-collection-gap-analysis/`.
   Observed: the local binary post demo server exists at `examples/demo-api/server.js`; it runs with `node examples/demo-api/server.js` on `http://localhost:3456` and exposes `GET /health`, `POST /upload`, `POST /upload/image`, `POST /upload/pdf`, and `POST /upload/text`.
   Next: keep `examples/demo-api` packaged because it is useful sample content; protocol agents can reuse its local-server pattern for fixture-backed tests.
+- 2026-06-14 22:42 NZT - Codex: Added demo-server fixture guidance before launching OC-010, OC-020, OC-030, and OC-040 in parallel.
+  GitButler: supervisor branch `supervisor/demo-server-fixtures` created for this coordination update.
+  Coverage: documentation and skill validation only; no runtime behavior changed.
+  Changed: added `.agents/skills/missio-demo-server-fixtures/`; updated OC-010 through OC-040 task definitions, `AGENT_GOAL_PROMPTS.md`, and `README.md` so protocol/runtime agents must extend the local demo API and add user-verifiable demo requests.
+  Verified: `python C:\Users\chris\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents\skills\missio-demo-server-fixtures` passed; `rg` confirmed the new skill is referenced by OC-010, OC-020, OC-030, OC-040, the goal prompts, and the wiki skill table.
+  Next: launch OC-010, OC-020, OC-030, and OC-040 with `$missio-demo-server-fixtures` included in each goal prompt.
 
 ### OC-000 Foundation and Protocol Dispatch
 

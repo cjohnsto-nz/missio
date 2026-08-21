@@ -4,6 +4,8 @@
 
 Implement OpenCollection runtime lifecycle support: scripts, tests, assertions, and set-variable actions across supported protocol executors.
 
+Use `$missio-demo-server-fixtures` for local runtime fixture routes and user-verifiable demo requests.
+
 ## Schema Surface
 
 | Feature | Schema Shape |
@@ -48,6 +50,14 @@ Only TypeScript interfaces exist. There is no sandbox, runtime context, assertio
 5. Implement `set-variable` actions with JSON response selection.
 6. Add a result panel/table for tests, assertions, logs, and action mutations.
 7. Return test/assertion status from Copilot tools.
+8. Extend the local demo API and example collection:
+
+| Demo Area | Required Work |
+| --- | --- |
+| Server routes | Add deterministic runtime fixture routes to `examples/demo-api/server.js`, such as echoing request headers/body, returning JSON tokens, and returning intentional pass/fail payloads. |
+| Demo requests | Add `examples/demo-api/Runtime/` with `folder.yml` and requests that demonstrate before-request scripts, after-response scripts, tests, assertions, and `set-variable` actions. |
+| Cross-protocol | Include GraphQL runtime demo requests if OC-010 is available in the applied stack; otherwise record the dependency and keep HTTP demos complete. |
+| User notes | Each demo request description should say to run `node examples/demo-api/server.js` first and name the expected test/assertion result. |
 
 ## Acceptance Criteria
 
@@ -59,6 +69,7 @@ Only TypeScript interfaces exist. There is no sandbox, runtime context, assertio
 | Actions | `set-variable` can capture response data into runtime scope at minimum. |
 | Safety | Script sandbox has no unreviewed file/network/process access. |
 | Traceability | Logs and failures are visible without opening DevTools. |
+| Demo verification | A user can run local demo requests and see passing/failing scripts, assertions, logs, and variable mutations in Missio. |
 
 ## Suggested Tests
 
@@ -68,6 +79,7 @@ Only TypeScript interfaces exist. There is no sandbox, runtime context, assertio
 | After-response script reads JSON. | Test result passes. |
 | Assertion checks status/body path. | Pass/fail states are recorded. |
 | `set-variable` extracts token. | Later request can use runtime variable. |
+| Demo runtime request. | Local demo server receives script-added data and response assertions/actions produce visible results. |
 
 ## Security Notes
 

@@ -4,6 +4,8 @@
 
 Implement OpenCollection gRPC support, starting with protobuf configuration and unary requests, then expanding to streaming modes.
 
+Use `$missio-demo-server-fixtures` for local gRPC fixture server, proto files, and user-verifiable example requests.
+
 ## Schema Surface
 
 | Feature | Schema Shape |
@@ -49,6 +51,16 @@ Missio has no protobuf config model, no gRPC metadata/defaults handling, no prot
 | Server-streaming | Inbound message log. |
 | Bidi-streaming | Send list and inbound log. |
 
+7. Extend the local demo API and example collection:
+
+| Demo Area | Required Work |
+| --- | --- |
+| Fixture server | Add a local gRPC fixture server, for example `examples/demo-api/grpc-server.js`, and bind it to `127.0.0.1`. |
+| Proto files | Add deterministic proto fixtures under `examples/demo-api/proto/`, with unary methods suitable for metadata and variable interpolation checks. |
+| Environment | Add `LOCAL.grpcBaseUrl`, for example `localhost:50051`, and any proto import path variables needed by request files. |
+| Demo requests | Add `examples/demo-api/gRPC/` with `folder.yml`, unary request files, metadata examples, variable examples, and explicit unsupported streaming examples if streaming is not implemented. |
+| User notes | Each demo request description should include the gRPC server start command. |
+
 ## Acceptance Criteria
 
 | Requirement | Acceptance |
@@ -59,6 +71,7 @@ Missio has no protobuf config model, no gRPC metadata/defaults handling, no prot
 | Variables | Variables interpolate in URL, metadata, auth, and message. |
 | Validation | gRPC request files validate against `GrpcRequest`. |
 | Streaming | Unsupported streaming modes produce explicit diagnostics until implemented. |
+| Demo verification | A user can start the local gRPC fixture server and send the unary demo requests from Missio without internet access. |
 
 ## Suggested Tests
 
@@ -68,6 +81,7 @@ Missio has no protobuf config model, no gRPC metadata/defaults handling, no prot
 | Unary request with metadata. | Server receives metadata and message. |
 | Missing proto file. | Clear error includes resolved path. |
 | Invalid method name. | Clear method resolution error. |
+| Demo unary gRPC request. | Local fixture server receives metadata and returns deterministic JSON-rendered response data. |
 
 ## Coordination Notes
 
