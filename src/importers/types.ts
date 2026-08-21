@@ -9,6 +9,16 @@ export interface ImportResult {
   requestCount: number;
   folderCount: number;
   environmentCount: number;
+  diagnostics?: ImportDiagnostic[];
+}
+
+export interface ImportDiagnostic {
+  code: string;
+  severity: 'info' | 'warning' | 'error';
+  source: string;
+  message: string;
+  path?: string;
+  protocol?: string;
 }
 
 export interface CollectionImporter {
