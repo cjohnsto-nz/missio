@@ -5,4 +5,4 @@ request:
   metadata:
     - name: x-demo-folder
       value: folder-{{grpcRequestId}}
-docs: Run `node examples/demo-api/grpc-server.js` before sending these local gRPC requests.
+docs: From the repository root, run `node examples/demo-api/grpc-server.js` before sending these local gRPC requests. The fixture binds `127.0.0.1:50051`, matching `LOCAL.grpcBaseUrl=localhost:50051`.

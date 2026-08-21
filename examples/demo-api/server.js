@@ -6,6 +6,10 @@
  *
  * Runs on http://localhost:3456
  *
+ * gRPC demo requests use a separate local fixture:
+ *   node examples/demo-api/grpc-server.js
+ * It binds 127.0.0.1:50051, matching LOCAL.grpcBaseUrl in opencollection.yml.
+ *
  * Routes:
  *   GET  /health              – liveness check
  *   POST /upload              – accepts any binary body, returns upload info as JSON
@@ -496,6 +500,9 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`  WS   ws://localhost:${PORT}/ws/push        (server push after connect)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/close       (deterministic server close)`);
   console.log(`  WS   ws://localhost:${PORT}/ws/reject      (deterministic upgrade rejection)`);
+  console.log('\ngRPC demo requests:');
+  console.log('  Start the separate gRPC fixture: node examples/demo-api/grpc-server.js');
+  console.log('  It binds 127.0.0.1:50051, matching LOCAL.grpcBaseUrl=localhost:50051.');
   console.log('\nFixture files for demo requests:');
   console.log(`  ${path.join(FIXTURES_DIR, 'sample.png')}`);
   console.log(`  ${path.join(FIXTURES_DIR, 'sample.txt')}`);

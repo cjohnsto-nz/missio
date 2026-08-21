@@ -14,4 +14,4 @@ grpc:
         "requestId": "{{grpcRequestId}}-error"
       }
     }
-docs: Run `node examples/demo-api/grpc-server.js`; this server-streaming request emits one response and then a deterministic gRPC INTERNAL error for diagnostics testing.
+docs: Run `node examples/demo-api/grpc-server.js` from the repository root, select the LOCAL environment, then send this server-streaming request. It emits one response from `localhost:50051` and then a deterministic gRPC INTERNAL error for diagnostics testing.
