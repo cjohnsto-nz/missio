@@ -20,7 +20,7 @@ Status values: `Unclaimed`, `Claimed`, `In Progress`, `Review Ready`, `Blocked`,
 
 | Role | Owner | Scope | Since | Current Focus |
 | --- | --- | --- | --- | --- |
-| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-000 through OC-110 accepted; OC-120 and OC-130 queued as focused follow-up UX tasks. |
+| Supervisor | Codex | Sanity-check completed tracks, run build/test/package/install verification, preserve GitButler branch hygiene, and append progress reports. | 2026-06-14 22:31 NZT | OC-120 and OC-130 accepted; OC-140 queued as a focused WebSocket lifecycle UX follow-up. |
 
 ## Test Coverage Rules
 
@@ -91,6 +91,7 @@ Use full branch names for stacking existing branches with `but move <child-branc
 | OC-110 | OC-040 runtime schema/engine, OC-060 round-trip safety, OC-100 editor shell; coordinate with OC-070 and OC-080 | Visual authoring completeness for runtime scripts, tests, assertions, and actions |
 | OC-120 | Release PDF.js packaging fix, response preview rendering, request editor webview shell; coordinate with OC-100/OC-110 styles | Inspectable image/PDF response preview UX |
 | OC-130 | OC-100 protocol identity, request editor webview startup path, all protocol editor layouts; coordinate with OC-120 if shared CSS changes | Protocol-native editor first paint and layout stability |
+| OC-140 | OC-020 WebSocket client/executor, OC-070 CodeLens/Copilot patterns, OC-080 WebSocket runtime lifecycle, OC-100 WebSocket editor identity, OC-130 request editor startup/layout if shared UI changes overlap | First-class WebSocket session lifecycle management |
 
 ## Shared Decisions
 

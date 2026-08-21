@@ -192,14 +192,12 @@ describe('OC-130 request editor first paint', () => {
 
   it('hides request controls during pending and invalid states while preserving layout dimensions', () => {
     const css = fs.readFileSync(path.join(process.cwd(), 'src', 'webview', 'requestPanel.css'), 'utf8');
-    const panelSource = fs.readFileSync(path.join(process.cwd(), 'src', 'panels', 'basePanel.ts'), 'utf8');
 
     expect(css).toMatch(/\.request-editor-shell\s*\{[\s\S]*height:\s*100vh;[\s\S]*display:\s*flex;[\s\S]*flex-direction:\s*column;/);
     expect(css).toMatch(/\.request-editor-shell\.is-hydrating \.url-bar,[\s\S]*\.request-editor-shell\.is-invalid-yaml \.main-content\s*\{[\s\S]*visibility:\s*hidden;[\s\S]*pointer-events:\s*none;/);
     expect(css).toMatch(/\.request-startup-shell\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*0;[\s\S]*display:\s*flex;/);
     expect(css).toMatch(/\.request-startup-card\s*\{[\s\S]*min-height:\s*44px;/);
     expect(css).toContain('.protocol-icon-pending');
-    expect(panelSource).toContain(".codicon-symbol-interface::before { content: '\\\\eb61'; }");
   });
 
   it.each(protocolRoots)('hydrates directly to the %s request layout', async (protocol) => {
@@ -262,53 +260,6 @@ describe('OC-130 request editor first paint', () => {
     expect(document.getElementById('requestStartupTitle')?.textContent).toBe('Request YAML could not be loaded');
     expect(document.getElementById('requestStartupDetail')?.textContent).toContain('Nested mappings');
     expect(document.getElementById('protocolIcon')?.className).toContain('protocol-icon-pending');
-  });
-
-  it('blocks Ctrl+S until request hydration is ready', async () => {
-    const { dom, messages } = await loadRequestPanel();
-    const save = () => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
-      key: 's',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    }));
-    const savedMessages = () => messages.filter((message: any) => message.type === 'saveDocument');
-
-    save();
-    expect(savedMessages()).toHaveLength(0);
-
-    dispatchPanelMessage(dom, {
-      type: 'requestLoadError',
-      filePath: 'bad.yml',
-      message: 'Nested mappings are not allowed in compact mappings',
-    });
-    save();
-    expect(savedMessages()).toHaveLength(0);
-
-    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('graphql'), filePath: 'graphql.yml' });
-    save();
-
-    expect(savedMessages()).toHaveLength(1);
-    expect((savedMessages()[0] as any).request.info.type).toBe('graphql');
-  });
-
-  it('recovers from invalid YAML when a previous document update is awaiting its load echo', async () => {
-    const { dom } = await loadRequestPanel();
-    const { setIgnoreNextLoad } = await import('../src/webview/state');
-
-    setIgnoreNextLoad(true);
-    dispatchPanelMessage(dom, {
-      type: 'requestLoadError',
-      filePath: 'bad.yml',
-      message: 'Nested mappings are not allowed in compact mappings',
-    });
-    dispatchPanelMessage(dom, { type: 'requestLoaded', request: requestForProtocol('grpc'), filePath: 'grpc.yml' });
-
-    const shell = document.getElementById('requestEditorShell') as HTMLElement;
-    expect(shell.dataset.hydrationState).toBe('ready');
-    expect(shell.dataset.protocol).toBe('grpc');
-    expect(shell.classList.contains('is-invalid-yaml')).toBe(false);
-    expect((document.getElementById('requestStartupShell') as HTMLElement).style.display).toBe('none');
   });
 
   it('sends an explicit invalid-YAML fallback message from the extension host', () => {

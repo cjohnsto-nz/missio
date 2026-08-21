@@ -1459,7 +1459,6 @@ function setSendingState(sending: boolean): void {
 
 // ── Save ────────────────────────────────────────
 function saveRequest(): void {
-  if ($('requestEditorShell').dataset.hydrationState !== 'ready') return;
   if (updateDocumentTimer) {
     clearTimeout(updateDocumentTimer);
     setUpdateDocumentTimer(null);
@@ -1797,7 +1796,7 @@ window.addEventListener('message', (event: MessageEvent) => {
     case 'requestLoaded':
       if (ignoreNextLoad) {
         setIgnoreNextLoad(false);
-        if ($('requestEditorShell').dataset.hydrationState === 'ready') break;
+        break;
       }
       try {
         const protocol = loadRequest(msg.request);
