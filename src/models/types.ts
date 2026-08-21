@@ -295,6 +295,155 @@ export interface HttpRequest {
   docs?: string;
 }
 
+// ── GraphQL Request ──────────────────────────────────────────────────
+
+export interface GraphQLBody {
+  query?: string;
+  variables?: string;
+}
+
+export interface GraphQLBodyVariant {
+  title: string;
+  selected?: boolean;
+  body: GraphQLBody;
+}
+
+export interface GraphQLRequestSettings {
+  encodeUrl?: boolean | 'inherit';
+  timeout?: number | 'inherit';
+  followRedirects?: boolean | 'inherit';
+  maxRedirects?: number | 'inherit';
+}
+
+export interface GraphQLRequestInfo {
+  name?: string;
+  description?: Description;
+  type?: 'graphql';
+  seq?: number;
+  tags?: Tag[];
+}
+
+export interface GraphQLRequestDetails {
+  method?: string;
+  url?: string;
+  headers?: HttpRequestHeader[];
+  params?: HttpRequestParam[];
+  body?: GraphQLBody | GraphQLBodyVariant[];
+}
+
+export interface GraphQLRequestRuntime {
+  variables?: Variable[];
+  scripts?: Scripts;
+  assertions?: Assertion[];
+  actions?: Action[];
+  auth?: Auth;
+}
+
+export interface GraphQLRequest {
+  info?: GraphQLRequestInfo;
+  graphql?: GraphQLRequestDetails;
+  runtime?: GraphQLRequestRuntime;
+  settings?: GraphQLRequestSettings;
+  docs?: string;
+}
+
+// ── gRPC Request ─────────────────────────────────────────────────────
+
+export interface GrpcMetadata {
+  name: string;
+  value: string;
+  description?: Description;
+  disabled?: boolean;
+}
+
+export interface GrpcRequestMessage {
+  description?: Description;
+  message: string;
+}
+
+export type GrpcMessage = string;
+
+export interface GrpcMessageVariant {
+  title: string;
+  selected?: boolean;
+  message: GrpcMessage;
+}
+
+export type GrpcMethodType = 'unary' | 'client-streaming' | 'server-streaming' | 'bidi-streaming';
+
+export interface GrpcRequestInfo {
+  name?: string;
+  description?: Description;
+  type?: 'grpc';
+  seq?: number;
+  tags?: Tag[];
+}
+
+export interface GrpcRequestDetails {
+  url?: string;
+  method?: string;
+  methodType?: GrpcMethodType;
+  protoFilePath?: string;
+  metadata?: GrpcMetadata[];
+  message?: GrpcMessage | GrpcMessageVariant[];
+}
+
+export interface GrpcRequestRuntime {
+  variables?: Variable[];
+  scripts?: Scripts;
+  assertions?: Assertion[];
+  auth?: Auth;
+}
+
+export interface GrpcRequest {
+  info?: GrpcRequestInfo;
+  grpc?: GrpcRequestDetails;
+  runtime?: GrpcRequestRuntime;
+  docs?: string;
+}
+
+// ── WebSocket Request ────────────────────────────────────────────────
+
+export type WebSocketMessageType = 'text' | 'json' | 'xml' | 'binary';
+
+export interface WebSocketMessage {
+  type: WebSocketMessageType;
+  data: string;
+}
+
+export interface WebSocketMessageVariant {
+  title: string;
+  selected?: boolean;
+  message: WebSocketMessage;
+}
+
+export interface WebSocketRequestInfo {
+  name?: string;
+  description?: Description;
+  type?: 'websocket';
+  seq?: number;
+  tags?: Tag[];
+}
+
+export interface WebSocketRequestDetails {
+  url?: string;
+  headers?: HttpRequestHeader[];
+  message?: WebSocketMessage | WebSocketMessageVariant[];
+}
+
+export interface WebSocketRequestRuntime {
+  variables?: Variable[];
+  scripts?: Scripts;
+  auth?: Auth;
+}
+
+export interface WebSocketRequest {
+  info?: WebSocketRequestInfo;
+  websocket?: WebSocketRequestDetails;
+  runtime?: WebSocketRequestRuntime;
+  docs?: string;
+}
+
 // ── Request Defaults ─────────────────────────────────────────────────
 
 export interface RequestDefaults {
@@ -302,7 +451,7 @@ export interface RequestDefaults {
   auth?: Auth;
   variables?: Variable[];
   scripts?: Scripts;
-  settings?: { http?: HttpRequestSettings };
+  settings?: { http?: HttpRequestSettings; graphql?: GraphQLRequestSettings };
 }
 
 // ── Certificates ─────────────────────────────────────────────────────
@@ -362,14 +511,91 @@ export interface FolderInfo {
 
 export interface Folder {
   info?: FolderInfo;
-  items?: Item[];
+  items?: OpenCollectionItem[];
   request?: RequestDefaults;
   docs?: Documentation;
 }
 
-// ── Item (union) ─────────────────────────────────────────────────────
+// ── Script File ──────────────────────────────────────────────────────
 
-export type Item = HttpRequest | Folder;
+export interface ScriptFile {
+  type: 'script';
+  script: string;
+}
+
+// ── Item (union) and type guards ─────────────────────────────────────
+
+export type OpenCollectionRequest = HttpRequest | GraphQLRequest | GrpcRequest | WebSocketRequest;
+export type OpenCollectionItem = OpenCollectionRequest | Folder | ScriptFile;
+export type RequestFileItem = OpenCollectionRequest | ScriptFile;
+export type Item = OpenCollectionItem;
+export type RequestProtocol = 'http' | 'graphql' | 'grpc' | 'websocket';
+export type OpenCollectionItemKind = RequestProtocol | 'folder' | 'script' | 'unknown';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasObjectKey(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key) && isRecord(value[key]);
+}
+
+export function getRequestProtocol(item: unknown): RequestProtocol | undefined {
+  if (!isRecord(item)) return undefined;
+
+  const infoType = isRecord(item.info) && typeof item.info.type === 'string'
+    ? item.info.type
+    : undefined;
+  if (infoType === 'http' || infoType === 'graphql' || infoType === 'grpc' || infoType === 'websocket') {
+    return infoType;
+  }
+  if (infoType) return undefined;
+
+  if (hasObjectKey(item, 'http')) return 'http';
+  if (hasObjectKey(item, 'graphql')) return 'graphql';
+  if (hasObjectKey(item, 'grpc')) return 'grpc';
+  if (hasObjectKey(item, 'websocket')) return 'websocket';
+  return undefined;
+}
+
+export function isHttpRequest(item: unknown): item is HttpRequest {
+  return getRequestProtocol(item) === 'http';
+}
+
+export function isGraphQLRequest(item: unknown): item is GraphQLRequest {
+  return getRequestProtocol(item) === 'graphql';
+}
+
+export function isGrpcRequest(item: unknown): item is GrpcRequest {
+  return getRequestProtocol(item) === 'grpc';
+}
+
+export function isWebSocketRequest(item: unknown): item is WebSocketRequest {
+  return getRequestProtocol(item) === 'websocket';
+}
+
+export function isFolder(item: unknown): item is Folder {
+  if (!isRecord(item)) return false;
+  return (isRecord(item.info) && item.info.type === 'folder')
+    || Array.isArray(item.items)
+    || (hasObjectKey(item, 'request') && !isHttpRequest(item) && !isGraphQLRequest(item) && !isGrpcRequest(item) && !isWebSocketRequest(item));
+}
+
+export function isScriptFile(item: unknown): item is ScriptFile {
+  return isRecord(item) && item.type === 'script' && typeof item.script === 'string';
+}
+
+export function isProtocolRequest(item: unknown): item is OpenCollectionRequest {
+  return isHttpRequest(item) || isGraphQLRequest(item) || isGrpcRequest(item) || isWebSocketRequest(item);
+}
+
+export function getItemKind(item: unknown): OpenCollectionItemKind {
+  const protocol = getRequestProtocol(item);
+  if (protocol) return protocol;
+  if (isFolder(item)) return 'folder';
+  if (isScriptFile(item)) return 'script';
+  return 'unknown';
+}
 
 // ── Extensions ───────────────────────────────────────────────────────
 

@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CommandContext } from './types';
-import type { HttpRequest, MissioCollection, RequestDefaults } from '../models/types';
+import type { HttpRequest, MissioCollection, OpenCollectionRequest, RequestDefaults } from '../models/types';
+import { getItemKind, isHttpRequest, isProtocolRequest } from '../models/types';
 import { RequestEditorProvider } from '../panels/requestPanel';
 import { readRequestFile, readFolderFile, stringifyYaml } from '../services/yamlParser';
 import { promptForUnresolvedVars } from '../services/unresolvedVars';
 
 export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[] {
-  const { collectionService, httpClient, responseProvider } = ctx;
+  const { collectionService, httpClient, requestExecutionService, responseProvider } = ctx;
 
   function findCollectionForFile(filePath: string): MissioCollection | undefined {
     const collections = collectionService.getCollections();
@@ -57,8 +58,8 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
         }
 
         const request = await readRequestFile(filePath);
-        if (!request?.http?.method || !request?.http?.url) {
-          vscode.window.showWarningMessage('File does not contain a valid HTTP request.');
+        if (!isProtocolRequest(request)) {
+          vscode.window.showWarningMessage('File does not contain an executable OpenCollection request.');
           return;
         }
 
@@ -72,18 +73,29 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
         const folderDefaults = await getFolderDefaults(filePath, collection);
 
         // Prompt for unresolved variables before sending
-        const extraVariables = await promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
-        if (extraVariables === undefined) return; // User cancelled
+        let extraVariables: Map<string, string> | undefined;
+        if (isHttpRequest(request)) {
+          extraVariables = await promptForUnresolvedVars(request, collection, ctx.environmentService, folderDefaults);
+          if (extraVariables === undefined) return; // User cancelled
+        }
+
+        const protocolLabel = describeRequestForProgress(request);
 
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `Sending ${request.http.method.toUpperCase()} ${request.http.url}`,
+            title: `Sending ${protocolLabel}`,
             cancellable: true,
           },
           async (_progress, token) => {
-            token.onCancellationRequested(() => httpClient.cancelAll());
-            const response = await httpClient.send(request, collection, folderDefaults, undefined, extraVariables.size > 0 ? extraVariables : undefined);
+            token.onCancellationRequested(() => requestExecutionService.cancelAll());
+            const response = await requestExecutionService.send(
+              request,
+              collection,
+              folderDefaults,
+              undefined,
+              extraVariables && extraVariables.size > 0 ? extraVariables : undefined,
+            );
             await responseProvider.showResponse(response, request.info?.name);
           },
         );
@@ -102,7 +114,7 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       if (!requestFilePath) return;
       await RequestEditorProvider.open(requestFilePath);
       const request = await collectionService.loadRequestFile(requestFilePath);
-      if (!request?.examples?.[exampleIndex]) return;
+        if (!isHttpRequest(request) || !request.examples?.[exampleIndex]) return;
       const example = request.examples[exampleIndex];
       RequestEditorProvider.postMessageToPanel(requestFilePath, {
         type: 'loadExample',
@@ -187,7 +199,11 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       }
       try {
         const request = await readRequestFile(filePath);
-        const currentName = request?.info?.name ?? path.basename(filePath, path.extname(filePath));
+        if (!isHttpRequest(request)) {
+          vscode.window.showWarningMessage('Only HTTP requests can be renamed from this command.');
+          return;
+        }
+        const currentName = request.info?.name ?? path.basename(filePath, path.extname(filePath));
         const newName = await vscode.window.showInputBox({
           prompt: 'New request name',
           value: currentName,
@@ -253,7 +269,11 @@ export function registerRequestCommands(ctx: CommandContext): vscode.Disposable[
       }
       try {
         const request = await readRequestFile(filePath);
-        const currentName = request?.info?.name ?? path.basename(filePath, path.extname(filePath));
+        if (!isHttpRequest(request)) {
+          vscode.window.showWarningMessage('Only HTTP requests can be duplicated from this command.');
+          return;
+        }
+        const currentName = request.info?.name ?? path.basename(filePath, path.extname(filePath));
         const newName = await vscode.window.showInputBox({
           prompt: 'Name for the duplicate',
           value: currentName + ' Copy',
@@ -295,4 +315,17 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function describeRequestForProgress(request: OpenCollectionRequest): string {
+  if (isHttpRequest(request)) {
+    return `${request.http?.method?.toUpperCase() ?? 'HTTP'} ${request.http?.url ?? request.info?.name ?? 'request'}`;
+  }
+  const kind = getItemKind(request);
+  const labels: Record<string, string> = {
+    graphql: 'GraphQL request',
+    websocket: 'WebSocket request',
+    grpc: 'gRPC request',
+  };
+  return `${labels[kind] ?? 'OpenCollection request'} ${request.info?.name ?? ''}`.trim();
 }

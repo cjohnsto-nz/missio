@@ -4,6 +4,7 @@ import { CollectionService } from './services/collectionService';
 import { EnvironmentService } from './services/environmentService';
 import { SecretService } from './services/secretService';
 import { HttpClient } from './services/httpClient';
+import { RequestExecutionService } from './services/requestExecutionService';
 import { CliAuthApprovalService } from './services/cliAuthApproval';
 import { CollectionTreeProvider } from './providers/collectionTreeProvider';
 import { EnvironmentTreeProvider } from './providers/environmentTreeProvider';
@@ -44,6 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const collectionService = new CollectionService();
   const environmentService = new EnvironmentService(context, secretService);
   const httpClient = new HttpClient(environmentService);
+  const requestExecutionService = new RequestExecutionService(httpClient);
   const oauth2Service = new OAuth2Service(context.secrets);
   const cliAuthApprovalService = new CliAuthApprovalService(context);
   httpClient.setOAuth2Service(oauth2Service);
@@ -99,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Custom Editor ──────────────────────────────────────────────
 
   context.subscriptions.push(
-    RequestEditorProvider.register(context, httpClient, collectionService, environmentService, oauth2Service, secretService),
+    RequestEditorProvider.register(context, requestExecutionService, collectionService, environmentService, oauth2Service, secretService),
     CollectionEditorProvider.register(context, collectionService, environmentService, oauth2Service, secretService),
     FolderEditorProvider.register(context, collectionService, environmentService, oauth2Service, secretService),
   );
@@ -122,6 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     collectionService,
     environmentService,
     httpClient,
+    requestExecutionService,
     responseProvider,
     collectionTreeProvider,
   };
@@ -157,7 +160,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── Language Model Tools ──────────────────────────────────────
 
-  registerLanguageModelTools(context, collectionService, environmentService, httpClient, secretService);
+  registerLanguageModelTools(context, collectionService, environmentService, requestExecutionService, secretService);
 
   // ── Status Bar ─────────────────────────────────────────────────
 
@@ -247,7 +250,7 @@ function registerLanguageModelTools(
   context: vscode.ExtensionContext,
   collectionService: CollectionService,
   environmentService: EnvironmentService,
-  httpClient: HttpClient,
+  requestExecutionService: RequestExecutionService,
   secretService: SecretService,
 ): void {
   // Guard: vscode.lm.registerTool may not exist on older VS Code or non-VS Code editors
@@ -265,7 +268,7 @@ function registerLanguageModelTools(
     vscode.lm.registerTool('missio_list_environments', new ListEnvironmentsTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_set_environment', new SetEnvironmentTool(collectionService, environmentService)),
     vscode.lm.registerTool('missio_resolve_variables', new ResolveVariablesTool(collectionService, environmentService)),
-    vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, httpClient)),
+    vscode.lm.registerTool('missio_send_request', new SendRequestTool(collectionService, environmentService, requestExecutionService)),
     vscode.lm.registerTool('missio_validate_collection', new ValidateCollectionTool(collectionService, schemaPath)),
     vscode.lm.registerTool('missio_send_raw_request', new SendRawRequestTool(collectionService, environmentService, secretService)),
   );

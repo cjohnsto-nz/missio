@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ToolBase } from './toolBase';
 import { CollectionService } from '../../services/collectionService';
+import { isFolder, isProtocolRequest } from '../../models/types';
 
 export interface GetCollectionParams {
   collectionId?: string;
@@ -48,10 +49,10 @@ export class GetCollectionTool extends ToolBase<GetCollectionParams> {
   private _countRequests(items: import('../../models/types').Item[]): number {
     let count = 0;
     for (const item of items) {
-      if (item.info?.type === 'folder') {
+      if (isFolder(item)) {
         const f = item as import('../../models/types').Folder;
         if (f.items) count += this._countRequests(f.items);
-      } else {
+      } else if (isProtocolRequest(item)) {
         count++;
       }
     }

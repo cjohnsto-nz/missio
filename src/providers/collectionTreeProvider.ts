@@ -1,9 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import type { CollectionService } from '../services/collectionService';
-import type { MissioCollection, Item, HttpRequest, HttpRequestExample, Folder } from '../models/types';
+import type { MissioCollection, Item, OpenCollectionRequest, HttpRequestExample, Folder, ScriptFile } from '../models/types';
+import {
+  getItemKind,
+  isFolder as isOpenCollectionFolder,
+  isGraphQLRequest,
+  isGrpcRequest,
+  isHttpRequest,
+  isProtocolRequest,
+  isScriptFile,
+  isWebSocketRequest,
+} from '../models/types';
 
-type TreeNode = CollectionNode | FolderNode | RequestNode | ExampleNode;
+type TreeNode = CollectionNode | FolderNode | RequestNode | ScriptNode | ExampleNode;
 
 const DRAG_MIME = 'application/vnd.code.tree.missio.collections';
 
@@ -50,41 +60,50 @@ class FolderNode extends vscode.TreeItem {
 
 class RequestNode extends vscode.TreeItem {
   constructor(
-    public readonly request: HttpRequest,
+    public readonly request: OpenCollectionRequest,
     public readonly collectionId: string,
   ) {
     const name = request.info?.name ?? 'Unnamed Request';
-    const hasExamples = (request.examples?.length ?? 0) > 0;
+    const hasExamples = isHttpRequest(request) && (request.examples?.length ?? 0) > 0;
     super(name, hasExamples ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-    this.contextValue = 'httpRequest';
-    this.description = request.http?.method?.toUpperCase() ?? '';
-    this.tooltip = request.http?.url ?? '';
+    const kind = getItemKind(request);
+    this.contextValue = kind === 'http' ? 'httpRequest' : `${kind}Request`;
+    this.description = describeRequest(request);
+    this.tooltip = requestTooltip(request);
 
-    // Color-code by method
-    const method = (request.http?.method ?? 'GET').toUpperCase();
-    const methodIcons: Record<string, string> = {
-      GET: 'arrow-down',
-      POST: 'arrow-up',
-      PUT: 'arrow-swap',
-      PATCH: 'edit',
-      DELETE: 'trash',
-      HEAD: 'eye',
-      OPTIONS: 'settings-gear',
-    };
-    const methodColors: Record<string, string> = {
-      GET: 'missio.methodGet',
-      POST: 'missio.methodPost',
-      PUT: 'missio.methodPut',
-      PATCH: 'missio.methodPatch',
-      DELETE: 'missio.methodDelete',
-      HEAD: 'missio.methodHead',
-      OPTIONS: 'missio.methodOptions',
-    };
-    const iconName = methodIcons[method] ?? 'globe';
-    const colorToken = methodColors[method];
-    this.iconPath = colorToken
-      ? new vscode.ThemeIcon(iconName, new vscode.ThemeColor(colorToken))
-      : new vscode.ThemeIcon(iconName);
+    if (isHttpRequest(request)) {
+      const method = (request.http?.method ?? 'GET').toUpperCase();
+      const methodIcons: Record<string, string> = {
+        GET: 'arrow-down',
+        POST: 'arrow-up',
+        PUT: 'arrow-swap',
+        PATCH: 'edit',
+        DELETE: 'trash',
+        HEAD: 'eye',
+        OPTIONS: 'settings-gear',
+      };
+      const methodColors: Record<string, string> = {
+        GET: 'missio.methodGet',
+        POST: 'missio.methodPost',
+        PUT: 'missio.methodPut',
+        PATCH: 'missio.methodPatch',
+        DELETE: 'missio.methodDelete',
+        HEAD: 'missio.methodHead',
+        OPTIONS: 'missio.methodOptions',
+      };
+      const iconName = methodIcons[method] ?? 'globe';
+      const colorToken = methodColors[method];
+      this.iconPath = colorToken
+        ? new vscode.ThemeIcon(iconName, new vscode.ThemeColor(colorToken))
+        : new vscode.ThemeIcon(iconName);
+    } else {
+      const protocolIcons: Record<string, string> = {
+        graphql: 'type-hierarchy',
+        websocket: 'plug',
+        grpc: 'radio-tower',
+      };
+      this.iconPath = new vscode.ThemeIcon(protocolIcons[kind] ?? 'symbol-method');
+    }
 
     // Open the YAML file when clicked
     const filePath = (request as any)._filePath;
@@ -97,6 +116,60 @@ class RequestNode extends vscode.TreeItem {
       this.resourceUri = vscode.Uri.file(filePath);
     }
   }
+}
+
+class ScriptNode extends vscode.TreeItem {
+  constructor(
+    public readonly scriptFile: ScriptFile,
+    public readonly collectionId: string,
+  ) {
+    super('Script', vscode.TreeItemCollapsibleState.None);
+    this.contextValue = 'scriptFile';
+    this.description = 'SCRIPT';
+    this.iconPath = new vscode.ThemeIcon('code');
+
+    const filePath = (scriptFile as any)._filePath;
+    if (filePath) {
+      this.command = {
+        command: 'missio.openRequest',
+        title: 'Open Script',
+        arguments: [filePath, this.collectionId],
+      };
+      this.resourceUri = vscode.Uri.file(filePath);
+      this.tooltip = filePath;
+    }
+  }
+}
+
+function describeRequest(request: OpenCollectionRequest): string {
+  if (isHttpRequest(request)) {
+    return request.http?.method?.toUpperCase() ?? 'HTTP';
+  }
+  const kind = getItemKind(request);
+  const labels: Record<string, string> = {
+    graphql: 'GRAPHQL',
+    websocket: 'WS',
+    grpc: 'gRPC',
+  };
+  return labels[kind] ?? 'REQUEST';
+}
+
+function requestTooltip(request: OpenCollectionRequest): string {
+  if (isHttpRequest(request)) {
+    return request.http?.url ?? '';
+  }
+  if (isGraphQLRequest(request)) {
+    return request.graphql?.url ?? '';
+  }
+  if (isWebSocketRequest(request)) {
+    return request.websocket?.url ?? '';
+  }
+  if (isGrpcRequest(request)) {
+    const url = request.grpc?.url ?? '';
+    const method = request.grpc?.method ?? '';
+    return [url, method].filter(Boolean).join(' ');
+  }
+  return '';
 }
 
 class ExampleNode extends vscode.TreeItem {
@@ -196,6 +269,7 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
     }
 
     if (element instanceof RequestNode) {
+      if (!isHttpRequest(element.request)) return [];
       const examples = element.request.examples ?? [];
       const filePath = (element.request as any)._filePath;
       return examples.map((ex, i) => new ExampleNode(ex, i, filePath, element.collectionId));
@@ -205,7 +279,8 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
   }
 
   private _itemsToNodes(items: Item[], collectionId: string): TreeNode[] {
-    return items.map(item => {
+    const nodes: TreeNode[] = [];
+    for (const item of items) {
       if (this._isFolder(item)) {
         const folder = item as Folder;
         const dirPath = (folder as any)._dirPath ?? '';
@@ -213,10 +288,14 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
         const hasSubfolders = (folder.items ?? []).some(child => this._isFolder(child));
         const expanded = this._expandedIds.has(stateId);
         const version = this._folderRenderVersions.get(stateId) ?? 0;
-        return new FolderNode(folder, collectionId, dirPath, stateId, hasSubfolders, expanded, version);
+        nodes.push(new FolderNode(folder, collectionId, dirPath, stateId, hasSubfolders, expanded, version));
+      } else if (isProtocolRequest(item)) {
+        nodes.push(new RequestNode(item, collectionId));
+      } else if (isScriptFile(item)) {
+        nodes.push(new ScriptNode(item, collectionId));
       }
-      return new RequestNode(item as HttpRequest, collectionId);
-    });
+    }
+    return nodes;
   }
 
   trackExpand(element: TreeNode): void {
@@ -339,8 +418,7 @@ export class CollectionTreeProvider implements vscode.TreeDataProvider<TreeNode>
   }
 
   private _isFolder(item: Item): item is Folder {
-    return (item as Folder).info?.type === 'folder' ||
-           (!!(item as Folder).items && !(item as HttpRequest).http);
+    return isOpenCollectionFolder(item);
   }
 
   private _findFolderByDirPath(items: Item[], folderDirPath: string): Folder | undefined {
