@@ -1,0 +1,61 @@
+info:
+  name: Runtime Lifecycle Token
+  type: http
+  seq: 1
+  description: Run `node examples/demo-api/server.js`, then send this request to see passing scripts, tests, assertions, logs, and a set-variable action.
+http:
+  method: POST
+  url: "{{baseUrl}}/runtime/token"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "owner": "{{runtimeOwner}}"
+      }
+runtime:
+  variables:
+    - name: runtimeOwner
+      value: yaml-owner
+  scripts:
+    - type: before-request
+      code: |-
+        missio.request.setHeader("X-Runtime-Script", "before-script");
+        missio.variables.set("runtimeOwner", "script-owner");
+        console.log("before request script set X-Runtime-Script");
+    - type: after-response
+      code: |-
+        const data = response.json();
+        console.log("received token", data.token);
+        test("after-response script sees token", () => assert(data.token === "runtime-token-123"));
+    - type: tests
+      code: |-
+        pm.test("status is 200", () => pm.expect(pm.response.code).to.eql(200));
+        test("token action source exists", () => assert(response.json().nested.owner === "script-owner"));
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.ok
+      operator: equals
+      value: "true"
+    - expression: res.body.scriptedHeader
+      operator: equals
+      value: before-script
+  actions:
+    - type: set-variable
+      phase: after-response
+      selector:
+        method: jsonq
+        expression: $.token
+      variable:
+        scope: runtime
+        name: responseToken
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+
