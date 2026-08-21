@@ -1,0 +1,30 @@
+info:
+  name: Runtime Intentional Failure
+  type: http
+  seq: 3
+  description: Run `node examples/demo-api/server.js`, then send this request to see failing assertions and tests surfaced in the Runtime tab and tool output.
+http:
+  method: GET
+  url: "{{baseUrl}}/runtime/assert-fail"
+  headers: []
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("demo failure is visible", () => assert(response.json().ok === true, "expected ok to be true"));
+  assertions:
+    - expression: res.status
+      operator: equals
+      value: "200"
+    - expression: res.body.ok
+      operator: equals
+      value: "true"
+    - expression: res.body.actual
+      operator: equals
+      value: pass
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+

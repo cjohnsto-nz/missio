@@ -82,7 +82,73 @@ export class ResponseDocumentProvider implements vscode.TextDocumentContentProvi
       lines.push(response.body);
     }
 
+    if (response.runtime) {
+      lines.push('');
+      lines.push('-- Runtime Results ------------------------------------');
+      lines.push(`Success: ${response.runtime.success ? 'yes' : 'no'} | Passed: ${response.runtime.summary.passed} | Failed: ${response.runtime.summary.failed} | Skipped: ${response.runtime.summary.skipped}`);
+
+      if (response.runtime.tests.length > 0) {
+        lines.push('');
+        lines.push('Tests:');
+        for (const test of response.runtime.tests) {
+          lines.push(`  ${test.passed ? 'PASS' : 'FAIL'} ${test.name}${test.message ? ` - ${test.message}` : ''}`);
+        }
+      }
+
+      if (response.runtime.assertions.length > 0) {
+        lines.push('');
+        lines.push('Assertions:');
+        for (const assertion of response.runtime.assertions) {
+          const state = assertion.skipped ? 'SKIP' : assertion.passed ? 'PASS' : 'FAIL';
+          lines.push(`  ${state} ${assertion.expression} ${assertion.operator} ${this._formatRuntimeValue(assertion.expected)}${assertion.message ? ` - ${assertion.message}` : ''}`);
+        }
+      }
+
+      if (response.runtime.actions.length > 0) {
+        lines.push('');
+        lines.push('Actions:');
+        for (const action of response.runtime.actions) {
+          const state = action.skipped ? 'SKIP' : action.passed ? 'PASS' : 'FAIL';
+          lines.push(`  ${state} ${action.phase} ${action.type}${action.target ? ` ${action.target}` : ''}${action.message ? ` - ${action.message}` : ''}`);
+        }
+      }
+
+      if (response.runtime.variableMutations.length > 0) {
+        lines.push('');
+        lines.push('Variable Mutations:');
+        for (const mutation of response.runtime.variableMutations) {
+          lines.push(`  ${mutation.scope}.${mutation.name} = ${mutation.value}`);
+        }
+      }
+
+      if (response.runtime.logs.length > 0) {
+        lines.push('');
+        lines.push('Logs:');
+        for (const log of response.runtime.logs) {
+          lines.push(`  [${log.phase}] ${log.level}: ${log.message}`);
+        }
+      }
+
+      if (response.runtime.errors.length > 0) {
+        lines.push('');
+        lines.push('Errors:');
+        for (const error of response.runtime.errors) {
+          lines.push(`  [${error.phase}] ${error.message}`);
+        }
+      }
+    }
+
     return lines.join('\n');
+  }
+
+  private _formatRuntimeValue(value: unknown): string {
+    if (value === undefined) return '';
+    if (typeof value === 'string') return value;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private _formatSize(bytes: number): string {
