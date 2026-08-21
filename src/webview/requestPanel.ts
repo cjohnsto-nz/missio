@@ -75,8 +75,20 @@ import {
 } from './response';
 import { initResponseSearch, openSearch, closeSearch, isSearchOpen } from './responseSearch';
 import { canFormatRawBody, formatRawBody } from './requestBodyFormatter';
+import {
+  applyRequestEditorModel,
+  cloneJson,
+  isHttpVisualEditableRequest,
+  type FormFieldEditorRow,
+  type KeyValueEditorRow,
+  type RequestEditorBodyModel,
+  type RequestEditorModel,
+} from '../models/schemaRoundTrip';
 
 // ── Document update scheduling ───────────────────
+let _selectedBodyVariantIndex: number | undefined;
+let _selectedFileVariantIndex: number | undefined;
+
 function scheduleDocumentUpdate(): void {
   if (updateDocumentTimer) clearTimeout(updateDocumentTimer);
   setUpdateDocumentTimer(setTimeout(() => {
@@ -516,13 +528,16 @@ function breakIllusion(): void {
 }
 
 // ── Form Fields ─────────────────────────────────
-function addFormField(name = '', value = '', disabled = false): void {
+function addFormField(name = '', value: unknown = '', disabled = false, partType?: string, originalIndex?: number): void {
   const tbody = $('bodyFormBody');
   const tr = document.createElement('tr');
+  if (partType) tr.dataset.partType = partType;
+  if (originalIndex !== undefined) tr.dataset.originalIndex = String(originalIndex);
+  const displayValue = Array.isArray(value) ? value.join(',') : String(value ?? '');
   tr.innerHTML =
     '<td><input type="checkbox" class="f-enabled" ' + (disabled ? '' : 'checked') + ' /></td>' +
     '<td><input type="text" class="f-name" value="' + esc(name) + '" placeholder="name" /></td>' +
-    '<td><input type="text" class="f-value" value="' + esc(value) + '" placeholder="value" /></td>' +
+    '<td><input type="text" class="f-value" value="' + esc(displayValue) + '" placeholder="value" /></td>' +
     '<td><button class="row-delete">\u00d7</button></td>';
   tr.querySelector('.row-delete')!.addEventListener('click', () => { tr.remove(); syncAutoHeaders(); scheduleDocumentUpdate(); });
   tr.addEventListener('input', () => { syncAutoHeaders(); scheduleDocumentUpdate(); });
@@ -907,85 +922,106 @@ const tokenStatusCtrl = initOAuth2TokenStatusController({
 });
 
 // ── Build request object ────────────────────────
-function buildRequest(): any {
-  // Start from a deep clone of the original parsed object to preserve all unknown fields
-  const req: any = currentRequest ? JSON.parse(JSON.stringify(currentRequest)) : {};
+function originalIndexFrom(row: Element): number | undefined {
+  const raw = (row as HTMLElement).dataset.originalIndex;
+  if (raw === undefined) return undefined;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
-  // Ensure top-level structures exist
-  if (!req.info) req.info = { type: 'http' };
-  if (!req.http) req.http = {};
-  if (!req.settings) req.settings = {};
-
-  // Update only the fields the UI manages
-  req.http.method = (methodSelect as HTMLSelectElement).value;
-  req.http.url = getUrlText();
-
-  // Params
-  const params: any[] = [];
+function collectParams(): KeyValueEditorRow[] {
+  const params: KeyValueEditorRow[] = [];
   document.querySelectorAll('#paramsBody tr').forEach((tr) => {
+    const valueEl = tr.querySelector('.p-value') as any;
     params.push({
       name: (tr.querySelector('.p-name') as HTMLInputElement).value,
-      value: ((tr.querySelector('.p-value') as any)._getRawText ? (tr.querySelector('.p-value') as any)._getRawText() : (tr.querySelector('.p-value') as HTMLElement).textContent || ''),
+      value: valueEl?._getRawText ? valueEl._getRawText() : ((valueEl as HTMLElement)?.textContent || ''),
       type: (tr.querySelector('.p-type') as HTMLSelectElement).value,
       disabled: !(tr.querySelector('.p-enabled') as HTMLInputElement).checked,
+      originalIndex: originalIndexFrom(tr),
     });
   });
-  req.http.params = params;
+  return params;
+}
 
-  // Headers
-  const headers: any[] = [];
+function collectHeaders(): KeyValueEditorRow[] {
+  const headers: KeyValueEditorRow[] = [];
   document.querySelectorAll('#headersBody tr:not(.auto-header)').forEach((tr) => {
+    const valueEl = tr.querySelector('.h-value') as any;
     headers.push({
       name: (tr.querySelector('.h-name') as HTMLInputElement).value,
-      value: ((tr.querySelector('.h-value') as any)._getRawText ? (tr.querySelector('.h-value') as any)._getRawText() : (tr.querySelector('.h-value') as HTMLElement).textContent || ''),
+      value: valueEl?._getRawText ? valueEl._getRawText() : ((valueEl as HTMLElement)?.textContent || ''),
       disabled: !(tr.querySelector('.h-enabled') as HTMLInputElement).checked,
+      originalIndex: originalIndexFrom(tr),
     });
   });
-  req.http.headers = headers;
+  return headers;
+}
 
-  // Body
-  if (currentBodyType !== 'none') {
-    if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
-      const data: any[] = [];
-      document.querySelectorAll('#bodyFormBody tr').forEach((tr) => {
-        data.push({
-          name: (tr.querySelector('.f-name') as HTMLInputElement).value,
-          value: (tr.querySelector('.f-value') as HTMLInputElement).value,
-          disabled: !(tr.querySelector('.f-enabled') as HTMLInputElement).checked,
-        });
+function collectBodyModel(): RequestEditorBodyModel {
+  if (currentBodyType === 'none') {
+    return { kind: 'none', bodyVariantIndex: _selectedBodyVariantIndex };
+  }
+
+  if (currentBodyType === 'form-urlencoded' || currentBodyType === 'multipart-form') {
+    const fields: FormFieldEditorRow[] = [];
+    document.querySelectorAll('#bodyFormBody tr').forEach((tr) => {
+      fields.push({
+        name: (tr.querySelector('.f-name') as HTMLInputElement).value,
+        value: (tr.querySelector('.f-value') as HTMLInputElement).value,
+        disabled: !(tr.querySelector('.f-enabled') as HTMLInputElement).checked,
+        partType: (tr as HTMLElement).dataset.partType,
+        originalIndex: originalIndexFrom(tr),
       });
-      req.http.body = { type: currentBodyType, data };
-    } else if (currentBodyType === 'file') {
-      const filePath = ($('binaryFilePath') as HTMLInputElement).value.trim();
-      const contentType = ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream';
-      req.http.body = {
-        type: 'file',
-        data: filePath ? [{ filePath, contentType, selected: true }] : [],
-      };
-    } else {
-      req.http.body = { type: currentLang, data: ($('bodyData') as HTMLTextAreaElement).value };
-    }
-  } else {
-    delete req.http.body;
+    });
+    return { kind: currentBodyType, fields, bodyVariantIndex: _selectedBodyVariantIndex };
   }
 
-  // Auth → runtime.auth per OpenCollection schema
+  if (currentBodyType === 'file') {
+    return {
+      kind: 'file',
+      filePath: ($('binaryFilePath') as HTMLInputElement).value.trim(),
+      contentType: ($('binaryContentType') as HTMLInputElement).value.trim() || 'application/octet-stream',
+      bodyVariantIndex: _selectedBodyVariantIndex,
+      fileVariantIndex: _selectedFileVariantIndex,
+    };
+  }
+
+  return {
+    kind: 'raw',
+    rawType: currentLang,
+    data: ($('bodyData') as HTMLTextAreaElement).value,
+    bodyVariantIndex: _selectedBodyVariantIndex,
+  };
+}
+
+function buildRequestWithSchemaMerge(): any {
+  if (!isHttpVisualEditableRequest(currentRequest)) {
+    return cloneJson(currentRequest ?? {});
+  }
+
   const authType = ($('authType') as HTMLSelectElement).value;
-  const authData = buildAuthData(authType, 'auth');
-  req.runtime = req.runtime || {};
-  if (authData !== undefined) {
-    req.runtime.auth = authData;
-  } else {
-    delete req.runtime.auth;
-  }
+  const model: RequestEditorModel = {
+    protocol: 'http',
+    method: (methodSelect as HTMLSelectElement).value,
+    url: getUrlText(),
+    params: collectParams(),
+    headers: collectHeaders(),
+    body: collectBodyModel(),
+    auth: buildAuthData(authType, 'auth'),
+    settings: {
+      timeout: parseInt($input('settingTimeout').value) || 30000,
+      encodeUrl: $input('settingEncodeUrl').checked,
+      followRedirects: $input('settingFollowRedirects').checked,
+      maxRedirects: parseInt($input('settingMaxRedirects').value) || 5,
+    },
+  };
 
-  // Settings — merge onto existing
-  req.settings.timeout = parseInt($input('settingTimeout').value) || 30000;
-  req.settings.encodeUrl = $input('settingEncodeUrl').checked;
-  req.settings.followRedirects = $input('settingFollowRedirects').checked;
-  req.settings.maxRedirects = parseInt($input('settingMaxRedirects').value) || 5;
+  return applyRequestEditorModel(currentRequest ?? {}, model);
+}
 
-  return req;
+function buildRequest(): any {
+  return buildRequestWithSchemaMerge();
 }
 
 // ── Send / Cancel ────────────────────────────────
@@ -1054,18 +1090,24 @@ function loadRequest(req: any): void {
   (http.headers || []).forEach((h: any) => addHeader(h.name, h.value, h.disabled));
 
   // Body
+  _selectedBodyVariantIndex = undefined;
+  _selectedFileVariantIndex = undefined;
   if (http.body) {
+    _selectedBodyVariantIndex = Array.isArray(http.body)
+      ? Math.max(0, http.body.findIndex((v: any) => v.selected))
+      : undefined;
     const body = Array.isArray(http.body)
-      ? ((http.body.find((v: any) => v.selected) || http.body[0])?.body)
+      ? (http.body[_selectedBodyVariantIndex ?? 0]?.body)
       : http.body;
     if (body) {
       if (body.type === 'form-urlencoded' || body.type === 'multipart-form') {
         setBodyType(body.type);
         $('bodyFormBody').innerHTML = '';
-        (body.data || []).forEach((f: any) => addFormField(f.name, f.value, f.disabled));
+        (body.data || []).forEach((f: any, index: number) => addFormField(f.name, f.value, f.disabled, f.type, index));
       } else if (body.type === 'file') {
         setBodyType('file');
-        const variant = (body.data || []).find((v: any) => v.selected) ?? body.data?.[0];
+        _selectedFileVariantIndex = Math.max(0, (body.data || []).findIndex((v: any) => v.selected));
+        const variant = body.data?.[_selectedFileVariantIndex ?? 0];
         ($('binaryFilePath') as HTMLInputElement).value = variant?.filePath ?? '';
         ($('binaryContentType') as HTMLInputElement).value = variant?.contentType ?? '';
         syncAutoHeaders();

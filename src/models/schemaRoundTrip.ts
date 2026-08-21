@@ -155,7 +155,8 @@ function getByOriginalIndex<T>(items: T[] | undefined, row: { originalIndex?: nu
 }
 
 function mergeHeaders(previous: unknown[] | undefined, rows: KeyValueEditorRow[] | undefined): unknown[] | undefined {
-  if (!rows || rows.length === 0) return undefined;
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
   return rows
     .filter(row => row.name)
     .map((row, index) => {
@@ -168,7 +169,8 @@ function mergeHeaders(previous: unknown[] | undefined, rows: KeyValueEditorRow[]
 }
 
 function mergeParams(previous: unknown[] | undefined, rows: KeyValueEditorRow[] | undefined): unknown[] | undefined {
-  if (!rows || rows.length === 0) return undefined;
+  if (!rows) return undefined;
+  if (rows.length === 0) return Array.isArray(previous) ? [] : undefined;
   return rows
     .filter(row => row.name)
     .map((row, index) => {
@@ -182,7 +184,8 @@ function mergeParams(previous: unknown[] | undefined, rows: KeyValueEditorRow[] 
 }
 
 function mergeVariables(previous: unknown[] | undefined, variables: unknown[] | undefined): unknown[] | undefined {
-  if (!variables || variables.length === 0) return undefined;
+  if (!variables) return undefined;
+  if (variables.length === 0) return Array.isArray(previous) ? [] : undefined;
 
   return variables
     .filter(variable => isObject(variable) && typeof variable.name === 'string' && variable.name.length > 0)
